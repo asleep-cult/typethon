@@ -1,0 +1,2 @@
+class BadEncodingDeclaration(Exception):
+    pass
