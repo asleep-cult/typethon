@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import array
 import codecs
 import enum
 import io
@@ -179,27 +180,6 @@ class TokenType(enum.IntEnum):
     ELLIPSIS = enum.auto()
 
 
-TOKMAP = {}
-
-
-def _deftoken(value: str, type: TokenType) -> None:
-    if len(value) != 1:
-        raise ValueError('value should be a string with a single character')
-    TOKMAP[value] = type
-
-
-_deftoken('(', TokenType.LPAREN)
-_deftoken(')', TokenType.RPAREN)
-_deftoken('[', TokenType.LBARACKET)
-_deftoken(']', TokenType.RBRACKET)
-_deftoken('{', TokenType.LBRACE)
-_deftoken('}', TokenType.RBRACE)
-_deftoken(':', TokenType.COLON)
-_deftoken(',', TokenType.COMMA)
-_deftoken(';', TokenType.SEMICOLON)
-_deftoken('~', TokenType.TILDE)
-
-
 class Token:
     __slots__ = ('scanner', 'type', 'startpos', 'endpos', 'startlineno', 'endlineno')
 
@@ -252,13 +232,20 @@ class _TokenContext:
 
 
 class Scanner:
-    __slots__ = ('source', '_linespans', '_tokens')
+    __slots__ = ('source', '_linespans', '_tokens', '_parenstack')
 
     def __init__(self, source: io.TextIOBase) -> None:
         self.source = source
 
+        self._parenstack = array.array('B')
         self._linespans = []
         self._tokens = []
+
+    def _add_paren(self, type: TokenType):
+        self._parenstack.append(type.value)
+
+    def _pop_paren(self) -> TokenType:
+        return TokenType(self._parenstack.pop())
 
     def readline(self) -> StringReader:
         lower = self.source.tell()
@@ -363,13 +350,30 @@ class Scanner:
                 return TokenType.CIRCUMFLEXEQUAL
             else:
                 return TokenType.CIRCUMFLEX
+        elif ctx.reader.expect('('):
+            self._add_paren(TokenType.LPAREN)
+            return TokenType.LPAREN
+        elif ctx.reader.expect(')'):
+            return TokenType.RPAREN
+        elif ctx.reader.expect('['):
+            self._add_paren(TokenType.LBARACKET)
+            return TokenType.LBARACKET
+        elif ctx.reader.expect(']'):
+            return TokenType.RBRACKET
+        elif ctx.reader.expect('{'):
+            self._add_paren(TokenType.LBRACE)
+            return TokenType.LBRACE
+        elif ctx.reader.expect('}'):
+            return TokenType.RBRACE
+        elif ctx.reader.expect(':'):
+            return TokenType.COLON
+        elif ctx.reader.expect(';'):
+            return TokenType.SEMICOLON
+        elif ctx.reader.expect(','):
+            return TokenType.COMMA
         elif ctx.reader.expect('~'):
             return TokenType.TILDE
 
     def scan(self):
         with self.create_ctx() as ctx:
-            char = ctx.reader.peek(0)
-            try:
-                ctx.set_type(TOKMAP[char])
-            except KeyError:
-                ctx.set_type(self._get_type(ctx))
+            ctx.set_type(self._get_type(ctx))
