@@ -15,7 +15,7 @@ class StringReader:
     def tell(self) -> int:
         return self._position
 
-    def is_eof(self) -> bool:
+    def eof(self) -> bool:
         return self._position >= len(self.source)
 
     def at(self, position: Optional[int] = None) -> str:
@@ -59,11 +59,12 @@ class StringReader:
 
         return False
 
-    def expect(self, chars: Iterable[str]) -> bool:
-        try:
-            return self.at() in chars
-        finally:
+    def expect(self, chars: Iterable[str], n: int = 1) -> bool:
+        for _ in range(n):
+            if self.at() not in chars:
+                return False
             self.advance()
+        return True
 
     def peek(self, offset: int) -> str:
         return self.at(self._position + offset)

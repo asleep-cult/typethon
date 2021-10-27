@@ -276,21 +276,100 @@ class Scanner:
         ctx.reader.nextwhile(_is_identifier)
         ctx.set_type(TokenType.IDENTIFIER)
 
-    def _scan_number(self):
-        pass
+    def _scan_number(self, ctx: _TokenContext) -> None:
+        ctx.set_type(TokenType.NUMBER)
+
+    def _get_type(self, ctx: _TokenContext) -> TokenType:
+        if ctx.reader.expect('.'):
+            if ctx.reader.expect('.', 2):
+                return TokenType.ELLIPSIS
+            else:
+                return TokenType.DOT
+        elif ctx.reader.expect('+'):
+            if ctx.reader.expect('='):
+                return TokenType.PLUSEQUAL
+            else:
+                return TokenType.PLUS
+        elif ctx.reader.expect('-'):
+            if ctx.reader.expect('>'):
+                return TokenType.RARROW
+            elif ctx.reader.expect('='):
+                return TokenType.MINUSEQUAL
+            else:
+                return TokenType.MINUS
+        elif ctx.reader.expect('*'):
+            if ctx.reader.expect('*'):
+                if ctx.reader.expect('='):
+                    return TokenType.DOUBLESTARQEUAL
+                else:
+                    return TokenType.DOUBLESTAR
+            elif ctx.reader.expect('='):
+                return TokenType.STAREQUAL
+        elif ctx.reader.expect('@'):
+            if ctx.reader.expect('='):
+                return TokenType.ATEQUAL
+            else:
+                return TokenType.AT
+        elif ctx.reader.expect('/'):
+            if ctx.reader.expect('/'):
+                if ctx.reader.expect('='):
+                    return TokenType.DOUBLESLASHEQUAL
+                else:
+                    return TokenType.DOUBLESLASH
+            elif ctx.reader.expect('='):
+                return TokenType.SLASHEQUAL
+        elif ctx.reader.expect('|'):
+            if ctx.reader.expect('='):
+                return TokenType.VBAREQUAL
+            else:
+                return TokenType.VBAR
+        elif ctx.reader.expect('&'):
+            if ctx.reader.expect('='):
+                return TokenType.AMPERSANDEQUAL
+            else:
+                return TokenType.AMPERSAND
+        elif ctx.reader.expect('<'):
+            if ctx.reader.expect('<'):
+                if ctx.reader.expect('='):
+                    return TokenType.LSHIFTEQUAL
+                else:
+                    return TokenType.LSHIFT
+            elif ctx.reader.expect('='):
+                return TokenType.LTHANEQ
+            else:
+                return TokenType.LTHAN
+        elif ctx.reader.expect('>'):
+            if ctx.reader.expect('>'):
+                if ctx.reader.expect('='):
+                    return TokenType.RSHIFTEQUAL
+                else:
+                    return TokenType.RSHIFT
+            elif ctx.reader.expect('='):
+                return TokenType.GTHANEQ
+            else:
+                return TokenType.GTHAN
+        elif ctx.reader.expect('='):
+            if ctx.reader.expect('='):
+                return TokenType.EQEQUAL
+            else:
+                return TokenType.EQUAL
+        elif ctx.reader.expect('%'):
+            if ctx.reader.expect('='):
+                return TokenType.PERCENTEQUAL
+            else:
+                return TokenType.PERCENT
+        elif ctx.reader.expect('^'):
+            if ctx.reader.expect('='):
+                return TokenType.CIRCUMFLEXEQUAL
+            else:
+                return TokenType.CIRCUMFLEX
+        elif ctx.reader.expect('~'):
+            return TokenType.TILDE
 
     def scan(self):
         with self.create_ctx() as ctx:
             char = ctx.reader.peek(0)
             try:
-                ctx.set_type(char)
+                ctx.set_type(TOKMAP[char])
             except KeyError:
-                if _is_identifier_start(char):
-                    self._scan_identifier(ctx)
-                elif char == '.':
-                    if ctx.reader.peek(1) == ctx.reader.peek(2) == '.':
-                        ctx.set_type(TokenType.ELLIPSIS)
-                    else:
-                        ctx.set_type(TokenType.DOT)
-                elif char.isdigit():
-                    ctx.set_type(self._scan_number())
+                ctx.set_type(self._get_type(ctx))
