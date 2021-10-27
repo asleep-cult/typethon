@@ -15,6 +15,9 @@ class StringReader:
     def tell(self) -> int:
         return self._position
 
+    def is_eof(self) -> bool:
+        return self._position >= len(self.source)
+
     def at(self, position: Optional[int] = None) -> str:
         if position is None:
             position = self._position
@@ -71,12 +74,14 @@ class StringReader:
         finally:
             self.advance()
 
-    def accumulate(self, func: Callable[[str], bool]) -> str:
-        string = ''
+    def nextwhile(self, func: Callable[[str], bool]) -> None:
         while True:
             char = self.at()
             if func(char):
-                string += char
                 self.advance()
-            else:
-                return string
+
+    def accumulate(self, func: Callable[[str], bool]) -> str:
+        start = self._position + 1
+        self.nextwhile(func)
+        end = self._position + 1
+        return self.source[start:end]
