@@ -122,6 +122,14 @@ def _is_identifier(char: str) -> bool:
             or char >= '\x80')
 
 
+def _is_digit(char: str) -> bool:
+    return '0' <= char <= '9'
+
+
+def _is_terminal(char: str) -> bool:
+    return char == '\'' or char == '"'
+
+
 class TokenType(enum.IntEnum):
     ERROR = enum.auto()
     EOF = enum.auto()
@@ -261,10 +269,16 @@ class Scanner:
 
     def _scan_identifier(self, ctx: _TokenContext) -> None:
         ctx.reader.nextwhile(_is_identifier)
-        ctx.set_type(TokenType.IDENTIFIER)
+        if _is_terminal(ctx.reader.peek(0)):
+            self._scan_number(ctx)
+        else:
+            ctx.set_type(TokenType.IDENTIFIER)
 
     def _scan_number(self, ctx: _TokenContext) -> None:
         ctx.set_type(TokenType.NUMBER)
+
+    def _scan_string(self, ctx: _TokenContext) -> None:
+        ctx.set_type(TokenType.STRING)
 
     def _get_type(self, ctx: _TokenContext) -> TokenType:
         if ctx.reader.expect('.'):
@@ -376,4 +390,14 @@ class Scanner:
 
     def scan(self):
         with self.create_ctx() as ctx:
-            ctx.set_type(self._get_type(ctx))
+            char = ctx.reader.peek(0)
+            if _is_identifier_start(char):
+                self._scan_identifier(ctx)
+            elif _is_digit(char):
+                self._scan_number(ctx)
+            elif _is_terminal(char):
+                self._scan_string(ctx)
+            else:
+                ctx.set_type(self._get_type(ctx))
+
+            ctx.create_token()
