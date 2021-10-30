@@ -7,6 +7,9 @@ import io
 from .exceptions import BadEncodingDeclaration, InvalidSyntaxError
 from .stringreader import EOF, StringReader
 
+TABSIZE = 8
+ALTTABSIZE = 1
+
 
 class EncodingDetector:
     def __init__(self, buffer: io.IOBase, *, default='utf-8'):
@@ -133,6 +136,10 @@ def _is_eof(char: str) -> bool:
     return char is EOF
 
 
+def _is_blank(char: str) -> bool:
+    return char == '#' or char == '\n' or char == '\\'
+
+
 class TokenType(enum.IntEnum):
     ERROR = enum.auto()
     EOF = enum.auto()
@@ -203,8 +210,8 @@ class Token:
         self.lineno = lineno
 
     def __repr__(self):
-        span = f'[{self.startpos}:{self.endpos}]'
-        return f'<{self.__class__.__name__} type={self.type!r} {span}>'
+        return (f'<{self.__class__.__name__} type={self.type!r}'
+                f' ({self.lineno}:{self.startpos}-{self.endpos})>')
 
     def span(self):
         start = self.scanner._linespans[self.lineno][0]
@@ -218,6 +225,10 @@ class IdentifierToken(Token):
                  lineno: int, content: str) -> None:
         super().__init__(scanner, TokenType.IDENTIFIER, startpos, endpos, lineno)
         self.content = content
+
+    def __repr__(self):
+        return (f'<{self.__class__.__name__} type={self.type!r}'
+                f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
 
 
 class StringTokenFlags(enum.IntFlag):
@@ -234,6 +245,10 @@ class StringToken(Token):
         super().__init__(scanner, TokenType.STRING, startpos, endpos, lineno)
         self.content = content
         self.flags = flags
+
+    def __repr__(self):
+        return (f'<{self.__class__.__name__} type={self.type!r}'
+                f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
 
 
 class NumericTokenFlags(enum.IntFlag):
@@ -254,6 +269,10 @@ class NumericToken(Token):
         self.content = content
         self.flags = flags
 
+    def __repr__(self):
+        return (f'<{self.__class__.__name__} type={self.type!r}'
+                f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
+
 
 class _TokenContext:
     def __init__(self, scanner: Scanner, reader: StringReader) -> None:
@@ -262,29 +281,27 @@ class _TokenContext:
         self.startpos = None
         self.lineno = None
 
-    def create_token(self, type: TokenType, index=-1) -> Token:
+    def create_token(self, type: TokenType) -> Token:
         token = Token(self.scanner, type, self.startpos, self.reader.tell(), self.lineno)
-        self.scanner._add_token(token, index)
+        self.scanner._tokens.append(token)
         return token
 
-    def create_identifier_token(self, content: str, index: int = -1) -> IdentifierToken:
+    def create_identifier_token(self, content: str) -> IdentifierToken:
         token = IdentifierToken(self.scanner, self.startpos, self.reader.tell(),
                                 self.lineno, content)
-        self.scanner._add_token(token, index)
+        self.scanner._tokens.append(token)
         return token
 
-    def create_string_token(self, content: str, flags: StringTokenFlags,
-                            index: int = -1) -> StringToken:
+    def create_string_token(self, content: str, flags: StringTokenFlags) -> StringToken:
         token = StringToken(self.scanner, self.startpos, self.reader.tell(),
                             self.lineno, content, flags)
-        self.scanner._add_token(token, index)
+        self.scanner._tokens.append(token)
         return token
 
-    def create_numeric_token(self, content: str, flags: NumericTokenFlags,
-                             index: int = -1) -> NumericToken:
+    def create_numeric_token(self, content: str, flags: NumericTokenFlags) -> NumericToken:
         token = NumericToken(self.scanner, self.startpos, self.reader.tell(),
                              self.lineno, content, flags)
-        self.scanner._add_token(token, index)
+        self.scanner._tokens.append(token)
         return token
 
     def throw(self, message):
@@ -300,20 +317,15 @@ class _TokenContext:
 
 
 class Scanner:
-    __slots__ = ('source', '_linespans', '_tokens', '_parenstack')
+    __slots__ = ('source', '_indentstack', '_parenstack', '_linespans', '_tokens',)
 
     def __init__(self, source: io.TextIOBase) -> None:
         self.source = source
 
+        self._indentstack = [(0, 0)]
         self._parenstack = []
         self._linespans = []
         self._tokens = []
-
-    def _add_token(self, token: Token, index: int) -> None:
-        if index < 0:
-            self._tokens.append(token)
-        else:
-            self._tokens.insert(index, token)
 
     def _add_paren(self, type: TokenType):
         self._parenstack.append(type)
@@ -330,6 +342,52 @@ class Scanner:
 
     def create_ctx(self, reader) -> _TokenContext:
         return _TokenContext(self, reader)
+
+    def _scan_indents(self, ctx: _TokenContext) -> None:
+        col = 0
+        altcol = 0
+        while True:
+            char = ctx.reader.peek(0)
+            if char == ' ':
+                col += 1
+                altcol += 1
+            elif char == '\t':
+                col += ((col / TABSIZE) + 1) * TABSIZE
+                altcol += ((altcol / ALTTABSIZE) + 1) * ALTTABSIZE
+            elif char == '\f':
+                col = 0
+                altcol = 0
+            else:
+                break
+
+            ctx.reader.advance()
+
+        if _is_blank(char):
+            return
+
+        indent, altindent = self._indentstack[-1]
+        if col == indent:
+            if altcol != altcol:
+                ctx.throw('E_TABSPACE')
+        elif col > indent:
+            if altcol <= altindent:
+                ctx.throw('E_TABSPACE')
+            self._indentstack.append((col, altcol))
+            ctx.create_token(TokenType.INDENT)
+        else:
+            while self._indentstack:
+                indent, altindent = self._indentstack[-1]
+                if col < indent:
+                    ctx.create_token(TokenType.DEDENT)
+                    self._indentstack.pop()
+                else:
+                    break
+
+            if col != indent:
+                ctx.throw('E_DEDENT')
+
+            if altcol != altindent:
+                ctx.throw('E_TABSPACE')
 
     def _scan_identifier(self, ctx: _TokenContext) -> None:
         content = ctx.reader.accumulate(_is_identifier)
@@ -474,12 +532,20 @@ class Scanner:
                 newline = False
 
             with self.create_ctx(reader) as ctx:
-                if newline:
-                    ctx.create_token(TokenType.NEWLINE)
+                if newline and not self._parenstack:
+                    try:
+                        type = self._tokens[-1].type
+                    except IndexError:
+                        type = None
+
+                    if type is not TokenType.NEWLINE:
+                        if self._tokens:
+                            ctx.create_token(TokenType.NEWLINE)
+                        self._scan_indents(ctx)
 
                 ctx.reader.skipws(newlines=True)
-
                 char = ctx.reader.peek(0)
+
                 if _is_identifier_start(char):
                     self._scan_identifier(ctx)
                 elif _is_digit(char):
@@ -487,7 +553,9 @@ class Scanner:
                 elif _is_terminal(char):
                     self._scan_string(ctx)
                 elif _is_eof(char):
-                    break
+                    if ctx.reader.tell() == 0:
+                        ctx.create_token(TokenType.EOF)
+                        break
                 else:
                     type = self._find_token(ctx)
                     if type is not None:

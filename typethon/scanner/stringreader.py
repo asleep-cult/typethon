@@ -84,7 +84,7 @@ class StringReader:
                 break
 
     def accumulate(self, func: Callable[[str], bool]) -> str:
-        start = self._position + 1
+        start = self._position
         self.nextwhile(func)
-        end = self._position + 1
+        end = self._position
         return self.source[start:end]
