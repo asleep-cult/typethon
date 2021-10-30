@@ -129,10 +129,6 @@ def _is_terminal(char: str) -> bool:
     return char == '\'' or char == '"'
 
 
-def _is_newline(char: str) -> bool:
-    return char == '\n'
-
-
 def _is_eof(char: str) -> bool:
     return char is EOF
 
@@ -272,8 +268,8 @@ class _TokenContext:
         return token
 
     def create_identifier_token(self, content: str, index: int = -1) -> IdentifierToken:
-        token = IdentifierToken(self.scanner, self.startpos, self.reader.tell(),
-                                self.lineno, content)
+        token = IdentifierToken(
+            self.scanner, self.startpos, self.reader.tell(), self.lineno, content)
         self.scanner._add_token(token, index)
         return token
 
@@ -473,8 +469,14 @@ class Scanner:
         while True:
             if reader is None or reader.eof():
                 reader = self.readline()
+                newline = True
+            else:
+                newline = False
 
             with self.create_ctx(reader) as ctx:
+                if newline:
+                    ctx.create_token(TokenType.NEWLINE)
+
                 ctx.reader.skipws(newlines=True)
 
                 char = ctx.reader.peek(0)
@@ -484,8 +486,6 @@ class Scanner:
                     self._scan_number(ctx)
                 elif _is_terminal(char):
                     self._scan_string(ctx)
-                elif _is_newline(char):
-                    ctx.reader.advance()
                 elif _is_eof(char):
                     break
                 else:
