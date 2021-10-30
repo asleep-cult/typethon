@@ -44,7 +44,7 @@ class StringReader:
         self.skip((' ', '\t'))
 
     def skipuntil(self, chars: Iterable[str]) -> None:
-        while self.at() in chars:
+        while self.at() not in chars:
             self.advance()
 
     def skipfind(self, strings: Union[str, Iterable[str]]) -> bool:

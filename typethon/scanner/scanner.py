@@ -132,16 +132,20 @@ def _is_terminal(char: str) -> bool:
     return char == '\'' or char == '"'
 
 
-def _is_eof(char: str) -> bool:
-    return char is EOF
-
-
 def _is_blank(char: str) -> bool:
     return char == '#' or char == '\n' or char == '\\'
 
 
 def _is_comment(char: str) -> bool:
     return char == '#'
+
+
+def _is_linecont(char: str) -> bool:
+    return char == '\\'
+
+
+def _is_eof(char: str) -> bool:
+    return char is EOF
 
 
 class TokenType(enum.IntEnum):
@@ -433,18 +437,25 @@ class Scanner:
 
         return True
 
-    def _scan_identifier(self, ctx: _TokenContext) -> None:
+    def _scan_identifier(self, ctx: _TokenContext) -> bool:
         content = ctx.reader.accumulate(_is_identifier)
         if _is_terminal(ctx.reader.peek(0)):
-            self._scan_string(ctx, prefixes=content)
-        else:
-            ctx.create_identifier_token(content)
+            return self._scan_string(ctx, prefixes=content)
+        ctx.create_identifier_token(content)
+        return True
 
-    def _scan_number(self, ctx: _TokenContext) -> None:
+    def _scan_number(self, ctx: _TokenContext) -> bool:
         pass
 
-    def _scan_string(self, ctx: _TokenContext, *, prefixes=None) -> None:
+    def _scan_string(self, ctx: _TokenContext, *, prefixes=None) -> bool:
         pass
+
+    def _scan_linecont(self, ctx: _TokenContext) -> bool:
+        ctx.reader.skipws(newlines=True)
+        if not ctx.reader.eof():
+            ctx.create_error_token(ErrorTokenErrno.E_LINECONT)
+            return False
+        return True
 
     def _get_token(self, ctx: _TokenContext) -> TokenType:
         if ctx.reader.expect('.'):
@@ -599,11 +610,17 @@ class Scanner:
                 char = ctx.reader.peek(0)
 
                 if _is_identifier_start(char):
-                    self._scan_identifier(ctx)
+                    if not self._scan_identifier(ctx):
+                        break
                 elif _is_digit(char):
-                    self._scan_number(ctx)
+                    if not self._scan_number(ctx):
+                        break
                 elif _is_terminal(char):
-                    self._scan_string(ctx)
+                    if not self._scan_string(ctx):
+                        break
+                elif _is_linecont(char):
+                    if not self._scan_linecont(ctx):
+                        break
                 elif _is_comment(char):
                     reader = None
                 elif _is_eof(char):
