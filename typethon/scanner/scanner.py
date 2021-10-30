@@ -268,8 +268,8 @@ class _TokenContext:
         return token
 
     def create_identifier_token(self, content: str, index: int = -1) -> IdentifierToken:
-        token = IdentifierToken(
-            self.scanner, self.startpos, self.reader.tell(), self.lineno, content)
+        token = IdentifierToken(self.scanner, self.startpos, self.reader.tell(),
+                                self.lineno, content)
         self.scanner._add_token(token, index)
         return token
 
