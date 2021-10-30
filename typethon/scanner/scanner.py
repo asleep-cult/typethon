@@ -4,7 +4,7 @@ import codecs
 import enum
 import io
 
-from .exceptions import BadEncodingDeclaration, InvalidSyntaxError
+from .exceptions import BadEncodingDeclaration
 from .stringreader import EOF, StringReader
 
 TABSIZE = 8
@@ -140,6 +140,10 @@ def _is_blank(char: str) -> bool:
     return char == '#' or char == '\n' or char == '\\'
 
 
+def _is_comment(char: str) -> bool:
+    return char == '#'
+
+
 class TokenType(enum.IntEnum):
     ERROR = enum.auto()
     EOF = enum.auto()
@@ -196,6 +200,13 @@ class TokenType(enum.IntEnum):
     ATEQUAL = enum.auto()
     RARROW = enum.auto()
     ELLIPSIS = enum.auto()
+
+
+_PARENMAP = {
+    TokenType.LPAREN: TokenType.RPAREN,
+    TokenType.LBARACKET: TokenType.RBRACKET,
+    TokenType.LBRACE: TokenType.RBRACE,
+}
 
 
 class Token:
@@ -274,6 +285,27 @@ class NumericToken(Token):
                 f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
 
 
+class ErrorTokenErrno(enum.Enum):
+    E_TOKEN = enum.auto()
+    E_PAREN = enum.auto()
+    E_TABSPACE = enum.auto()
+    E_DEDENT = enum.auto()
+    E_LINECONT = enum.auto()
+
+
+class ErrorToken(Token):
+    __slots__ = ('errno',)
+
+    def __init__(self, scanner: Scanner, startpos: int, endpos: int,
+                 lineno: int, errno: ErrorTokenErrno) -> None:
+        super().__init__(scanner, TokenType.ERROR, startpos, endpos, lineno)
+        self.errno = errno
+
+    def __repr__(self):
+        return (f'<{self.__class__.__name__} type={self.type!r}'
+                f' {self.errno!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
+
+
 class _TokenContext:
     def __init__(self, scanner: Scanner, reader: StringReader) -> None:
         self.scanner = scanner
@@ -304,8 +336,11 @@ class _TokenContext:
         self.scanner._tokens.append(token)
         return token
 
-    def throw(self, message):
-        raise InvalidSyntaxError(message, ctx=self)
+    def create_error_token(self, errno: ErrorTokenErrno) -> ErrorTokenErrno:
+        token = ErrorToken(self.scanner, self.startpos, self.reader.tell(),
+                           self.lineno, errno)
+        self.scanner._tokens.append(token)
+        return token
 
     def __enter__(self) -> _TokenContext:
         self.startpos = self.reader.tell()
@@ -327,6 +362,12 @@ class Scanner:
         self._linespans = []
         self._tokens = []
 
+    def _get_indent(self):
+        return self._indentstack[-1][0]
+
+    def _get_altindent(self):
+        return self._indentstack[-1][1]
+
     def _add_paren(self, type: TokenType):
         self._parenstack.append(type)
 
@@ -343,51 +384,54 @@ class Scanner:
     def create_ctx(self, reader) -> _TokenContext:
         return _TokenContext(self, reader)
 
-    def _scan_indents(self, ctx: _TokenContext) -> None:
-        col = 0
-        altcol = 0
+    def _scan_indents(self, ctx: _TokenContext) -> bool:
+        indent = 0
+        altindent = 0
         while True:
             char = ctx.reader.peek(0)
-            if char == ' ':
-                col += 1
-                altcol += 1
+            if _is_blank(char):
+                if self._tokens:
+                    self._tokens.pop(-1)
+                return
+            elif char == ' ':
+                indent += 1
+                altindent += 1
+                ctx.reader.advance()
             elif char == '\t':
-                col += ((col / TABSIZE) + 1) * TABSIZE
-                altcol += ((altcol / ALTTABSIZE) + 1) * ALTTABSIZE
-            elif char == '\f':
-                col = 0
-                altcol = 0
+                indent += ((indent / TABSIZE) + 1) * TABSIZE
+                altindent += ((indent / ALTTABSIZE) + 1) * ALTTABSIZE
+                ctx.reader.advance()
             else:
                 break
 
-            ctx.reader.advance()
+        if indent == self._get_indent():
+            if altindent != self._get_altindent():
+                ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
+                return False
+        elif indent > self._get_indent():
+            if altindent <= self._get_altindent():
+                ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
+                return False
 
-        if _is_blank(char):
-            return
-
-        indent, altindent = self._indentstack[-1]
-        if col == indent:
-            if altcol != altcol:
-                ctx.throw('E_TABSPACE')
-        elif col > indent:
-            if altcol <= altindent:
-                ctx.throw('E_TABSPACE')
-            self._indentstack.append((col, altcol))
+            self._indentstack.append((indent, altindent))
             ctx.create_token(TokenType.INDENT)
         else:
             while self._indentstack:
-                indent, altindent = self._indentstack[-1]
-                if col < indent:
-                    ctx.create_token(TokenType.DEDENT)
+                if indent < self._get_altindent():
                     self._indentstack.pop()
+                    ctx.create_token(TokenType.DEDENT)
                 else:
                     break
 
-            if col != indent:
-                ctx.throw('E_DEDENT')
+            if indent != self._get_indent():
+                ctx.create_error_token(ErrorTokenErrno.E_DEDENT)
+                return False
 
-            if altcol != altindent:
-                ctx.throw('E_TABSPACE')
+            if altindent != self._get_altindent():
+                ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
+                return False
+
+        return True
 
     def _scan_identifier(self, ctx: _TokenContext) -> None:
         content = ctx.reader.accumulate(_is_identifier)
@@ -402,7 +446,7 @@ class Scanner:
     def _scan_string(self, ctx: _TokenContext, *, prefixes=None) -> None:
         pass
 
-    def _find_token(self, ctx: _TokenContext) -> TokenType:
+    def _get_token(self, ctx: _TokenContext) -> TokenType:
         if ctx.reader.expect('.'):
             if ctx.reader.expect('.', 2):
                 return TokenType.ELLIPSIS
@@ -490,28 +534,17 @@ class Scanner:
             else:
                 return TokenType.CIRCUMFLEX
         elif ctx.reader.expect('('):
-            self._add_paren(TokenType.LPAREN)
             return TokenType.LPAREN
         elif ctx.reader.expect(')'):
-            paren = self._pop_paren()
-            if paren is not TokenType.LPAREN:
-                ctx.throw('Unexpected closing parenthesis')
             return TokenType.RPAREN
         elif ctx.reader.expect('['):
-            self._add_paren(TokenType.LBARACKET)
             return TokenType.LBARACKET
         elif ctx.reader.expect(']'):
-            paren = self._pop_paren()
-            if paren is not TokenType.LBARACKET:
-                ctx.throw('Unexpected closing bracket')
             return TokenType.RBRACKET
         elif ctx.reader.expect('{'):
             self._add_paren(TokenType.LBRACE)
             return TokenType.LBRACE
         elif ctx.reader.expect('}'):
-            paren = self._pop_paren()
-            if paren is not TokenType.LBRACE:
-                ctx.throw('Unexpected closing brace')
             return TokenType.RBRACE
         elif ctx.reader.expect(':'):
             return TokenType.COLON
@@ -521,6 +554,23 @@ class Scanner:
             return TokenType.COMMA
         elif ctx.reader.expect('~'):
             return TokenType.TILDE
+
+    def _scan_token(self, ctx: _TokenContext) -> bool:
+        type = self._get_token(ctx)
+        if type is not None:
+            if type in _PARENMAP.keys():
+                self._add_paren(type)
+            elif type in _PARENMAP.values():
+                if (not self._parenstack
+                        or type is not _PARENMAP[self._pop_paren()]):
+                    ctx.create_error_token(ErrorTokenErrno.E_PAREN)
+                    return False
+
+            ctx.create_token(type)
+            return True
+
+        ctx.create_error_token(ErrorTokenErrno.E_TOKEN)
+        return False
 
     def scan(self):
         reader = None
@@ -541,7 +591,9 @@ class Scanner:
                     if type is not TokenType.NEWLINE:
                         if self._tokens:
                             ctx.create_token(TokenType.NEWLINE)
-                        self._scan_indents(ctx)
+
+                        if not self._scan_indents(ctx):
+                            break
 
                 ctx.reader.skipws(newlines=True)
                 char = ctx.reader.peek(0)
@@ -552,15 +604,14 @@ class Scanner:
                     self._scan_number(ctx)
                 elif _is_terminal(char):
                     self._scan_string(ctx)
+                elif _is_comment(char):
+                    reader = None
                 elif _is_eof(char):
                     if ctx.reader.tell() == 0:
                         ctx.create_token(TokenType.EOF)
                         break
                 else:
-                    type = self._find_token(ctx)
-                    if type is not None:
-                        ctx.create_token(type)
-                    else:
-                        ctx.throw('Invalid Token')
+                    if not self._scan_token(ctx):
+                        break
 
         return self._tokens
