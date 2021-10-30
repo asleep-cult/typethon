@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import array
 import codecs
 import enum
 import io
 
-from .exceptions import BadEncodingDeclaration
-from .stringreader import StringReader
+from .exceptions import BadEncodingDeclaration, InvalidSyntaxError
+from .stringreader import EOF, StringReader
 
 
 class EncodingDetector:
@@ -130,6 +129,14 @@ def _is_terminal(char: str) -> bool:
     return char == '\'' or char == '"'
 
 
+def _is_newline(char: str) -> bool:
+    return char == '\n'
+
+
+def _is_eof(char: str) -> bool:
+    return char is EOF
+
+
 class TokenType(enum.IntEnum):
     ERROR = enum.auto()
     EOF = enum.auto()
@@ -189,54 +196,111 @@ class TokenType(enum.IntEnum):
 
 
 class Token:
-    __slots__ = ('scanner', 'type', 'startpos', 'endpos', 'startlineno', 'endlineno')
+    __slots__ = ('scanner', 'type', 'startpos', 'endpos', 'lineno')
 
-    def __init__(self, scanner: Scanner, type: TokenType, startpos: int, endpos: int,
-                 startlineno: int, endlineno: int) -> None:
+    def __init__(self, scanner: Scanner, type: TokenType,
+                 startpos: int, endpos: int, lineno: int) -> None:
         self.scanner = scanner
         self.type = type
         self.startpos = startpos
         self.endpos = endpos
-        self.startlineno = startlineno
-        self.endlineno = endlineno
+        self.lineno = lineno
 
     def __repr__(self):
         span = f'[{self.startpos}:{self.endpos}]'
-        return f'<{self.__class__.__name__} type={self.type} {span}>'
+        return f'<{self.__class__.__name__} type={self.type!r} {span}>'
 
     def span(self):
-        lower = self.scanner._linespans[self.startlineno][0] + self.startpos
-        upper = self.scanner._linespans[self.endlineno][1] - self.endpos
-        return lower, upper
+        start = self.scanner._linespans[self.lineno][0]
+        return start + self.startpos, start + self.endpos
+
+
+class IdentifierToken(Token):
+    __slots__ = ('content',)
+
+    def __init__(self, scanner: Scanner, startpos: int, endpos: int,
+                 lineno: int, content: str) -> None:
+        super().__init__(scanner, TokenType.IDENTIFIER, startpos, endpos, lineno)
+        self.content = content
+
+
+class StringTokenFlags(enum.IntFlag):
+    RAW = 1 << 0
+    BYTES = 1 << 1
+    FORMAT = 1 << 2
+
+
+class StringToken(Token):
+    __slots__ = ('content', 'flags')
+
+    def __init__(self, scanner: Scanner, startpos: int, endpos: int, lineno: int,
+                 content: str, flags: StringTokenFlags) -> None:
+        super().__init__(scanner, TokenType.STRING, startpos, endpos, lineno)
+        self.content = content
+        self.flags = flags
+
+
+class NumericTokenFlags(enum.IntFlag):
+    BINARY = 1 << 0
+    OCTAL = 1 << 1
+    HEXADECIMAL = 1 << 2
+    INTEGER = 1 << 3
+    FLOAT = 1 << 4
+    IMAGINARY = 1 << 5
+
+
+class NumericToken(Token):
+    __slots__ = ('content', 'flags')
+
+    def __init__(self, scanner: Scanner, startpos: int, endpos: int, lineno: int,
+                 content: str, flags: NumericTokenFlags) -> None:
+        super().__init__(scanner, TokenType.NUMBER, startpos, endpos, lineno)
+        self.content = content
+        self.flags = flags
 
 
 class _TokenContext:
     def __init__(self, scanner: Scanner, reader: StringReader) -> None:
         self.scanner = scanner
         self.reader = reader
-        self.type = None
         self.startpos = None
-        self.endpos = None
-        self.startlineno = None
-        self.endlineno = None
+        self.lineno = None
 
-    def set_type(self, type: TokenType) -> None:
-        self.type = type
+    def create_token(self, type: TokenType, index=-1) -> Token:
+        token = Token(self.scanner, type, self.startpos, self.reader.tell(), self.lineno)
+        self.scanner._add_token(token, index)
+        return token
 
-    def create_token(self, index=-1) -> Token:
-        token = Token(self.scanner, self.type, self.startpos,
-                      self.endpos, self.startlineno, self.endlineno)
-        self.scanner._tokens.insert(index, token)
-        raise token
+    def create_identifier_token(self, content: str, index: int = -1) -> IdentifierToken:
+        token = IdentifierToken(self.scanner, self.startpos, self.reader.tell(),
+                                self.lineno, content)
+        self.scanner._add_token(token, index)
+        return token
+
+    def create_string_token(self, content: str, flags: StringTokenFlags,
+                            index: int = -1) -> StringToken:
+        token = StringToken(self.scanner, self.startpos, self.reader.tell(),
+                            self.lineno, content, flags)
+        self.scanner._add_token(token, index)
+        return token
+
+    def create_numeric_token(self, content: str, flags: NumericTokenFlags,
+                             index: int = -1) -> NumericToken:
+        token = NumericToken(self.scanner, self.startpos, self.reader.tell(),
+                             self.lineno, content, flags)
+        self.scanner._add_token(token, index)
+        return token
+
+    def throw(self, message):
+        raise InvalidSyntaxError(message, ctx=self)
 
     def __enter__(self) -> _TokenContext:
         self.startpos = self.reader.tell()
-        self.startlineno = len(self.scanner._linespans)
+        self.lineno = len(self.scanner._linespans)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.endpos = self.reader.tell()
-        self.endlineno = len(self.scanner._linespans)
+        pass
 
 
 class Scanner:
@@ -245,15 +309,21 @@ class Scanner:
     def __init__(self, source: io.TextIOBase) -> None:
         self.source = source
 
-        self._parenstack = array.array('B')
+        self._parenstack = []
         self._linespans = []
         self._tokens = []
 
+    def _add_token(self, token: Token, index: int) -> None:
+        if index < 0:
+            self._tokens.append(token)
+        else:
+            self._tokens.insert(index, token)
+
     def _add_paren(self, type: TokenType):
-        self._parenstack.append(type.value)
+        self._parenstack.append(type)
 
     def _pop_paren(self) -> TokenType:
-        return TokenType(self._parenstack.pop())
+        return self._parenstack.pop()
 
     def readline(self) -> StringReader:
         lower = self.source.tell()
@@ -262,25 +332,23 @@ class Scanner:
         self._linespans.append((lower, upper))
         return StringReader(line)
 
-    def create_ctx(self, *, reader=None) -> _TokenContext:
-        if reader is None:
-            reader = self.readline()
+    def create_ctx(self, reader) -> _TokenContext:
         return _TokenContext(self, reader)
 
     def _scan_identifier(self, ctx: _TokenContext) -> None:
-        ctx.reader.nextwhile(_is_identifier)
+        content = ctx.reader.accumulate(_is_identifier)
         if _is_terminal(ctx.reader.peek(0)):
-            self._scan_number(ctx)
+            self._scan_string(ctx, prefixes=content)
         else:
-            ctx.set_type(TokenType.IDENTIFIER)
+            ctx.create_identifier_token(content)
 
     def _scan_number(self, ctx: _TokenContext) -> None:
-        ctx.set_type(TokenType.NUMBER)
+        pass
 
-    def _scan_string(self, ctx: _TokenContext) -> None:
-        ctx.set_type(TokenType.STRING)
+    def _scan_string(self, ctx: _TokenContext, *, prefixes=None) -> None:
+        pass
 
-    def _get_type(self, ctx: _TokenContext) -> TokenType:
+    def _find_token(self, ctx: _TokenContext) -> TokenType:
         if ctx.reader.expect('.'):
             if ctx.reader.expect('.', 2):
                 return TokenType.ELLIPSIS
@@ -354,6 +422,9 @@ class Scanner:
                 return TokenType.EQEQUAL
             else:
                 return TokenType.EQUAL
+        elif ctx.reader.expect('!'):
+            if ctx.reader.expect('='):
+                return TokenType.NOTEQUAL
         elif ctx.reader.expect('%'):
             if ctx.reader.expect('='):
                 return TokenType.PERCENTEQUAL
@@ -368,16 +439,25 @@ class Scanner:
             self._add_paren(TokenType.LPAREN)
             return TokenType.LPAREN
         elif ctx.reader.expect(')'):
+            paren = self._pop_paren()
+            if paren is not TokenType.LPAREN:
+                ctx.throw('Unexpected closing parenthesis')
             return TokenType.RPAREN
         elif ctx.reader.expect('['):
             self._add_paren(TokenType.LBARACKET)
             return TokenType.LBARACKET
         elif ctx.reader.expect(']'):
+            paren = self._pop_paren()
+            if paren is not TokenType.LBARACKET:
+                ctx.throw('Unexpected closing bracket')
             return TokenType.RBRACKET
         elif ctx.reader.expect('{'):
             self._add_paren(TokenType.LBRACE)
             return TokenType.LBRACE
         elif ctx.reader.expect('}'):
+            paren = self._pop_paren()
+            if paren is not TokenType.LBRACE:
+                ctx.throw('Unexpected closing brace')
             return TokenType.RBRACE
         elif ctx.reader.expect(':'):
             return TokenType.COLON
@@ -389,15 +469,30 @@ class Scanner:
             return TokenType.TILDE
 
     def scan(self):
-        with self.create_ctx() as ctx:
-            char = ctx.reader.peek(0)
-            if _is_identifier_start(char):
-                self._scan_identifier(ctx)
-            elif _is_digit(char):
-                self._scan_number(ctx)
-            elif _is_terminal(char):
-                self._scan_string(ctx)
-            else:
-                ctx.set_type(self._get_type(ctx))
+        reader = None
+        while True:
+            if reader is None or reader.eof():
+                reader = self.readline()
 
-            ctx.create_token()
+            with self.create_ctx(reader) as ctx:
+                ctx.reader.skipws(newlines=True)
+
+                char = ctx.reader.peek(0)
+                if _is_identifier_start(char):
+                    self._scan_identifier(ctx)
+                elif _is_digit(char):
+                    self._scan_number(ctx)
+                elif _is_terminal(char):
+                    self._scan_string(ctx)
+                elif _is_newline(char):
+                    ctx.reader.advance()
+                elif _is_eof(char):
+                    break
+                else:
+                    type = self._find_token(ctx)
+                    if type is not None:
+                        ctx.create_token(type)
+                    else:
+                        ctx.throw('Invalid Token')
+
+        return self._tokens

@@ -80,6 +80,8 @@ class StringReader:
             char = self.at()
             if func(char):
                 self.advance()
+            else:
+                break
 
     def accumulate(self, func: Callable[[str], bool]) -> str:
         start = self._position + 1
