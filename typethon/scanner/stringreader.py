@@ -1,6 +1,6 @@
 from typing import Callable, Iterable, Optional, Union
 
-from ..util import singletoniter
+from ..util import iter_strings
 
 EOF = str()
 
@@ -48,10 +48,7 @@ class StringReader:
             self.advance()
 
     def skipfind(self, strings: Union[str, Iterable[str]]) -> bool:
-        if isinstance(strings, str):
-            strings = singletoniter(strings)
-
-        for string in strings:
+        for string in iter_strings(strings):
             index = self.source.find(string, self._position)
             if index != -1:
                 self._position = index + len(string)
