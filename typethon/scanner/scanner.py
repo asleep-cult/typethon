@@ -409,6 +409,8 @@ class _TokenScanner:
                     ctx.create_token(TokenType.DOUBLESTAR)
             elif reader.expect('='):
                 ctx.create_token(TokenType.STAREQUAL)
+            else:
+                ctx.create_token(TokenType.STAR)
         elif reader.expect('@'):
             if reader.expect('='):
                 ctx.create_token(TokenType.ATEQUAL)
@@ -422,6 +424,8 @@ class _TokenScanner:
                     ctx.create_token(TokenType.DOUBLESLASH)
             elif reader.expect('='):
                 ctx.create_token(TokenType.SLASHEQUAL)
+            else:
+                ctx.create_token(TokenType.SLASH)
         elif reader.expect('|'):
             if reader.expect('='):
                 ctx.create_token(TokenType.VBAREQUAL)
@@ -595,12 +599,13 @@ class Scanner:
     def _scan_identifier(self, ctx: _TokenContext) -> None:
         content = ctx.reader.accumulate(_is_identifier)
         if ctx.reader.expect(('\'', '"')):
-            self._scan_string(ctx)
+            self._stringscanner.feed(ctx.reader)
         else:
             ctx.create_identifier_token(content)
 
     def _scan_number(self, ctx: _TokenContext) -> None:
-        pass
+        content = ctx.reader.accumulate(_is_digit)
+        ctx.create_numeric_token(content, NumericTokenFlags.INTEGER)
 
     def _scan_linecont(self, ctx: _TokenContext) -> None:
         if not ctx.reader.expect(EOF):
