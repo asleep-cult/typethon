@@ -4,7 +4,7 @@ import codecs
 import enum
 import io
 
-from .exceptions import BadEncodingDeclaration
+from .exceptions import BadEncodingDeclaration, FatalScannerError
 from .stringreader import EOF, StringReader
 
 TABSIZE = 8
@@ -201,11 +201,11 @@ class Token:
         self.endpos = endpos
         self.lineno = lineno
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f'<{self.__class__.__name__} type={self.type!r}'
                 f' ({self.lineno}:{self.startpos}-{self.endpos})>')
 
-    def span(self):
+    def span(self) -> int:
         start = self.scanner._linespans[self.lineno][0]
         return start + self.startpos, start + self.endpos
 
@@ -218,7 +218,7 @@ class IdentifierToken(Token):
         super().__init__(scanner, TokenType.IDENTIFIER, startpos, endpos, lineno)
         self.content = content
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f'<{self.__class__.__name__} type={self.type!r}'
                 f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
 
@@ -261,7 +261,7 @@ class NumericToken(Token):
         self.content = content
         self.flags = flags
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f'<{self.__class__.__name__} type={self.type!r}'
                 f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
 
@@ -282,7 +282,7 @@ class ErrorToken(Token):
         super().__init__(scanner, TokenType.ERROR, startpos, endpos, lineno)
         self.errno = errno
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f'<{self.__class__.__name__} type={self.type!r}'
                 f' {self.errno!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
 
@@ -315,10 +315,11 @@ class _TokenContext:
     def create_error_token(self, errno: ErrorTokenErrno) -> None:
         self.scanner._tokens.append(
             ErrorToken(self.scanner, self.startpos, self.reader.tell(), self.lineno, errno))
+        self.scanner._stopping = True
 
 
 class _IndentScanner:
-    __slots__ = ('scanner', 'stack', 'altstack')
+    __slots__ = ('scanner', 'stack',)
 
     def __init__(self, scanner: Scanner) -> None:
         self.scanner = scanner
@@ -328,9 +329,9 @@ class _IndentScanner:
         return self.stack[-1][0]
 
     def altback(self) -> int:
-        return self.altstack[-1][1]
+        return self.stack[-1][1]
 
-    def feed(self, reader: StringReader) -> None:
+    def feed(self, reader: StringReader):
         token = Token(self.scanner, TokenType.NEWLINE,
                       reader.tell() - 1, reader.tell(), self.scanner.lineno())
         ctx = self.scanner.create_context(reader)
@@ -347,7 +348,8 @@ class _IndentScanner:
                 indent += ((indent / TABSIZE) + 1) * TABSIZE
                 altindent += ((indent / ALTTABSIZE) + 1) * ALTTABSIZE
             else:
-                self.scanner._tokens.append(token)
+                if self.scanner._tokens:
+                    self.scanner._tokens.append(token)
                 break
 
         if indent == self.back():
@@ -360,7 +362,7 @@ class _IndentScanner:
             self.stack.append((indent, altindent))
             ctx.create_token(TokenType.INDENT)
         else:
-            while self.stack and indent < self.back:
+            while self.stack and indent < self.back():
                 self.stack.pop()
                 ctx.create_token(TokenType.DEDENT)
 
@@ -378,7 +380,7 @@ class _TokenScanner:
         self.scanner = scanner
         self.parenstack = []
 
-    def feed(self, reader: StringReader) -> None:
+    def feed(self, reader: StringReader):
         ctx = self.scanner.create_context(reader)
 
         if reader.expect('.'):
@@ -499,16 +501,19 @@ class _TokenScanner:
             ctx.create_token(TokenType.COMMA)
         elif reader.expect('~'):
             ctx.create_token(TokenType.TILDE)
+        else:
+            ctx.create_error_token(ErrorTokenErrno.E_TOKEN)
 
 
 class Scanner:
-    __slots__ = ('source', '_indentscanner', '_tokenscanner', '_linespans')
+    __slots__ = ('source', '_stopping', '_indentscanner', '_tokenscanner', '_linespans', '_tokens',)
 
     def __init__(self, source: io.TextIOBase) -> None:
         self.source = source
 
-        self._indentscanner = _IndentScanner()
-        self._tokenscanner = _TokenScanner()
+        self._stopping = False
+        self._indentscanner = _IndentScanner(self)
+        self._tokenscanner = _TokenScanner(self)
         self._linespans = []
         self._tokens = []
 
@@ -525,16 +530,20 @@ class Scanner:
     def create_context(self, reader: StringReader) -> _TokenContext:
         return _TokenContext(self, reader)
 
-    def _scan_identifier(self) -> None:
+    def _scan_identifier(self, ctx: _TokenContext) -> None:
+        content = ctx.reader.accumulate(_is_identifier)
+        if ctx.reader.expect(('\'', '"')):
+            self._scan_string(ctx)
+        else:
+            ctx.create_identifier_token(content)
+
+    def _scan_number(self, ctx: _TokenContext) -> None:
         pass
 
-    def _scan_number(self) -> None:
+    def _scan_string(self, ctx: _TokenContext) -> None:
         pass
 
-    def _scan_string(self) -> None:
-        pass
-
-    def _scan_linecont(self) -> None:
+    def _scan_linecont(self, ctx: _TokenContext) -> None:
         pass
 
     def scan(self):
@@ -543,8 +552,10 @@ class Scanner:
             if reader is None:
                 reader = self.readline()
                 newline = not self._tokenscanner.parenstack
+                position = -1
             else:
                 newline = False
+                position = reader.tell()
 
             if newline:
                 try:
@@ -555,23 +566,38 @@ class Scanner:
                 if type is not TokenType.NEWLINE:
                     self._indentscanner.feed(reader)
 
-            reader.skipws(newlines=True)
+            if self._stopping:
+                break
 
-            if _is_identifier_start(reader.peek(0)):
-                self._scan_identifier()
-            elif _is_digit(reader.peek(0)):
-                self._scan_number()
-            elif _is_eof(reader.peek(0)):
-                if reader.tell() == 0:
-                    self._tokens.append(Token(self, TokenType.EOF, 0, 0, self.lineno()))
-                    break
+            reader.skipws(newlines=True)
+            char = reader.peek(0)
+
+            if _is_identifier_start(char):
+                self._scan_identifier(self.create_context(reader))
+            elif _is_digit(char):
+                self._scan_number(self.create_context(reader))
             elif reader.expect(('\'', '"')):
-                self._scan_string()
+                self._scan_string(self.create_context(reader))
             elif reader.expect('\\'):
-                self._scan_linecont()
+                self._scan_linecont(self.create_context(reader))
             elif reader.expect('#'):
                 reader = None
+            elif _is_eof(char):
+                if reader.tell() == 0:
+                    self._tokens.append(Token(self, TokenType.EOF, 0, 0, self.lineno()))
+                    self._stopping = True
+                else:
+                    reader = None
             else:
                 self._tokenscanner.feed(reader)
+
+            if self._stopping:
+                break
+
+            if reader is not None:
+                if reader.tell() == position:
+                    raise FatalScannerError(
+                        f'The scanner failed to advance after '
+                        f'encountering character: {char!r}', self)
 
         return self._tokens

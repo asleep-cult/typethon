@@ -2,7 +2,13 @@ from typing import Callable, Iterable, Optional, Union
 
 from ..util import singletoniter
 
-EOF = str()
+
+class _EOF(str):
+    def __repr__(self):
+        return '<EOF>'
+
+
+EOF = _EOF('\0')
 
 
 class StringReader:
@@ -27,7 +33,8 @@ class StringReader:
             return EOF
 
     def advance(self, by: int = 1) -> int:
-        self._position += by
+        if not self.eof():
+            self._position += by
         return self._position
 
     def skiptoeof(self):
@@ -63,10 +70,10 @@ class StringReader:
         return False
 
     def expect(self, chars: Iterable[str], n: int = 1) -> bool:
-        for _ in range(n):
-            if self.at() not in chars:
+        for i in range(n):
+            if self.peek(i) not in chars:
                 return False
-            self.advance()
+        self.advance(n)
         return True
 
     def peek(self, offset: int) -> str:
