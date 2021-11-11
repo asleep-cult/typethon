@@ -128,10 +128,6 @@ def _is_digit(char: str) -> bool:
     return '0' <= char <= '9'
 
 
-def _is_eof(char: str) -> bool:
-    return char is EOF
-
-
 class TokenType(enum.IntEnum):
     ERROR = enum.auto()
     EOF = enum.auto()
