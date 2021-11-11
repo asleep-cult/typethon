@@ -330,8 +330,7 @@ class _IndentScanner:
         return self.stack[-1][1]
 
     def feed(self, reader: StringReader):
-        token = Token(self.scanner, TokenType.NEWLINE,
-                      reader.tell() - 1, reader.tell(), self.scanner.lineno())
+        token = Token(self.scanner, TokenType.NEWLINE, 0, 0, self.scanner.lineno())
         ctx = self.scanner.create_context(reader)
 
         indent = 0
@@ -613,7 +612,7 @@ class Scanner:
 
     def scan(self):
         reader = None
-        while True:
+        while not self._stopping:
             newline = False
             if reader is None:
                 reader = self.readline()
@@ -649,15 +648,18 @@ class Scanner:
                 reader = None
             elif reader.expect(EOF):
                 if reader.tell() == 0:
-                    ctx = self.create_context(reader)
-                    ctx.create_token(TokenType.EOF)
                     self._stopping = True
                 else:
                     reader = None
             else:
                 self._tokenscanner.feed(reader)
 
-            if self._stopping:
-                break
+        ctx = self.create_context(reader)
+
+        if (self._stringscanner.is_active()
+                or self._tokenscanner.is_active()):
+            ctx.create_error_token(ErrorTokenErrno.E_EOF)
+        else:
+            ctx.create_token(ErrorTokenErrno.E_EOF)
 
         return self._tokens
