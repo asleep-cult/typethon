@@ -334,7 +334,7 @@ class _IndentScanner:
         indent = 0
         altindent = 0
         while True:
-            if ctx.reader.expect(('#', '\n', '\\')):
+            if reader.expect(('#', '\n', '\\')):
                 return
             elif reader.expect(' '):
                 indent += 1
