@@ -313,7 +313,7 @@ class _TokenContext:
     def create_error_token(self, errno: ErrorTokenErrno) -> None:
         self.scanner._tokens.append(
             ErrorToken(self.scanner, self.startpos, self.reader.tell(), self.lineno, errno))
-        self.scanner._stopping = True
+        self.scanner._fail_()
 
 
 class _IndentScanner:
@@ -591,6 +591,9 @@ class Scanner:
         upper = self.source.tell()
         self._linespans.append((lower, upper))
         return StringReader(line)
+
+    def _fail_(self):
+        self._stopping = True
 
     def create_context(self, reader: StringReader) -> _TokenContext:
         return _TokenContext(self, reader)
