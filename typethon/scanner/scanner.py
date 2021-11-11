@@ -128,6 +128,10 @@ def _is_digit(char: str) -> bool:
     return '0' <= char <= '9'
 
 
+def _is_eof(char: str) -> bool:
+    return char is EOF
+
+
 class TokenType(enum.IntEnum):
     ERROR = enum.auto()
     EOF = enum.auto()
@@ -555,16 +559,19 @@ class Scanner:
 
             if _is_identifier_start(reader.peek(0)):
                 self._scan_identifier()
-            elif _is_identifier_start(reader.peek(0)):
+            elif _is_digit(reader.peek(0)):
                 self._scan_number()
+            elif _is_eof(reader.peek(0)):
+                if reader.tell() == 0:
+                    self._tokens.append(Token(self, TokenType.EOF, 0, 0, self.lineno()))
+                    break
             elif reader.expect(('\'', '"')):
                 self._scan_string()
             elif reader.expect('\\'):
                 self._scan_linecont()
             elif reader.expect('#'):
                 reader = None
-            elif reader.expect(EOF):
-                if reader.tell() == 0:
-                    self._tokens.append(Token(self, TokenType.EOF, 0, 0, self.lineno()))
             else:
                 self._tokenscanner.feed(reader)
+
+        return self._tokens
