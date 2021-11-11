@@ -4,7 +4,7 @@ import codecs
 import enum
 import io
 
-from .exceptions import BadEncodingDeclaration, FatalScannerError
+from .exceptions import BadEncodingDeclaration
 from .stringreader import EOF, StringReader
 
 TABSIZE = 8
@@ -267,6 +267,8 @@ class NumericToken(Token):
 
 
 class ErrorTokenErrno(enum.Enum):
+    E_EOL = enum.auto()
+    E_EOF = enum.auto()
     E_TOKEN = enum.auto()
     E_PAREN = enum.auto()
     E_TABSPACE = enum.auto()
@@ -380,7 +382,10 @@ class _TokenScanner:
         self.scanner = scanner
         self.parenstack = []
 
-    def feed(self, reader: StringReader):
+    def is_active(self) -> bool:
+        return len(self.parenstack) > 0
+
+    def feed(self, reader: StringReader) -> None:
         ctx = self.scanner.create_context(reader)
 
         if reader.expect('.'):
@@ -505,14 +510,75 @@ class _TokenScanner:
             ctx.create_error_token(ErrorTokenErrno.E_TOKEN)
 
 
+class _StringScanner:
+    __slots__ = ('scanner', 'ctx', 'content', 'terminator', 'size', 'seen')
+
+    def __init__(self, scanner: Scanner) -> None:
+        self.scanner = scanner
+        self.reset()
+
+    def is_active(self) -> bool:
+        return self.ctx is not None
+
+    def reset(self) -> None:
+        self.ctx = None
+        self.content = io.StringIO()
+        self.terminator = None
+        self.size = 0
+        self.seen = 0
+
+    def feed(self, reader: StringReader) -> None:
+        if self.ctx is None:
+            reader.advance(-1)
+            self.ctx = self.scanner.create_context(reader)
+
+            self.terminator = reader.next()
+            if reader.expect(self.terminator):
+                if reader.expect(self.terminator):
+                    self.size = 3
+                else:
+                    self.ctx.create_string_token('', 0)
+                    return self.reset()
+            else:
+                self.size = 1
+
+        while True:
+            if reader.expect(self.terminator):
+                self.seen += 1
+            else:
+                if self.seen:
+                    self.content.write(self.terminator * self.seen)
+
+                self.seen = 0
+
+                if reader.expect('\n'):
+                    if self.size == 3:
+                        self.content.write('\n')
+                    else:
+                        return self.ctx.create_error_token(ErrorTokenErrno.E_EOL)
+                elif reader.expect('\\'):
+                    self.content.write('\\')
+                    self.content.write(reader.next())
+                elif reader.expect(EOF):
+                    break
+                else:
+                    self.content.write(reader.next())
+
+            if self.seen == self.size:
+                self.ctx.create_string_token(self.content.getvalue(), 0)
+                return self.reset()
+
+
 class Scanner:
-    __slots__ = ('source', '_stopping', '_indentscanner', '_tokenscanner', '_linespans', '_tokens',)
+    __slots__ = ('source', '_stopping', '_indentscanner', '_stringscanner',
+                 '_tokenscanner', '_linespans', '_tokens',)
 
     def __init__(self, source: io.TextIOBase) -> None:
         self.source = source
 
         self._stopping = False
         self._indentscanner = _IndentScanner(self)
+        self._stringscanner = _StringScanner(self)
         self._tokenscanner = _TokenScanner(self)
         self._linespans = []
         self._tokens = []
@@ -540,22 +606,20 @@ class Scanner:
     def _scan_number(self, ctx: _TokenContext) -> None:
         pass
 
-    def _scan_string(self, ctx: _TokenContext) -> None:
-        pass
-
     def _scan_linecont(self, ctx: _TokenContext) -> None:
-        pass
+        if not ctx.reader.expect(EOF):
+            ctx.create_error_token(ErrorTokenErrno.E_LINECONT)
 
     def scan(self):
         reader = None
         while True:
+            newline = False
             if reader is None:
                 reader = self.readline()
-                newline = not self._tokenscanner.parenstack
-                position = -1
-            else:
-                newline = False
-                position = reader.tell()
+                if self._stringscanner.is_active():
+                    self._stringscanner.feed(reader)
+                else:
+                    newline = not self._tokenscanner.parenstack
 
             if newline:
                 try:
@@ -577,14 +641,15 @@ class Scanner:
             elif _is_digit(char):
                 self._scan_number(self.create_context(reader))
             elif reader.expect(('\'', '"')):
-                self._scan_string(self.create_context(reader))
+                self._stringscanner.feed(reader)
             elif reader.expect('\\'):
                 self._scan_linecont(self.create_context(reader))
             elif reader.expect('#'):
                 reader = None
-            elif _is_eof(char):
+            elif reader.expect(EOF):
                 if reader.tell() == 0:
-                    self._tokens.append(Token(self, TokenType.EOF, 0, 0, self.lineno()))
+                    ctx = self.create_context(reader)
+                    ctx.create_token(TokenType.EOF)
                     self._stopping = True
                 else:
                     reader = None
@@ -593,11 +658,5 @@ class Scanner:
 
             if self._stopping:
                 break
-
-            if reader is not None:
-                if reader.tell() == position:
-                    raise FatalScannerError(
-                        f'The scanner failed to advance after '
-                        f'encountering character: {char!r}', self)
 
         return self._tokens
