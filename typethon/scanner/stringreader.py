@@ -30,6 +30,9 @@ class StringReader:
         self._position += by
         return self._position
 
+    def skiptoeof(self):
+        self._position = len(self.source)
+
     def skip(self, chars: Iterable[str]) -> None:
         while self.at() in chars:
             self.advance()

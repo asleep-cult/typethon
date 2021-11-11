@@ -128,26 +128,6 @@ def _is_digit(char: str) -> bool:
     return '0' <= char <= '9'
 
 
-def _is_terminal(char: str) -> bool:
-    return char == '\'' or char == '"'
-
-
-def _is_blank(char: str) -> bool:
-    return char == '#' or char == '\n' or char == '\\'
-
-
-def _is_comment(char: str) -> bool:
-    return char == '#'
-
-
-def _is_linecont(char: str) -> bool:
-    return char == '\\'
-
-
-def _is_eof(char: str) -> bool:
-    return char is EOF
-
-
 class TokenType(enum.IntEnum):
     ERROR = enum.auto()
     EOF = enum.auto()
@@ -160,7 +140,7 @@ class TokenType(enum.IntEnum):
 
     LPAREN = enum.auto()
     RPAREN = enum.auto()
-    LBARACKET = enum.auto()
+    LBRACKET = enum.auto()
     RBRACKET = enum.auto()
     LBRACE = enum.auto()
     RBRACE = enum.auto()
@@ -206,13 +186,6 @@ class TokenType(enum.IntEnum):
     ELLIPSIS = enum.auto()
 
 
-_PARENMAP = {
-    TokenType.LPAREN: TokenType.RPAREN,
-    TokenType.LBARACKET: TokenType.RBRACKET,
-    TokenType.LBRACE: TokenType.RBRACE,
-}
-
-
 class Token:
     __slots__ = ('scanner', 'type', 'startpos', 'endpos', 'lineno')
 
@@ -247,9 +220,9 @@ class IdentifierToken(Token):
 
 
 class StringTokenFlags(enum.IntFlag):
-    RAW = 1 << 0
-    BYTES = 1 << 1
-    FORMAT = 1 << 2
+    RAW = enum.auto()
+    BYTES = enum.auto()
+    FORMAT = enum.auto()
 
 
 class StringToken(Token):
@@ -267,12 +240,12 @@ class StringToken(Token):
 
 
 class NumericTokenFlags(enum.IntFlag):
-    BINARY = 1 << 0
-    OCTAL = 1 << 1
-    HEXADECIMAL = 1 << 2
-    INTEGER = 1 << 3
-    FLOAT = 1 << 4
-    IMAGINARY = 1 << 5
+    BINARY = enum.auto()
+    OCTAL = enum.auto()
+    HEXADECIMAL = enum.auto()
+    INTEGER = enum.auto()
+    FLOAT = enum.auto()
+    IMAGINARY = enum.auto()
 
 
 class NumericToken(Token):
@@ -314,69 +287,229 @@ class _TokenContext:
     def __init__(self, scanner: Scanner, reader: StringReader) -> None:
         self.scanner = scanner
         self.reader = reader
-        self.startpos = None
-        self.lineno = None
-
-    def create_token(self, type: TokenType) -> Token:
-        token = Token(self.scanner, type, self.startpos, self.reader.tell(), self.lineno)
-        self.scanner._tokens.append(token)
-        return token
-
-    def create_identifier_token(self, content: str) -> IdentifierToken:
-        token = IdentifierToken(self.scanner, self.startpos, self.reader.tell(),
-                                self.lineno, content)
-        self.scanner._tokens.append(token)
-        return token
-
-    def create_string_token(self, content: str, flags: StringTokenFlags) -> StringToken:
-        token = StringToken(self.scanner, self.startpos, self.reader.tell(),
-                            self.lineno, content, flags)
-        self.scanner._tokens.append(token)
-        return token
-
-    def create_numeric_token(self, content: str, flags: NumericTokenFlags) -> NumericToken:
-        token = NumericToken(self.scanner, self.startpos, self.reader.tell(),
-                             self.lineno, content, flags)
-        self.scanner._tokens.append(token)
-        return token
-
-    def create_error_token(self, errno: ErrorTokenErrno) -> ErrorTokenErrno:
-        token = ErrorToken(self.scanner, self.startpos, self.reader.tell(),
-                           self.lineno, errno)
-        self.scanner._tokens.append(token)
-        return token
-
-    def __enter__(self) -> _TokenContext:
         self.startpos = self.reader.tell()
-        self.lineno = len(self.scanner._linespans)
-        return self
+        self.lineno = self.scanner.lineno()
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        pass
+    def create_token(self, type: TokenType) -> None:
+        self.scanner._tokens.append(
+            Token(self.scanner, type, self.startpos, self.reader.tell(), self.lineno))
+
+    def create_identifier_token(self, content: str) -> None:
+        self.scanner._tokens.append(
+            IdentifierToken(self.scanner, self.startpos, self.reader.tell(), self.lineno, content))
+
+    def create_string_token(self, content: str, flags: StringTokenFlags) -> None:
+        self.scanner._tokens.append(
+            StringToken(self.scanner, self.startpos, self.reader.tell(),
+                        self.lineno, content, flags))
+
+    def create_numeric_token(self, content: str, flags: NumericTokenFlags) -> None:
+        self.scanner._tokens.append(
+            NumericToken(self.scanner, self.startpos, self.reader.tell(),
+                         self.lineno, content, flags))
+
+    def create_error_token(self, errno: ErrorTokenErrno) -> None:
+        self.scanner._tokens.append(
+            ErrorToken(self.scanner, self.startpos, self.reader.tell(), self.lineno, errno))
+
+
+class _IndentScanner:
+    __slots__ = ('scanner', 'stack', 'altstack')
+
+    def __init__(self, scanner: Scanner) -> None:
+        self.scanner = scanner
+        self.stack = [(0, 0)]
+
+    def back(self) -> int:
+        return self.stack[-1][0]
+
+    def altback(self) -> int:
+        return self.altstack[-1][1]
+
+    def feed(self, reader: StringReader) -> None:
+        token = Token(self.scanner, TokenType.NEWLINE,
+                      reader.tell() - 1, reader.tell(), self.scanner.lineno())
+        ctx = self.scanner.create_context(reader)
+
+        indent = 0
+        altindent = 0
+        while True:
+            if ctx.reader.expect(('#', '\n', '\\')):
+                return
+            elif reader.expect(' '):
+                indent += 1
+                altindent += 1
+            elif reader.expect('\t'):
+                indent += ((indent / TABSIZE) + 1) * TABSIZE
+                altindent += ((indent / ALTTABSIZE) + 1) * ALTTABSIZE
+            else:
+                self.scanner._tokens.append(token)
+                break
+
+        if indent == self.back():
+            if altindent != self.altback():
+                return ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
+        elif indent > self.back():
+            if altindent <= self.back():
+                return ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
+
+            self.stack.append((indent, altindent))
+            ctx.create_token(TokenType.INDENT)
+        else:
+            while self.stack and indent < self.back:
+                self.stack.pop()
+                ctx.create_token(TokenType.DEDENT)
+
+            if indent != self.back():
+                return ctx.create_error_token(ErrorTokenErrno.E_DEDENT)
+
+            if altindent != self.altback():
+                return ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
+
+
+class _TokenScanner:
+    __slots__ = ('scanner', 'parenstack')
+
+    def __init__(self, scanner: Scanner) -> None:
+        self.scanner = scanner
+        self.parenstack = []
+
+    def feed(self, reader: StringReader) -> None:
+        ctx = self.scanner.create_context(reader)
+
+        if reader.expect('.'):
+            if reader.expect('.', 2):
+                ctx.create_token(TokenType.ELLIPSIS)
+            else:
+                ctx.create_token(TokenType.DOT)
+        elif reader.expect('+'):
+            if reader.expect('='):
+                ctx.create_token(TokenType.PLUSEQUAL)
+            else:
+                ctx.create_token(TokenType.PLUS)
+        elif reader.expect('-'):
+            if reader.expect('>'):
+                ctx.create_token(TokenType.RARROW)
+            elif reader.expect('='):
+                ctx.create_token(TokenType.MINUSEQUAL)
+            else:
+                ctx.create_token(TokenType.MINUS)
+        elif reader.expect('*'):
+            if reader.expect('*'):
+                if reader.expect('='):
+                    ctx.create_token(TokenType.DOUBLESTARQEUAL)
+                else:
+                    ctx.create_token(TokenType.DOUBLESTAR)
+            elif reader.expect('='):
+                ctx.create_token(TokenType.STAREQUAL)
+        elif reader.expect('@'):
+            if reader.expect('='):
+                ctx.create_token(TokenType.ATEQUAL)
+            else:
+                ctx.create_token(TokenType.AT)
+        elif reader.expect('/'):
+            if reader.expect('/'):
+                if reader.expect('='):
+                    ctx.create_token(TokenType.DOUBLESLASHEQUAL)
+                else:
+                    ctx.create_token(TokenType.DOUBLESLASH)
+            elif reader.expect('='):
+                ctx.create_token(TokenType.SLASHEQUAL)
+        elif reader.expect('|'):
+            if reader.expect('='):
+                ctx.create_token(TokenType.VBAREQUAL)
+            else:
+                ctx.create_token(TokenType.VBAR)
+        elif reader.expect('&'):
+            if reader.expect('='):
+                ctx.create_token(TokenType.AMPERSANDEQUAL)
+            else:
+                ctx.create_token(TokenType.AMPERSAND)
+        elif reader.expect('<'):
+            if reader.expect('<'):
+                if reader.expect('='):
+                    ctx.create_token(TokenType.LSHIFTEQUAL)
+                else:
+                    ctx.create_token(TokenType.LSHIFT)
+            elif reader.expect('='):
+                ctx.create_token(TokenType.LTHANEQ)
+            else:
+                ctx.create_token(TokenType.LTHAN)
+        elif reader.expect('>'):
+            if reader.expect('>'):
+                if reader.expect('='):
+                    ctx.create_token(TokenType.RSHIFTEQUAL)
+                else:
+                    ctx.create_token(TokenType.RSHIFT)
+            elif reader.expect('='):
+                ctx.create_token(TokenType.GTHANEQ)
+            else:
+                ctx.create_token(TokenType.GTHAN)
+        elif reader.expect('='):
+            if reader.expect('='):
+                ctx.create_token(TokenType.EQEQUAL)
+            else:
+                ctx.create_token(TokenType.EQUAL)
+        elif reader.expect('!'):
+            if reader.expect('='):
+                ctx.create_token(TokenType.NOTEQUAL)
+        elif reader.expect('%'):
+            if reader.expect('='):
+                ctx.create_token(TokenType.PERCENTEQUAL)
+            else:
+                ctx.create_token(TokenType.PERCENT)
+        elif reader.expect('^'):
+            if reader.expect('='):
+                ctx.create_token(TokenType.CIRCUMFLEXEQUAL)
+            else:
+                ctx.create_token(TokenType.CIRCUMFLEX)
+        elif reader.expect('('):
+            self.parenstack.append(TokenType.LPAREN)
+            ctx.create_token(TokenType.LPAREN)
+        elif reader.expect(')'):
+            if self.parenstack.pop() is not TokenType.LPAREN:
+                ctx.create_error_token(ErrorTokenErrno.E_PAREN)
+            else:
+                ctx.create_token(TokenType.RPAREN)
+        elif reader.expect('['):
+            self.parenstack.append(TokenType.LBRACKET)
+            ctx.create_token(TokenType.LBRACKET)
+        elif reader.expect(']'):
+            if self.parenstack.pop() is not TokenType.LBRACKET:
+                ctx.create_error_token(ErrorTokenErrno.E_PAREN)
+            else:
+                ctx.create_token(TokenType.RBRACKET)
+        elif reader.expect('{'):
+            self.parenstack.append(TokenType.LBRACE)
+            ctx.create_token(TokenType.LBRACE)
+        elif reader.expect('}'):
+            if self.parenstack.pop() is not TokenType.LBRACE:
+                ctx.create_error_token(ErrorTokenErrno.E_PAREN)
+            else:
+                ctx.create_token(TokenType.RBRACE)
+        elif reader.expect(':'):
+            ctx.create_token(TokenType.COLON)
+        elif reader.expect(';'):
+            ctx.create_token(TokenType.SEMICOLON)
+        elif reader.expect(','):
+            ctx.create_token(TokenType.COMMA)
+        elif reader.expect('~'):
+            ctx.create_token(TokenType.TILDE)
 
 
 class Scanner:
-    __slots__ = ('source', '_indentstack', '_parenstack', '_linespans', '_tokens',)
+    __slots__ = ('source', '_indentscanner', '_tokenscanner', '_linespans')
 
     def __init__(self, source: io.TextIOBase) -> None:
         self.source = source
 
-        self._indentstack = [(0, 0)]
-        self._parenstack = []
+        self._indentscanner = _IndentScanner()
+        self._tokenscanner = _TokenScanner()
         self._linespans = []
         self._tokens = []
 
-    def _get_indent(self):
-        return self._indentstack[-1][0]
-
-    def _get_altindent(self):
-        return self._indentstack[-1][1]
-
-    def _add_paren(self, type: TokenType):
-        self._parenstack.append(type)
-
-    def _pop_paren(self) -> TokenType:
-        return self._parenstack.pop()
+    def lineno(self) -> int:
+        return len(self._linespans)
 
     def readline(self) -> StringReader:
         lower = self.source.tell()
@@ -385,250 +518,53 @@ class Scanner:
         self._linespans.append((lower, upper))
         return StringReader(line)
 
-    def create_ctx(self, reader) -> _TokenContext:
+    def create_context(self, reader: StringReader) -> _TokenContext:
         return _TokenContext(self, reader)
 
-    def _scan_indents(self, ctx: _TokenContext) -> bool:
-        indent = 0
-        altindent = 0
-        while True:
-            char = ctx.reader.peek(0)
-            if _is_blank(char):
-                if self._tokens:
-                    self._tokens.pop(-1)
-                return
-            elif char == ' ':
-                indent += 1
-                altindent += 1
-                ctx.reader.advance()
-            elif char == '\t':
-                indent += ((indent / TABSIZE) + 1) * TABSIZE
-                altindent += ((indent / ALTTABSIZE) + 1) * ALTTABSIZE
-                ctx.reader.advance()
-            else:
-                break
-
-        if indent == self._get_indent():
-            if altindent != self._get_altindent():
-                ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
-                return False
-        elif indent > self._get_indent():
-            if altindent <= self._get_altindent():
-                ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
-                return False
-
-            self._indentstack.append((indent, altindent))
-            ctx.create_token(TokenType.INDENT)
-        else:
-            while self._indentstack:
-                if indent < self._get_altindent():
-                    self._indentstack.pop()
-                    ctx.create_token(TokenType.DEDENT)
-                else:
-                    break
-
-            if indent != self._get_indent():
-                ctx.create_error_token(ErrorTokenErrno.E_DEDENT)
-                return False
-
-            if altindent != self._get_altindent():
-                ctx.create_error_token(ErrorTokenErrno.E_TABSPACE)
-                return False
-
-        return True
-
-    def _scan_identifier(self, ctx: _TokenContext) -> bool:
-        content = ctx.reader.accumulate(_is_identifier)
-        if _is_terminal(ctx.reader.peek(0)):
-            return self._scan_string(ctx, prefixes=content)
-        ctx.create_identifier_token(content)
-        return True
-
-    def _scan_number(self, ctx: _TokenContext) -> bool:
+    def _scan_identifier(self) -> None:
         pass
 
-    def _scan_string(self, ctx: _TokenContext, *, prefixes=None) -> bool:
+    def _scan_number(self) -> None:
         pass
 
-    def _scan_linecont(self, ctx: _TokenContext) -> bool:
-        ctx.reader.skipws(newlines=True)
-        if not ctx.reader.eof():
-            ctx.create_error_token(ErrorTokenErrno.E_LINECONT)
-            return False
-        return True
+    def _scan_string(self) -> None:
+        pass
 
-    def _get_token(self, ctx: _TokenContext) -> TokenType:
-        if ctx.reader.expect('.'):
-            if ctx.reader.expect('.', 2):
-                return TokenType.ELLIPSIS
-            else:
-                return TokenType.DOT
-        elif ctx.reader.expect('+'):
-            if ctx.reader.expect('='):
-                return TokenType.PLUSEQUAL
-            else:
-                return TokenType.PLUS
-        elif ctx.reader.expect('-'):
-            if ctx.reader.expect('>'):
-                return TokenType.RARROW
-            elif ctx.reader.expect('='):
-                return TokenType.MINUSEQUAL
-            else:
-                return TokenType.MINUS
-        elif ctx.reader.expect('*'):
-            if ctx.reader.expect('*'):
-                if ctx.reader.expect('='):
-                    return TokenType.DOUBLESTARQEUAL
-                else:
-                    return TokenType.DOUBLESTAR
-            elif ctx.reader.expect('='):
-                return TokenType.STAREQUAL
-        elif ctx.reader.expect('@'):
-            if ctx.reader.expect('='):
-                return TokenType.ATEQUAL
-            else:
-                return TokenType.AT
-        elif ctx.reader.expect('/'):
-            if ctx.reader.expect('/'):
-                if ctx.reader.expect('='):
-                    return TokenType.DOUBLESLASHEQUAL
-                else:
-                    return TokenType.DOUBLESLASH
-            elif ctx.reader.expect('='):
-                return TokenType.SLASHEQUAL
-        elif ctx.reader.expect('|'):
-            if ctx.reader.expect('='):
-                return TokenType.VBAREQUAL
-            else:
-                return TokenType.VBAR
-        elif ctx.reader.expect('&'):
-            if ctx.reader.expect('='):
-                return TokenType.AMPERSANDEQUAL
-            else:
-                return TokenType.AMPERSAND
-        elif ctx.reader.expect('<'):
-            if ctx.reader.expect('<'):
-                if ctx.reader.expect('='):
-                    return TokenType.LSHIFTEQUAL
-                else:
-                    return TokenType.LSHIFT
-            elif ctx.reader.expect('='):
-                return TokenType.LTHANEQ
-            else:
-                return TokenType.LTHAN
-        elif ctx.reader.expect('>'):
-            if ctx.reader.expect('>'):
-                if ctx.reader.expect('='):
-                    return TokenType.RSHIFTEQUAL
-                else:
-                    return TokenType.RSHIFT
-            elif ctx.reader.expect('='):
-                return TokenType.GTHANEQ
-            else:
-                return TokenType.GTHAN
-        elif ctx.reader.expect('='):
-            if ctx.reader.expect('='):
-                return TokenType.EQEQUAL
-            else:
-                return TokenType.EQUAL
-        elif ctx.reader.expect('!'):
-            if ctx.reader.expect('='):
-                return TokenType.NOTEQUAL
-        elif ctx.reader.expect('%'):
-            if ctx.reader.expect('='):
-                return TokenType.PERCENTEQUAL
-            else:
-                return TokenType.PERCENT
-        elif ctx.reader.expect('^'):
-            if ctx.reader.expect('='):
-                return TokenType.CIRCUMFLEXEQUAL
-            else:
-                return TokenType.CIRCUMFLEX
-        elif ctx.reader.expect('('):
-            return TokenType.LPAREN
-        elif ctx.reader.expect(')'):
-            return TokenType.RPAREN
-        elif ctx.reader.expect('['):
-            return TokenType.LBARACKET
-        elif ctx.reader.expect(']'):
-            return TokenType.RBRACKET
-        elif ctx.reader.expect('{'):
-            self._add_paren(TokenType.LBRACE)
-            return TokenType.LBRACE
-        elif ctx.reader.expect('}'):
-            return TokenType.RBRACE
-        elif ctx.reader.expect(':'):
-            return TokenType.COLON
-        elif ctx.reader.expect(';'):
-            return TokenType.SEMICOLON
-        elif ctx.reader.expect(','):
-            return TokenType.COMMA
-        elif ctx.reader.expect('~'):
-            return TokenType.TILDE
-
-    def _scan_token(self, ctx: _TokenContext) -> bool:
-        type = self._get_token(ctx)
-        if type is not None:
-            if type in _PARENMAP.keys():
-                self._add_paren(type)
-            elif type in _PARENMAP.values():
-                if (not self._parenstack
-                        or type is not _PARENMAP[self._pop_paren()]):
-                    ctx.create_error_token(ErrorTokenErrno.E_PAREN)
-                    return False
-
-            ctx.create_token(type)
-            return True
-
-        ctx.create_error_token(ErrorTokenErrno.E_TOKEN)
-        return False
+    def _scan_linecont(self) -> None:
+        pass
 
     def scan(self):
         reader = None
         while True:
-            if reader is None or reader.eof():
+            if reader is None:
                 reader = self.readline()
-                newline = True
+                newline = not self._tokenscanner.parenstack
             else:
                 newline = False
 
-            with self.create_ctx(reader) as ctx:
-                if newline and not self._parenstack:
-                    try:
-                        type = self._tokens[-1].type
-                    except IndexError:
-                        type = None
+            if newline:
+                try:
+                    type = self._tokens[-1].type
+                except IndexError:
+                    type = None
 
-                    if type is not TokenType.NEWLINE:
-                        if self._tokens:
-                            ctx.create_token(TokenType.NEWLINE)
+                if type is not TokenType.NEWLINE:
+                    self._indentscanner.feed(reader)
 
-                        if not self._scan_indents(ctx):
-                            break
+            reader.skipws(newlines=True)
 
-                ctx.reader.skipws(newlines=True)
-                char = ctx.reader.peek(0)
-
-                if _is_identifier_start(char):
-                    if not self._scan_identifier(ctx):
-                        break
-                elif _is_digit(char):
-                    if not self._scan_number(ctx):
-                        break
-                elif _is_terminal(char):
-                    if not self._scan_string(ctx):
-                        break
-                elif _is_linecont(char):
-                    if not self._scan_linecont(ctx):
-                        break
-                elif _is_comment(char):
-                    reader = None
-                elif _is_eof(char):
-                    if ctx.reader.tell() == 0:
-                        ctx.create_token(TokenType.EOF)
-                        break
-                else:
-                    if not self._scan_token(ctx):
-                        break
-
-        return self._tokens
+            if _is_identifier_start(reader.peek(0)):
+                self._scan_identifier()
+            elif _is_identifier_start(reader.peek(0)):
+                self._scan_number()
+            elif reader.expect(('\'', '"')):
+                self._scan_string()
+            elif reader.expect('\\'):
+                self._scan_linecont()
+            elif reader.expect('#'):
+                reader = None
+            elif reader.expect(EOF):
+                if reader.tell() == 0:
+                    self._tokens.append(Token(self, TokenType.EOF, 0, 0, self.lineno()))
+            else:
+                self._tokenscanner.feed(reader)
