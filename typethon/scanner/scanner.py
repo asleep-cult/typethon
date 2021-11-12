@@ -663,6 +663,6 @@ class Scanner:
                 or self._tokenscanner.is_active()):
             ctx.create_error_token(ErrorTokenErrno.E_EOF)
         else:
-            ctx.create_token(ErrorTokenErrno.E_EOF)
+            ctx.create_token(TokenType.EOF)
 
         return self._tokens
