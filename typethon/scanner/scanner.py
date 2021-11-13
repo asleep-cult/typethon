@@ -543,7 +543,7 @@ class _TokenScanner:
 
 
 class _StringScanner:
-    __slots__ = ('scanner', 'ctx', 'content', 'terminator', 'size', 'seen')
+    __slots__ = ('scanner', 'ctx', 'flags', 'content', 'terminator', 'size', 'seen')
 
     def __init__(self, scanner: Scanner) -> None:
         self.scanner = scanner
@@ -554,13 +554,15 @@ class _StringScanner:
 
     def reset(self) -> None:
         self.ctx = None
+        self.flags = 0
         self.content = io.StringIO()
         self.terminator = None
         self.size = 0
         self.seen = 0
 
-    def feed(self, reader: StringReader) -> None:
+    def feed(self, reader: StringReader, *, flags: NumericTokenFlags = 0) -> None:
         if self.ctx is None:
+            reader.advance(-1)
             self.ctx = self.scanner.create_context(reader)
 
             self.terminator = reader.next()
@@ -572,6 +574,8 @@ class _StringScanner:
                     return self.reset()
             else:
                 self.size = 1
+
+            self.flags = flags
 
         while True:
             if reader.expect(self.terminator):
@@ -596,7 +600,7 @@ class _StringScanner:
                     self.content.write(reader.next())
 
             if self.seen == self.size:
-                self.ctx.create_string_token(self.content.getvalue(), 0)
+                self.ctx.create_string_token(self.content.getvalue(), self.flags)
                 return self.reset()
 
 
@@ -633,7 +637,25 @@ class Scanner:
     def _scan_identifier(self, ctx: _TokenContext) -> None:
         content = ctx.reader.accumulate(_is_identifier)
         if ctx.reader.expect(('\'', '"')):
-            self._stringscanner.feed(ctx.reader)
+            flags = 0
+            for char in content:
+                if char == 'r' or char == 'R':
+                    flag = rules = StringTokenFlags.RAW
+                elif char == 'f' or char == 'F':
+                    flag = StringTokenFlags.FORMAT
+                    rules = StringTokenFlags.FORMAT | StringTokenFlags.BYTES
+                elif char == 'b' or char == 'B':
+                    flag = StringTokenFlags.BYTES
+                    rules = StringTokenFlags.BYTES | StringTokenFlags.FORMAT
+                else:
+                    return ctx.create_error_token(ErrorTokenErrno.E_SYNTAX)
+
+                if flags & rules:
+                    return ctx.create_error_token(ErrorTokenErrno.E_SYNTAX)
+                else:
+                    flags |= flag
+
+            self._stringscanner.feed(ctx.reader, flags=flags)
         else:
             ctx.create_identifier_token(content)
 
@@ -737,7 +759,7 @@ class Scanner:
                 self._scan_number(self.create_context(reader))
             elif char == '.' and _is_digit(reader.peek(1)):
                 self._scan_number(self.create_context(reader))
-            elif char == '\'' or char == '"':
+            elif reader.expect(('\'', '"')):
                 self._stringscanner.feed(reader)
             elif reader.expect('\\'):
                 self._scan_linecont(self.create_context(reader))
