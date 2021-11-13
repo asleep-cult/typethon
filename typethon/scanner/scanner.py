@@ -3,6 +3,7 @@ from __future__ import annotations
 import codecs
 import enum
 import io
+from typing import Callable
 
 from .exceptions import BadEncodingDeclaration
 from .stringreader import EOF, StringReader
@@ -126,6 +127,37 @@ def _is_identifier(char: str) -> bool:
 
 def _is_digit(char: str) -> bool:
     return '0' <= char <= '9'
+
+
+def _is_hex(char: str) -> bool:
+    return ('a' <= char <= 'f'
+            or 'A' <= char <= 'F'
+            or '1' <= char <= '9')
+
+
+def _is_oct(char: str) -> bool:
+    return '0' <= char <= '7'
+
+
+def _is_bin(char: str) -> bool:
+    return char == '0' or char == '1'
+
+
+def _number_accumulator(func: Callable[[str], bool]) -> Callable[[str], bool]:
+    underscore = True
+
+    def accumulator(char: str) -> bool:
+        nonlocal underscore
+        if char == '_':
+            if underscore:
+                return False
+            underscore = True
+            return True
+        else:
+            underscore = False
+            return func(char)
+
+    return accumulator
 
 
 class TokenType(enum.IntEnum):
@@ -258,7 +290,7 @@ class NumericToken(Token):
         self.flags = flags
 
     def __repr__(self) -> str:
-        return (f'<{self.__class__.__name__} type={self.type!r}'
+        return (f'<{self.__class__.__name__} flags={self.flags!r}'
                 f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
 
 
@@ -270,6 +302,7 @@ class ErrorTokenErrno(enum.Enum):
     E_TABSPACE = enum.auto()
     E_DEDENT = enum.auto()
     E_LINECONT = enum.auto()
+    E_SYNTAX = enum.auto()
 
 
 class ErrorToken(Token):
@@ -528,7 +561,6 @@ class _StringScanner:
 
     def feed(self, reader: StringReader) -> None:
         if self.ctx is None:
-            reader.advance(-1)
             self.ctx = self.scanner.create_context(reader)
 
             self.terminator = reader.next()
@@ -606,8 +638,71 @@ class Scanner:
             ctx.create_identifier_token(content)
 
     def _scan_number(self, ctx: _TokenContext) -> None:
-        content = ctx.reader.accumulate(_is_digit)
-        ctx.create_numeric_token(content, NumericTokenFlags.INTEGER)
+        content = io.StringIO()
+
+        if ctx.reader.expect('0'):
+            if ctx.reader.expect(('X', 'x')):
+                flags = NumericTokenFlags.HEXADECIMAL
+                content.write('0x')
+                accumulator = _number_accumulator(_is_hex)
+            elif ctx.reader.expect(('O', 'o')):
+                flags = NumericTokenFlags.OCTAL
+                content.write('0o')
+                accumulator = _number_accumulator(_is_oct)
+            elif ctx.reader.expect(('B', 'b')):
+                flags = NumericTokenFlags.BINARY
+                content.write('0b')
+                accumulator = _number_accumulator(_is_bin)
+            elif ctx.reader.expect('.'):
+                flags = NumericTokenFlags.FLOAT
+                content.write('0.')
+                accumulator = None
+            else:
+                flags = NumericTokenFlags.INTEGER
+                content.write('0')
+                accumulator = None
+
+            if accumulator is not None:
+                value = ctx.reader.accumulate(accumulator)
+                if value:
+                    content.write(value)
+                    return ctx.create_numeric_token(value, flags)
+                else:
+                    return ctx.create_error_token(ErrorTokenErrno.E_SYNTAX)
+        elif ctx.reader.expect('.'):
+            flags = NumericTokenFlags.FLOAT
+            content.write('0.')
+        else:
+            flags = NumericTokenFlags.INTEGER
+            content.write(ctx.reader.accumulate(_number_accumulator(_is_digit)))
+
+        if flags & NumericTokenFlags.FLOAT:
+            content.write(ctx.reader.accumulate(_number_accumulator(_is_digit)))
+        elif flags & NumericTokenFlags.INTEGER:
+            if ctx.reader.expect('.'):
+                flags = NumericTokenFlags.FLOAT
+                content.write('.')
+                content.write(ctx.reader.accumulate(_number_accumulator(_is_digit)))
+
+        if ctx.reader.expect('e'):
+            if ctx.reader.expect('+'):
+                content.write('e+')
+            elif ctx.reader.expect('-'):
+                content.write('e-')
+            else:
+                content.write('e')
+
+            value = ctx.reader.accumulate(_number_accumulator(_is_digit))
+            if value:
+                content.write(value)
+            else:
+                return ctx.create_error_token(ErrorTokenErrno.E_SYNTAX)
+
+        if ctx.reader.expect(('J', 'j')):
+            content.write('j')
+            flags |= NumericTokenFlags.IMAGINARY
+
+        ctx.create_numeric_token(content.getvalue(), flags)
 
     def _scan_linecont(self, ctx: _TokenContext) -> None:
         if not ctx.reader.expect(EOF):
@@ -616,22 +711,19 @@ class Scanner:
     def scan(self):
         reader = None
         while not self._stopping:
-            newline = False
             if reader is None:
                 reader = self.readline()
+
                 if self._stringscanner.is_active():
                     self._stringscanner.feed(reader)
-                else:
-                    newline = not self._tokenscanner.parenstack
+                elif not self._tokenscanner.is_active():
+                    try:
+                        type = self._tokens[-1].type
+                    except IndexError:
+                        type = None
 
-            if newline:
-                try:
-                    type = self._tokens[-1].type
-                except IndexError:
-                    type = None
-
-                if type is not TokenType.NEWLINE:
-                    self._indentscanner.feed(reader)
+                    if type is not TokenType.NEWLINE:
+                        self._indentscanner.feed(reader)
 
             if self._stopping:
                 break
@@ -643,7 +735,9 @@ class Scanner:
                 self._scan_identifier(self.create_context(reader))
             elif _is_digit(char):
                 self._scan_number(self.create_context(reader))
-            elif reader.expect(('\'', '"')):
+            elif char == '.' and _is_digit(reader.peek(1)):
+                self._scan_number(self.create_context(reader))
+            elif char == '\'' or char == '"':
                 self._stringscanner.feed(reader)
             elif reader.expect('\\'):
                 self._scan_linecont(self.create_context(reader))
