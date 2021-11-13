@@ -700,7 +700,8 @@ class Scanner:
 
         if flags & NumericTokenFlags.FLOAT:
             content.write(ctx.reader.accumulate(_number_accumulator(_is_digit)))
-        elif flags & NumericTokenFlags.INTEGER:
+
+        if flags & NumericTokenFlags.INTEGER:
             if ctx.reader.expect('.'):
                 flags = NumericTokenFlags.FLOAT
                 content.write('.')
@@ -782,3 +783,7 @@ class Scanner:
             ctx.create_token(TokenType.EOF)
 
         return self._tokens
+
+
+def scan(source: io.TextIOBase) -> list[Token]:
+    return Scanner(source).scan()
