@@ -6,6 +6,7 @@ import io
 from typing import Callable
 
 from .exceptions import BadEncodingDeclaration
+from .keywords import KEYWORDS
 from .stringreader import EOF, StringReader
 
 TABSIZE = 8
@@ -239,12 +240,13 @@ class Token:
 
 
 class IdentifierToken(Token):
-    __slots__ = ('content',)
+    __slots__ = ('content', 'keyword')
 
     def __init__(self, scanner: Scanner, startpos: int, endpos: int,
                  lineno: int, content: str) -> None:
         super().__init__(scanner, TokenType.IDENTIFIER, startpos, endpos, lineno)
         self.content = content
+        self.keyword = KEYWORDS.get(self.content)
 
     def __repr__(self) -> str:
         return (f'<{self.__class__.__name__} type={self.type!r}'

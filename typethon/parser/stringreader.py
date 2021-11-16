@@ -1,7 +1,5 @@
 from typing import Callable, Iterable, Optional, Union
 
-from ..util import singletoniter
-
 
 class _EOF(str):
     def __repr__(self):
@@ -59,7 +57,7 @@ class StringReader:
 
     def skipfind(self, strings: Union[str, Iterable[str]]) -> bool:
         if isinstance(strings, str):
-            strings = singletoniter(strings)
+            strings = (strings,)
 
         for string in strings:
             index = self.source.find(string, self._position)

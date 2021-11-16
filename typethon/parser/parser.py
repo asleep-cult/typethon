@@ -1,31 +1,71 @@
-from __future__ import annotations
-
 import io
 
-from ..scanner import Token, scan
+from .keywords import KeywordType
+from .scanner import TokenType, scan
+from .tokenstream import TokenStream
+from .. import ast
 
 
 class Parser:
-    __slits__ = ('_tokens',)
+    __slits__ = ('_tokenstream',)
 
     def __init__(self, source: io.TextIOBase) -> None:
         self.source = source
 
-        self._tokens = None
-        self._position = 0
+        self._tokenstream = None
 
-    def _advance(self, by: int = 1) -> int:
-        self._position += by
-        return self._position
+    def _parse_statement(self) -> ast.Statement:
+        if self._tokenstream.expectkw(KeywordType.ASYNC):
+            return self._parse_async_statement()
+        elif self._tokenstream.expectkw(KeywordType.CLASS):
+            return self._parse_class_def()
+        elif self._tokenstream.expectkw(KeywordType.DEF):
+            return self._parse_function_def()
+        elif self._tokenstream.expectkw(KeywordType.FOR):
+            return self._parse_for_statement()
+        elif self._tokenstream.expectkw(KeywordType.IF):
+            return self._parse_if_statement()
+        elif self._tokenstream.expectkw(KeywordType.TRY):
+            return self._parse_try_statement()
+        elif self._tokenstream.expectkw(KeywordType.WHILE):
+            return self._parse_while_statement()
+        elif self._tokenstream.expectkw(KeywordType.WITH):
+            return self._parse_with_statement()
 
-    def _peek(self, offset: int) -> Token:
-        return self._tokens[self._position + offset]
+        if self._tokenstream.expect(TokenType.AT):
+            return self._parse_decorated_statement()
 
-    def _next(self) -> Token:
-        try:
-            return self._peek(0)
-        finally:
-            self._advance()
+        return self._parse_simple_statement()
+
+    def _parse_async_statement(self):
+        pass
+
+    def _parse_class_def(self):
+        pass
+
+    def _parse_function_def(self):
+        pass
+
+    def _parse_for_statement(self):
+        pass
+
+    def _parse_if_statement(self):
+        pass
+
+    def _parse_try_statement(self):
+        pass
+
+    def _parse_while_statement(self):
+        pass
+
+    def _parse_with_statement(self):
+        pass
+
+    def _parse_decorated_statement(self):
+        pass
+
+    def _parse_simple_statement(self):
+        pass
 
     def parse(self):
-        self._tokens = scan(self.source)
+        self._tokenstream = TokenStream(scan(self.source))
