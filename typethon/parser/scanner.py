@@ -220,17 +220,15 @@ class TokenType(enum.IntEnum):
 
 
 class Token:
-    __slots__ = ('type', 'startpos', 'endpos', 'startlineno', 'endlineno', 'linespans')
+    __slots__ = ('type', 'startpos', 'endpos', 'startlineno', 'endlineno',)
 
     def __init__(self, scanner: Scanner, type: TokenType, startpos: int, endpos: int,
                  startlineno: int, endlineno: int) -> None:
-        self.scanner = scanner
         self.type = type
-        self.startpos = startpos
-        self.endpos = endpos
+        self.startpos = scanner.realpos(startlineno, startpos)
+        self.endpos = scanner.realpos(endlineno, endpos)
         self.startlineno = startlineno
         self.endlineno = endlineno
-        self.linespans = (scanner._linespans[startlineno], self.linespans[endlineno])
 
     def __repr__(self) -> str:
         return (f'<{self.__class__.__name__} type={self.type!r}'
@@ -608,8 +606,8 @@ class _StringScanner:
 
 
 class Scanner:
-    __slots__ = ('source', '_stopping', '_indentscanner', '_stringscanner',
-                 '_tokenscanner', '_linespans', '_tokens',)
+    __slots__ = ('source', '_stopping', '_indentscanner', '_stringscanner', '_tokenscanner',
+                 '_linepositions', '_tokens',)
 
     def __init__(self, source: io.TextIOBase) -> None:
         self.source = source
@@ -618,18 +616,18 @@ class Scanner:
         self._indentscanner = _IndentScanner(self)
         self._stringscanner = _StringScanner(self)
         self._tokenscanner = _TokenScanner(self)
-        self._linespans = []
+        self._linepositions = []
         self._tokens = []
 
+    def realpos(self, lineno, position) -> int:
+        return self._tokens[lineno] + position
+
     def lineno(self) -> int:
-        return len(self._linespans)
+        return len(self._linepositions)
 
     def readline(self) -> StringReader:
-        lower = self.source.tell()
-        line = self.source.readline()
-        upper = self.source.tell()
-        self._linespans.append((lower, upper))
-        return StringReader(line)
+        self._linepositions.append(self.source.tell())
+        return StringReader(self.source.readline())
 
     def _fail_(self):
         self._stopping = True

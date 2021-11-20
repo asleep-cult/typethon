@@ -1,364 +1,545 @@
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
 from typing import Iterable, Optional, Union
 
+from .parser.scanner import Token
 
-@dataclass
-class Module:
-    body: list[Statement]
 
+class BaseNode:
+    __slots__ = ('startpos', 'endpos', 'startlineno', 'endlineno', 'linespans')
 
-@dataclass
-class FunctionDef:
-    is_async: bool
-    name: str
-    params: Parameters
-    body: list[Statement]
-    decorators: list[Expression]
-    returns: Expression
+    def __new__(cls):
+        self = object.__new__(cls)
 
+        self.startpos = -1
+        self.endpos = -1
+        self.startlineno = -1
+        self.endlineno = -1
 
-@dataclass
-class ClassDef:
-    name: str
-    bases: list[Expression]
-    kwargs: list[KwArgument]
-    body: list[Statement]
-    decorators: list[Expression]
+        return self
 
+    def set_loc(self, starttok: Token, endtok: Token) -> None:
+        self.startpos = starttok.startpos
+        self.endpos = endtok.endpos
+        self.startlineno = starttok.startlineno
+        self.endlineno = endtok.endlineno
 
-@dataclass
-class Return:
-    value: Optional[Expression]
 
+class ModuleNode(BaseNode):
+    __slots__ = ('body',)
 
-@dataclass
-class Delete:
-    targets: list[Expression]
+    def __init__(self) -> None:
+        self.body: list[StatementNode] = []
 
 
-@dataclass
-class Assign:
-    targets: list[Expression]
-    value: Expression
+class FunctionDefNode(BaseNode):
+    __slots__ = ('is_async', 'name', 'parameters', 'body', 'decorators', 'returns')
 
+    def __init__(self, *, name: str) -> None:
+        self.is_async = False
+        self.name: str = name
+        self.parameters: list[ParameterNode] = []
+        self.body: list[StatementNode] = []
+        self.decorators: list[ExpressionNode] = []
+        self.returns: Optional[ExpressionNode] = None
 
-@dataclass
-class AugAssign:
-    target: Expression
-    op: Operator
-    value: Expression
 
+class ClassDefNode(BaseNode):
+    __slots__ = ('name', 'bases', 'kwargs', 'body', 'decorators')
 
-@dataclass
-class AnnAssign:
-    target: Expression
-    annotation: Expression
-    value: Optional[Expression]
+    def __init__(self, *, name: str) -> None:
+        self.name: str = name
+        self.bases: list[ExpressionNode] = []
+        self.kwargs: list[KeywordArgumentNode] = []
+        self.body: list[StatementNode] = []
+        self.decorators: list[ExpressionNode] = []
 
 
-@dataclass
-class For:
-    is_async: bool
-    target: Expression
-    iterator: Expression
-    body: list[Statement]
-    elsebody: list[Statement]
+class ReturnNode(BaseNode):
+    __slots__ = ('value',)
 
+    def __init__(self) -> None:
+        self.value: Optional[ExpressionNode] = None
 
-@dataclass
-class While:
-    condition: Expression
-    body: list[Statement]
-    elsebody: list[Statement]
 
+class DeleteNode(BaseNode):
+    __slots__ = ('targets',)
 
-@dataclass
-class If:
-    condition: Expression
-    body: list[Statement]
-    elsebody: list[Statement]
+    def __init__(self) -> None:
+        self.targets: list[ExpressionNode] = []
 
 
-@dataclass
-class With:
-    is_async: bool
-    items: list[WithItem]
-    body: list[Statement]
+class AssignNode(BaseNode):
+    __slots__ = ('targets', 'value')
 
+    def __init__(self, *, targets: list[ExpressionNode], value: ExpressionNode) -> None:
+        self.targets = targets
+        self.value = value
 
-@dataclass
-class Raise:
-    exc: Expression
-    cause: Expression
 
+class AugAssignNode(BaseNode):
+    __slots__ = ('target', 'op', 'value')
 
-@dataclass
-class Try:
-    body: list[Statement]
-    handlers: list[ExceptHandler]
-    elsebody: list[Statement]
-    finalbody: list[Statement]
+    def __init__(self, *, target: ExpressionNode, op: Operator, value: ExpressionNode) -> None:
+        self.target = target
+        self.op = op
+        self.value = value
 
 
-@dataclass
-class Assert:
-    condition: Expression
-    msg: Optional[str]
+class AnnAssignNode(BaseNode):
+    __sltos__ = ('target', 'annotation', 'value')
 
+    def __init__(self, *, target: ExpressionNode, annotation: ExpressionNode,
+                 value: ExpressionNode) -> None:
+        self.target = target
+        self.annotation = annotation
+        self.value = value
 
-@dataclass
-class Import:
-    names: list[Alias]
 
+class ForNode(BaseNode):
+    __slots__ = ('is_async', 'target', 'iterator', 'body', 'elsebody')
 
-@dataclass
-class ImportFrom:
-    module: Optional[str]
-    names: list[Alias]
-    level: Optional[int]
+    def __init__(self, *, target: ExpressionNode, iterator: ExpressionNode) -> None:
+        self.is_async = False
+        self.target = target
+        self.iterator = iterator
+        self.body: list[ExpressionNode] = []
+        self.elsebody: list[ExpressionNode] = []
 
 
-@dataclass
-class Global:
-    names: list[str]
+class WhileNode(BaseNode):
+    __slots__ = ('condition', 'body')
 
+    def __init__(self, *, condition: ExpressionNode) -> None:
+        self.condition = condition
+        self.body: list[StatementNode] = []
+        self.elsebody: list[StatementNode] = []
 
-@dataclass
-class Nonlocal:
-    names: list[str]
 
+class IfNode(BaseNode):
+    __slots__ = ('condition', 'body', 'elsebody')
 
-@dataclass
-class Expr:
-    value: Expression
+    def __init__(self, *, condition: ExpressionNode) -> None:
+        self.condition = condition
+        self.body: list[StatementNode] = []
+        self.elsebody: list[StatementNode] = []
 
 
-Statement = Union[FunctionDef, ClassDef, Return, Delete, Assign, AugAssign, AnnAssign, For, While,
-                  If, With, Raise, Try, Assert, Import, ImportFrom, Global, Nonlocal, Expr]
+class WithNode(BaseNode):
+    __slots__ = ('is_async', 'items', 'body')
 
+    def __init__(self) -> None:
+        self.is_async = False
+        self.items: list[WithItemNode] = []
+        self.body: list[StatementNode] = []
 
-@dataclass
-class BoolOp:
-    op: BoolOperator
-    values: list[Expression]
 
+class RaiseNode(BaseNode):
+    __slots__ = ('exc', 'cause')
 
-@dataclass
-class BinOp:
-    left: Expression
-    op: Operator
-    right: Expression
+    def __init__(self, *, exc: ExpressionNode, cause: ExpressionNode) -> None:
+        self.exc = exc
+        self.cause = cause
 
 
-@dataclass
-class UnaryOp:
-    op: UnaryOperator
-    operand: Expression
+class TryNode(BaseNode):
+    __slots__ = ('body', 'handlers', 'elsebody', 'finalbody')
 
+    def __init__(self) -> None:
+        self.body: list[StatementNode] = []
+        self.handlers: list[ExceptHandlerNode] = []
+        self.elsebody: list[StatementNode] = []
+        self.finalbody: list[StatementNode] = []
 
-@dataclass
-class Lambda:
-    params: Parameters
-    body: Expression
 
+class AssertNode(BaseNode):
+    __slots__ = ('condition', 'message')
 
-@dataclass
-class IfExp:
-    condition: Expr
-    body: Expr
-    elsebody: Expr
+    def __init__(self, *, condition: ExpressionNode, message: Optional[str]) -> None:
+        self.condition = condition
+        self.message = message
 
 
-@dataclass
-class Dict:
-    elts: list[DictElt]
+class ImportNode(BaseNode):
+    __slots__ = ('names',)
 
+    def __init__(self) -> None:
+        self.names: list[AliasNode] = []
 
-@dataclass
-class Set:
-    elts: list[Expression]
 
+class ImportFromNode(BaseNode):
+    __slots__ = ('module', 'names', 'level')
 
-@dataclass
-class ListComp:
-    elt: Expression
-    generators: list[Comprehension]
+    def __init__(self) -> None:
+        self.module: Optional[str] = None
+        self.names: list[AliasNode] = None
+        self.level: Optional[int] = None
 
 
-@dataclass
-class SetComp:
-    elt: Expression
-    generators: list[Comprehension]
+class GlobalNode(BaseNode):
+    __slots__ = ('names',)
 
+    def __init__(self) -> None:
+        self.names: list[str] = []
 
-@dataclass
-class DictComp:
-    elt: DictElt
-    generators: list[Comprehension]
 
+class NonlocalNode(BaseNode):
+    __slots__ = ('names',)
 
-@dataclass
-class GeneratorExp:
-    elt: Expression
-    generators: list[Comprehension]
+    def __init__(self) -> None:
+        self.names: list[str] = []
 
 
-@dataclass
-class Await:
-    value: Expression
+class ExprNode(BaseNode):
+    __slots__ = ('expr',)
 
+    def __init__(self, *, expr: ExpressionNode) -> None:
+        self.expr = expr
 
-@dataclass
-class Yield:
-    value: Optional[Expression]
 
+StatementNode = Union[
+    FunctionDefNode,
+    ClassDefNode,
+    ReturnNode,
+    DeleteNode,
+    AssignNode,
+    AugAssignNode,
+    AnnAssignNode,
+    ForNode,
+    WhileNode,
+    IfNode,
+    WithNode,
+    RaiseNode,
+    TryNode,
+    AssertNode,
+    ImportNode,
+    ImportFromNode,
+    GlobalNode,
+    NonlocalNode,
+    ExprNode,
+]
 
-@dataclass
-class YieldFrom:
-    value: Expression
 
+class BoolOpNode(BaseNode):
+    __slots__ = ('op', 'values')
 
-@dataclass
-class Compare:
-    left: Expression
-    ops: list[CmpOperator]
-    comparators: list[Expression]
+    def __init__(self, *, op: BoolOperator, values: list[ExpressionNode]) -> None:
+        self.op = op
+        self.values = values
 
 
-@dataclass
-class Call:
-    func: Expr
-    args: list[Expr]
-    kwargs: list[KwArgument]
+class BinaryOpNode(BaseNode):
+    __slots__ = ('left', 'op', 'right')
 
+    def __init__(self, *, left: ExpressionNode, op: Operator, right: ExpressionNode) -> None:
+        self.left = left
+        self.op = op
+        self.right = right
 
-@dataclass
-class FormattedValue:
-    value: Expression
-    conversion: Optional[int]
-    spec: Optional[Expression]
 
+class UnaryOpNode(BaseNode):
+    __slots__ = ('op', 'operand')
 
-@dataclass
-class JoinedStr:
-    values: list[Expression]
+    def __init__(self, *, op: UnaryOperator, operand: ExpressionNode) -> None:
+        self.op = op
+        self.operand = operand
 
 
-@dataclass
-class Constant:
-    value: ConstantValueT
+class LambdaNode(BaseNode):
+    __slots__ = ('parameters', 'body')
 
+    def __init__(self) -> None:
+        self.parameters: list[ParameterNode] = []
+        self.body: list[StatementNode] = []
 
-ConstantValueT = Union[None, Ellipsis, int, float, complex, bool, str, bytes,
-                       Iterable['ConstantValueT']]
 
+class IfExpNode(BaseNode):
+    __slots__ = ('condition', 'body', 'elsebody')
 
-@dataclass
-class Attribute:
-    value: Expression
-    attr: str
-    ctx: ExprContext
+    def __init__(self, *, condition: ExpressionNode, body: ExpressionNode,
+                 elsebody: ExpressionNode) -> None:
+        self.condition = condition
+        self.body = body
+        self.elsebody = elsebody
 
 
-@dataclass
-class Subscript:
-    value: Expression
-    slice: Expression
-    ctx: ExprContext
+class DictNode(BaseNode):
+    __slots__ = ('elts',)
 
+    def __init__(self) -> None:
+        self.elts: list[DictElt] = []
 
-@dataclass
-class Starred:
-    value: Expression
-    ctx: ExprContext
 
+class SetNode(BaseNode):
+    __slots__ = ('elts',)
 
-@dataclass
-class Name:
-    id: str
-    ctx: ExprContext
+    def __init__(self) -> None:
+        self.elts: list[ExpressionNode] = []
 
 
-@dataclass
-class List:
-    elts: list[Expression]
-    ctx: ExprContext
+class ListCompNode(BaseNode):
+    __slots__ = ('elt', 'comprehensions')
 
+    def __init__(self, *, elt: ExpressionNode) -> None:
+        self.elt = elt
+        self.comprehensions: list[ComprehensionNode] = []
 
-@dataclass
-class Tuple:
-    elts: list[Expression]
-    ctx: ExprContext
 
+class SetCompNode(BaseNode):
+    __slots__ = ('elt', 'comprehensions')
 
-@dataclass
-class Slice:
-    start: Optional[int]
-    stop: Optional[int]
-    step: Optional[int]
+    def __init__(self, *, elt: ExpressionNode) -> None:
+        self.elt = elt
+        self.comprehensions: list[ComprehensionNode] = []
 
 
-Expression = Union[BoolOp, BinOp, UnaryOp, Lambda, IfExp, Dict, Set, ListComp, SetComp, DictComp,
-                   GeneratorExp, Await, Yield, YieldFrom, Compare, Call, FormattedValue, JoinedStr,
-                   Constant, Attribute, Subscript, Starred, Name, List, Tuple, Slice]
+class DictCompNode(BaseNode):
+    __slots__ = ('elt', 'comprehensions')
 
+    def __init__(self, *, elt: DictElt) -> None:
+        self.elt = elt
+        self.comprehensions: list[ComprehensionNode] = []
 
-@dataclass
-class Parameter:
-    name: str
-    annotation: Optional[Expression]
-    default: Optional[Expression]
 
+class GeneratorExpNode(BaseNode):
+    __slots__ = ('elt', 'comprehensions')
 
-@dataclass
-class Parameters:
-    posonlyargs: list[Parameter]
-    args: list[Parameter]
-    vararg: Optional[Parameter]
-    kwonlyargs: list[Parameter]
-    kwarg: Optional[Parameter]
+    def __init__(self, *, elt: DictElt) -> None:
+        self.elt = elt
+        self.comprehensions: list[ComprehensionNode] = []
 
 
-@dataclass
-class KwArgument:
-    name: Optional[str]
-    value: Expression
+class AwaitNode(BaseNode):
+    __slots__ = ('value',)
 
+    def __init__(self, *, value: ExpressionNode) -> None:
+        self.value = value
 
-@dataclass
-class WithItem:
-    contextmanager: Expression
-    targets: list[Expression]
 
+class YieldNode(BaseNode):
+    __slots__ = ('value',)
 
-@dataclass
-class ExceptHandler:
-    type: Optional[Expression]
-    target: Optional[str]
-    body: list[Statement]
+    def __init__(self) -> None:
+        self.value: Optional[ExpressionNode] = None
 
 
-@dataclass
-class Comprehension:
-    is_async: bool
-    target: Expression
-    iterator: Expression
-    ifs: list[Expression]
+class YieldFromNode(BaseNode):
+    __slots__ = ('value',)
 
+    def __init__(self, *, value: ExpressionNode) -> None:
+        self.value = value
 
-@dataclass
-class Alias:
-    name: str
-    asname: str
 
+class CompareNode(BaseNode):
+    __slots__ = ('left', 'ops', 'comparators')
 
-@dataclass
+    def __init__(self, *, left: ExpressionNode, ops: list[CmpOperator],
+                 comparators: list[ExpressionNode]) -> None:
+        self.left = left
+        self.ops = ops
+        self.comparators = comparators
+
+
+class CallNode(BaseNode):
+    __slots__ = ('func', 'args', 'kwargs')
+
+    def __init__(self, *, func: ExpressionNode) -> None:
+        self.func = func
+        self.args: list[ExpressionNode] = []
+        self.kwargs: list[KeywordArgumentNode] = []
+
+
+class FormattedValueNode(BaseNode):
+    __slots__ = ('value', 'conversion', 'spec')
+
+    def __init__(self, *, value: ExpressionNode) -> None:
+        self.value = value
+        self.conversion: Optional[int] = None
+        self.spec: Optional[ExpressionNode] = None
+
+
+class JoinedStrNode(BaseNode):
+    __slots__ = ('values',)
+
+    def __init__(self, *, values: list[ExpressionNode]) -> None:
+        self.values = values
+
+
+class ConstantNode(BaseNode):
+    __slots__ = ('value',)
+
+    def __init__(self, *, value: ConstantValueT) -> None:
+        self.value = value
+
+
+ConstantValueT = Union[
+    None,
+    Ellipsis,
+    int,
+    float,
+    complex,
+    bool,
+    str,
+    bytes,
+    Iterable['ConstantValueT'],
+]
+
+
+class AttributeNode(BaseNode):
+    __slots__ = ('value', 'attr', 'ctx')
+
+    def __init__(self, *, value: ExpressionNode, attr: str, ctx: ExprContext) -> None:
+        self.value = value
+        self.attr = attr
+        self.ctx = ctx
+
+
+class SubscriptNode(BaseNode):
+    __slots__ = ('value', 'slice', 'ctx')
+
+    def __init__(self, *, value: ExpressionNode, slice: ExpressionNode, ctx: ExprContext) -> None:
+        self.value = value
+        self.slice = slice
+        self.ctx = ctx
+
+
+class StarredNode(BaseNode):
+    __slots__ = ('value', 'ctx')
+
+    def __init__(self, *, value: ExpressionNode, ctx: ExprContext) -> None:
+        self.value = value
+        self.ctx = ctx
+
+
+class NameNode(BaseNode):
+    __slots__ = ('id', 'ctx')
+
+    def __init__(self, *, id: str, ctx: ExprContext) -> None:
+        self.id = id
+        self.ctx = ctx
+
+
+class ListNode(BaseNode):
+    __slots__ = ('elts', 'ctx')
+
+    def __init__(self) -> None:
+        self.elts: list[ExpressionNode] = []
+        self.ctx = ExprContext.LOAD
+
+
+class TupleNode(BaseNode):
+    __slots__ = ('elts', 'ctx')
+
+    def __init__(self):
+        self.elts: list[ExpressionNode] = []
+        self.ctx = ExprContext.LOAD
+
+
+class SliceNode(BaseNode):
+    __slots__ = ('start', 'stop', 'step')
+
+    def __init__(self, start: Optional[int], stop: Optional[int], step: Optional[int]) -> None:
+        self.start = start
+        self.stop = stop
+        self.step = step
+
+
+ExpressionNode = Union[
+    BoolOpNode,
+    BinaryOpNode,
+    UnaryOpNode,
+    LambdaNode,
+    IfExpNode,
+    DictNode,
+    SetNode,
+    ListCompNode,
+    SetCompNode,
+    DictCompNode,
+    GeneratorExpNode,
+    AwaitNode,
+    YieldNode,
+    YieldFromNode,
+    CompareNode,
+    CallNode,
+    FormattedValueNode,
+    JoinedStrNode,
+    ConstantNode,
+    AttributeNode,
+    SubscriptNode,
+    StarredNode,
+    NameNode,
+    ListNode,
+    TupleNode,
+    SliceNode,
+]
+
+
+class ParameterNode(BaseNode):
+    __slots__ = ('type', 'name', 'annotation', 'default')
+
+    def __init__(self, *, type: ParameterType, name: str) -> None:
+        self.type = type
+        self.name = name
+        self.annotation: Optional[ExpressionNode] = None
+        self.default: Optional[ExpressionNode] = None
+
+
+class KeywordArgumentNode(BaseNode):
+    __slots__ = ('name', 'value')
+
+    def __init__(self, *, name: Optional[str], value: ExpressionNode) -> None:
+        self.name = name
+        self.value = value
+
+
+class WithItemNode(BaseNode):
+    __slots__ = ('contextmanager', 'targets')
+
+    def __init__(self, contextmanager: ExpressionNode) -> None:
+        self.contextmanager = contextmanager
+        self.targets: list[ExpressionNode] = []
+
+
+class ExceptHandlerNode(BaseNode):
+    __slots__ = ('type', 'target', 'body')
+
+    def __init__(self) -> None:
+        self.type: Optional[ExpressionNode] = None
+        self.target: Optional[str] = None
+        self.body: list[StatementNode] = []
+
+
+class ComprehensionNode(BaseNode):
+    __slots__ = ('is_async', 'target', 'iterator', 'ifs')
+
+    def __init__(self, target: ExpressionNode, iterator: ExpressionNode) -> None:
+        self.is_async = False
+        self.target = target
+        self.iterator = iterator
+        self.ifs: list[ExpressionNode] = []
+
+
+class AliasNode(BaseNode):
+    __slots__ = ('name', 'asname')
+
+    def __init__(self, name: str, asname: str) -> None:
+        self.name = name
+        self.asname = asname
+
+
 class DictElt:
-    key: Expression
-    value: Expression
+    __slots__ = ('key', 'value')
+
+    def __init__(self, key: ExpressionNode, value: ExpressionNode) -> None:
+        self.key = key
+        self.value = value
+
+
+class ParameterType(enum.IntEnum):
+    ARG = enum.auto()
+    VARARG = enum.auto()
+    VARKWARG = enum.auto()
 
 
 class ExprContext(enum.IntEnum):
