@@ -220,31 +220,29 @@ class TokenType(enum.IntEnum):
 
 
 class Token:
-    __slots__ = ('scanner', 'type', 'startpos', 'endpos', 'lineno')
+    __slots__ = ('type', 'startpos', 'endpos', 'startlineno', 'endlineno', 'linespans')
 
-    def __init__(self, scanner: Scanner, type: TokenType,
-                 startpos: int, endpos: int, lineno: int) -> None:
+    def __init__(self, scanner: Scanner, type: TokenType, startpos: int, endpos: int,
+                 startlineno: int, endlineno: int) -> None:
         self.scanner = scanner
         self.type = type
         self.startpos = startpos
         self.endpos = endpos
-        self.lineno = lineno
+        self.startlineno = startlineno
+        self.endlineno = endlineno
+        self.linespans = (scanner._linespans[startlineno], self.linespans[endlineno])
 
     def __repr__(self) -> str:
         return (f'<{self.__class__.__name__} type={self.type!r}'
                 f' ({self.lineno}:{self.startpos}-{self.endpos})>')
-
-    def span(self) -> int:
-        start = self.scanner._linespans[self.lineno][0]
-        return start + self.startpos, start + self.endpos
 
 
 class IdentifierToken(Token):
     __slots__ = ('content', 'keyword')
 
     def __init__(self, scanner: Scanner, startpos: int, endpos: int,
-                 lineno: int, content: str) -> None:
-        super().__init__(scanner, TokenType.IDENTIFIER, startpos, endpos, lineno)
+                 startlineno: int, endlineno: int, content: str) -> None:
+        super().__init__(scanner, TokenType.IDENTIFIER, startpos, endpos, startlineno, endlineno)
         self.content = content
         self.keyword = KEYWORDS.get(self.content)
 
@@ -262,9 +260,9 @@ class StringTokenFlags(enum.IntFlag):
 class StringToken(Token):
     __slots__ = ('content', 'flags')
 
-    def __init__(self, scanner: Scanner, startpos: int, endpos: int, lineno: int,
-                 content: str, flags: StringTokenFlags) -> None:
-        super().__init__(scanner, TokenType.STRING, startpos, endpos, lineno)
+    def __init__(self, scanner: Scanner, startpos: int, endpos: int,
+                 startlineno: int, endlineno: int, content: str, flags: StringTokenFlags) -> None:
+        super().__init__(scanner, TokenType.STRING, startpos, endpos, startlineno, endlineno)
         self.content = content
         self.flags = flags
 
@@ -285,9 +283,9 @@ class NumericTokenFlags(enum.IntFlag):
 class NumericToken(Token):
     __slots__ = ('content', 'flags')
 
-    def __init__(self, scanner: Scanner, startpos: int, endpos: int, lineno: int,
-                 content: str, flags: NumericTokenFlags) -> None:
-        super().__init__(scanner, TokenType.NUMBER, startpos, endpos, lineno)
+    def __init__(self, scanner: Scanner, startpos: int, endpos: int,
+                 startlineno: int, endlineno: int, content: str, flags: NumericTokenFlags) -> None:
+        super().__init__(scanner, TokenType.NUMBER, startpos, endpos, startlineno, endlineno)
         self.content = content
         self.flags = flags
 
@@ -311,8 +309,8 @@ class ErrorToken(Token):
     __slots__ = ('errno',)
 
     def __init__(self, scanner: Scanner, startpos: int, endpos: int,
-                 lineno: int, errno: ErrorTokenErrno) -> None:
-        super().__init__(scanner, TokenType.ERROR, startpos, endpos, lineno)
+                 startlineno: int, endlineno: int, errno: ErrorTokenErrno) -> None:
+        super().__init__(scanner, TokenType.ERROR, startpos, endpos, startlineno, endlineno)
         self.errno = errno
 
     def __repr__(self) -> str:
@@ -325,29 +323,32 @@ class _TokenContext:
         self.scanner = scanner
         self.reader = reader
         self.startpos = self.reader.tell()
-        self.lineno = self.scanner.lineno()
+        self.startlineno = self.scanner.lineno()
 
     def create_token(self, type: TokenType) -> None:
         self.scanner._tokens.append(
-            Token(self.scanner, type, self.startpos, self.reader.tell(), self.lineno))
+            Token(self.scanner, type, self.startpos, self.reader.tell(),
+                  self.startlineno, self.scanner.lineno()))
 
     def create_identifier_token(self, content: str) -> None:
         self.scanner._tokens.append(
-            IdentifierToken(self.scanner, self.startpos, self.reader.tell(), self.lineno, content))
+            IdentifierToken(self.scanner, self.startpos, self.reader.tell(),
+                            self.startlineno, self.scanner.lineno(), content))
 
     def create_string_token(self, content: str, flags: StringTokenFlags) -> None:
         self.scanner._tokens.append(
             StringToken(self.scanner, self.startpos, self.reader.tell(),
-                        self.lineno, content, flags))
+                        self.startlineno, self.scanner.lineno(), content, flags))
 
     def create_numeric_token(self, content: str, flags: NumericTokenFlags) -> None:
         self.scanner._tokens.append(
             NumericToken(self.scanner, self.startpos, self.reader.tell(),
-                         self.lineno, content, flags))
+                         self.startlineno, self.scanner.lineno(), content, flags))
 
     def create_error_token(self, errno: ErrorTokenErrno) -> None:
         self.scanner._tokens.append(
-            ErrorToken(self.scanner, self.startpos, self.reader.tell(), self.lineno, errno))
+            ErrorToken(self.scanner, self.startpos, self.reader.tell(),
+                       self.startlineno, self.scanner.lineno(), errno))
         self.scanner._fail_()
 
 
@@ -642,17 +643,17 @@ class Scanner:
             flags = 0
             for char in content:
                 if char == 'r' or char == 'R':
-                    flag = rules = StringTokenFlags.RAW
+                    flag = invalid = StringTokenFlags.RAW
                 elif char == 'f' or char == 'F':
                     flag = StringTokenFlags.FORMAT
-                    rules = StringTokenFlags.FORMAT | StringTokenFlags.BYTES
+                    invalid = StringTokenFlags.FORMAT | StringTokenFlags.BYTES
                 elif char == 'b' or char == 'B':
                     flag = StringTokenFlags.BYTES
-                    rules = StringTokenFlags.BYTES | StringTokenFlags.FORMAT
+                    invalid = StringTokenFlags.BYTES | StringTokenFlags.FORMAT
                 else:
                     return ctx.create_error_token(ErrorTokenErrno.E_SYNTAX)
 
-                if flags & rules:
+                if flags & invalid:
                     return ctx.create_error_token(ErrorTokenErrno.E_SYNTAX)
                 else:
                     flags |= flag
