@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import traceback
 import codecs
 import enum
 import io
@@ -304,7 +305,7 @@ class Token:
 
     def __repr__(self) -> str:
         return (f'<{self.__class__.__name__} type={self.type!r}'
-                f' ({self.lineno}:{self.startpos}-{self.endpos})>')
+                f' ({self.startlineno}-{self.endlineno}:{self.startpos}-{self.endpos})>')
 
 
 class IdentifierToken(Token):
@@ -317,8 +318,8 @@ class IdentifierToken(Token):
         self.keyword = KEYWORDS.get(self.content)
 
     def __repr__(self) -> str:
-        return (f'<{self.__class__.__name__} type={self.type!r}'
-                f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
+        return (f'<{self.__class__.__name__} type={self.type!r} {self.content!r}'
+                f' ({self.startlineno}-{self.endlineno}:{self.startpos}-{self.endpos})>')
 
 
 class StringTokenFlags(enum.IntFlag):
@@ -337,8 +338,8 @@ class StringToken(Token):
         self.flags = flags
 
     def __repr__(self):
-        return (f'<{self.__class__.__name__} type={self.type!r}'
-                f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
+        return (f'<{self.__class__.__name__} type={self.type!r} {self.content!r}'
+                f' ({self.startlineno}-{self.endlineno}:{self.startpos}-{self.endpos})>')
 
 
 class NumericTokenFlags(enum.IntFlag):
@@ -360,8 +361,8 @@ class NumericToken(Token):
         self.flags = flags
 
     def __repr__(self) -> str:
-        return (f'<{self.__class__.__name__} flags={self.flags!r}'
-                f' {self.content!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
+        return (f'<{self.__class__.__name__} flags={self.flags!r} {self.content!r}'
+                f' ({self.startlineno}-{self.endlineno}:{self.startpos}-{self.endpos})>')
 
 
 class ErrorTokenErrno(enum.Enum):
@@ -384,8 +385,8 @@ class ErrorToken(Token):
         self.errno = errno
 
     def __repr__(self) -> str:
-        return (f'<{self.__class__.__name__} type={self.type!r}'
-                f' {self.errno!r} ({self.lineno}:{self.startpos}-{self.endpos})>')
+        return (f'<{self.__class__.__name__} type={self.type!r} {self.errno!r}'
+                f' ({self.startlineno}-{self.endlineno}:{self.startpos}-{self.endpos})>')
 
 
 class _TokenContext:
@@ -443,7 +444,8 @@ class _IndentScanner:
         return self.stack[-1][1]
 
     def feed(self, reader: StringReader):
-        token = Token(self.scanner, TokenType.NEWLINE, 0, 0, self.scanner.lineno())
+        token = Token(self.scanner, TokenType.NEWLINE, 0, 0,
+                      self.scanner.lineno(), self.scanner.lineno())
         ctx = self.scanner.create_context(reader)
 
         indent = 0
@@ -699,7 +701,7 @@ class Scanner:
         self._tokens = []
 
     def realpos(self, lineno, position) -> int:
-        return self._tokens[lineno] + position
+        return self._linepositions[lineno - 1] + position
 
     def lineno(self) -> int:
         return len(self._linepositions)
@@ -710,12 +712,15 @@ class Scanner:
 
     def _fail_(self):
         self._stopping = True
+        if __debug__:
+            traceback.print_stack()
 
     def create_context(self, reader: StringReader) -> _TokenContext:
         return _TokenContext(self, reader)
 
     def _scan_identifier(self, ctx: _TokenContext) -> None:
         content = ctx.reader.accumulate(_is_identifier)
+        print(content)
         if ctx.reader.expect(('\'', '"')):
             flags = 0
             for char in content:

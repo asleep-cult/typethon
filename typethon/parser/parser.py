@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from typing import Optional
 
+from .exceptions import InternalParserError
 from .scanner import Token, TokenType, scan
 from .. import ast
 
@@ -41,7 +42,9 @@ class _TokenStream:
 
     def consume(self, type: TokenType) -> Token:
         token = self.peek()
-        assert token.type is type
+        if token.type is not type:
+            raise InternalParserError(f'Precieved type: {type!r} does not '
+                                      f'match actual type: {token.type!r}')
         self.advance()
         return token
 
