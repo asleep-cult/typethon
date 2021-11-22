@@ -641,20 +641,13 @@ class Scanner:
             flags = 0
             for char in content:
                 if char == 'r' or char == 'R':
-                    flag = invalid = StringTokenFlags.RAW
+                    flags |= StringTokenFlags.RAW
                 elif char == 'f' or char == 'F':
-                    flag = StringTokenFlags.FORMAT
-                    invalid = StringTokenFlags.FORMAT | StringTokenFlags.BYTES
+                    flags |= StringTokenFlags.FORMAT
                 elif char == 'b' or char == 'B':
-                    flag = StringTokenFlags.BYTES
-                    invalid = StringTokenFlags.BYTES | StringTokenFlags.FORMAT
+                    flags |= StringTokenFlags.BYTES
                 else:
                     return ctx.create_error_token(ErrorTokenErrno.E_SYNTAX)
-
-                if flags & invalid:
-                    return ctx.create_error_token(ErrorTokenErrno.E_SYNTAX)
-                else:
-                    flags |= flag
 
             self._stringscanner.feed(ctx.reader, flags=flags)
         else:
@@ -708,7 +701,7 @@ class Scanner:
                 content.write('.')
                 content.write(ctx.reader.accumulate(_number_accumulator(_is_digit)))
 
-        if ctx.reader.expect('e'):
+        if ctx.reader.expect(('E', 'e')):
             if ctx.reader.expect('+'):
                 content.write('e+')
             elif ctx.reader.expect('-'):
