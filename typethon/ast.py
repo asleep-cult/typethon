@@ -486,7 +486,6 @@ class ListNode(BaseNode):
 
     def __init__(self) -> None:
         self.elts: list[ExpressionNode] = []
-        self.ctx = ExprContext.LOAD
 
 
 class TupleNode(BaseNode):
@@ -494,7 +493,6 @@ class TupleNode(BaseNode):
 
     def __init__(self):
         self.elts: list[ExpressionNode] = []
-        self.ctx = ExprContext.LOAD
 
 
 class SliceNode(BaseNode):
