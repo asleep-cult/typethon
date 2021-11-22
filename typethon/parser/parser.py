@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 from typing import Optional
 
-from .keywords import KeywordType
 from .scanner import Token, TokenType, scan
 from .. import ast
 
@@ -19,11 +18,6 @@ class _TokenStream:
     def peek_type(self, offset: int = 0) -> Token:
         return self.peek(offset).type
 
-    def peek_keyword(self, offset: int = 0) -> Optional[KeywordType]:
-        token = self.peek(offset)
-        if token.type is TokenType.IDENTIFIER:
-            return token.keyword
-
     def advance(self, by: int = 1) -> int:
         self.position += by
         return self.position
@@ -31,17 +25,16 @@ class _TokenStream:
     def at_type(self, type: TokenType, offset: int = 0) -> bool:
         return self.peek_type(offset) is type
 
-    def at_keyword(self, type: KeywordType, offset: int = 0) -> bool:
-        return self.peek_keyword(offset) is type
+    def at_expr(self, offset: int = 0) -> bool:
+        return self.peek_type(offset) in (
+            TokenType.LAMBDA, TokenType.NOT, TokenType.AWAIT,
+            TokenType.TRUE, TokenType.FALSE, TokenType.NONE,
+            TokenType.IDENTIFIER, TokenType.NUMBER, TokenType.STRING,
+            TokenType.ELLIPSIS, TokenType.PLUS, TokenType.MINUS, TokenType.TILDE,
+            TokenType.LPAREN, TokenType.LBRACKET, TokenType.LBRACE)
 
     def expect_type(self, type: TokenType) -> bool:
         if self.at_type(type):
-            self.advance()
-            return True
-        return False
-
-    def expect_keyword(self, type: KeywordType) -> bool:
-        if self.at_keyword(type):
             self.advance()
             return True
         return False
@@ -52,11 +45,6 @@ class _TokenStream:
         self.advance()
         return token
 
-    def consume_keyword(self, type: KeywordType) -> Token:
-        token = self.consume(TokenType.IDENTIFIER)
-        assert token.keyword is type
-        return token
-
 
 class Parser:
     def __init__(self, source: io.TextIOBase) -> None:
@@ -65,73 +53,73 @@ class Parser:
         self._tokens = None
 
     def _parse_compound_statement(self) -> Optional[ast.StatementNode]:
-        if self._tokens.at_keyword(KeywordType.ASYNC):
+        if self._tokens.at_type(TokenType.ASYNC):
             return self._parse_async_statement()
 
-        if self._tokens.at_keyword(KeywordType.CLASS):
+        if self._tokens.at_type(TokenType.CLASS):
             return self._parse_class_def()
 
-        if self._tokens.at_keyword(KeywordType.DEF):
+        if self._tokens.at_type(TokenType.DEF):
             return self._parse_function_def()
 
-        if self._tokens.at_keyword(KeywordType.FOR):
+        if self._tokens.at_type(TokenType.FOR):
             return self._parse_for_statement()
 
-        if self._tokens.at_keyword(KeywordType.IF):
+        if self._tokens.at_type(TokenType.IF):
             return self._parse_if_statement()
 
-        if self._tokens.at_keyword(KeywordType.TRY):
+        if self._tokens.at_type(TokenType.TRY):
             return self._parse_try_statement()
 
-        if self._tokens.at_keyword(KeywordType.WHILE):
+        if self._tokens.at_type(TokenType.WHILE):
             return self._parse_while_statement()
 
-        if self._tokens.at_keyword(KeywordType.WITH):
+        if self._tokens.at_type(TokenType.WITH):
             return self._parse_with_statement()
 
         if self._tokens.at_type(TokenType.AT):
             return self._parse_decorated_statement()
 
     def _parse_simple_statement(self) -> Optional[ast.StatementNode]:
-        if self._tokens.at_keyword(KeywordType.ASSERT):
+        if self._tokens.at_type(TokenType.ASSERT):
             return self._parse_assert_statement()
 
-        if self._tokens.at_keyword(KeywordType.BREAK):
+        if self._tokens.at_type(TokenType.BREAK):
             return self._parse_break_statement()
 
-        if self._tokens.at_keyword(KeywordType.CONTINUE):
+        if self._tokens.at_type(TokenType.CONTINUE):
             return self._parse_continue_statement()
 
-        if self._tokens.at_keyword(KeywordType.DEL):
+        if self._tokens.at_type(TokenType.DEL):
             return self._parse_del_statement()
 
-        if (self._tokens.at_keyword(KeywordType.FROM)
-                or self._tokens.at_keyword(KeywordType.IMPORT)):
+        if (self._tokens.at_type(TokenType.FROM)
+                or self._tokens.at_type(TokenType.IMPORT)):
             return self._parse_import_statement()
 
-        if self._tokens.at_keyword(KeywordType.GLOBAL):
+        if self._tokens.at_type(TokenType.GLOBAL):
             return self._parse_global_statement()
 
-        if self._tokens.at_keyword(KeywordType.NONLOCAL):
+        if self._tokens.at_type(TokenType.NONLOCAL):
             return self._parse_nonlocal_statement()
 
-        if self._tokens.at_keyword(KeywordType.PASS):
+        if self._tokens.at_type(TokenType.PASS):
             return self._parse_pass_statement()
 
-        if self._tokens.at_keyword(KeywordType.RAISE):
+        if self._tokens.at_type(TokenType.RAISE):
             return self._parse_raise_statement()
 
-        if self._tokens.at_keyword(KeywordType.RETURN):
+        if self._tokens.at_type(TokenType.RETURN):
             return self._parse_return_statement()
 
     def _parse_async_statement(self) -> Optional[ast.StatementNode]:
-        if self._tokens.at_keyword(KeywordType.DEF):
+        if self._tokens.at_type(TokenType.DEF):
             return self._parse_class_def()
 
-        if self._tokens.at_keyword(KeywordType.FOR):
+        if self._tokens.at_type(TokenType.FOR):
             return self._parse_for_statement()
 
-        if self._tokens.at_keyword(KeywordType.WITH):
+        if self._tokens.at_type(TokenType.WITH):
             return self._parse_with_statement()
 
     def _parse_class_def(self):
@@ -162,11 +150,11 @@ class Parser:
         pass
 
     def _parse_break_statement(self) -> ast.BreakNode:
-        self._tokens.consume_keyword(KeywordType.BREAK)
+        self._tokens.consume(TokenType.BREAK)
         return ast.BreakNode()
 
     def _parse_continue_statement(self) -> ast.ContinueNode:
-        self._tokens.consume_keyword(KeywordType.CONTINUE)
+        self._tokens.consume(TokenType.CONTINUE)
         return ast.ContinueNode()
 
     def _parse_del_statement(self):
@@ -182,7 +170,7 @@ class Parser:
         pass
 
     def _parse_pass_statement(self) -> ast.PassNode:
-        self._tokens.consume_keyword(KeywordType.PASS)
+        self._tokens.consume(TokenType.PASS)
         return ast.PassNode()
 
     def _parse_raise_statement(self):
@@ -203,16 +191,16 @@ class Parser:
             pass
 
     def _parse_expression(self):
-        if self._tokens.at_keyword(KeywordType.LAMBDA):
+        if self._tokens.at_type(TokenType.LAMBDA):
             return self._parse_lambda_expression()
 
         expr = self._parse_disjunction()
-        if not self._tokens.expect_keyword(KeywordType.IF):
+        if not self._tokens.expect_type(TokenType.IF):
             return expr
 
         condexpr = self._parse_disjunction()
 
-        if not self._tokens.expect_keyword(KeywordType.ELSE):
+        if not self._tokens.expect_type(TokenType.ELSE):
             assert False
 
         elseexpr = self._parse_expression()
@@ -223,39 +211,75 @@ class Parser:
 
     def _parse_disjunction(self):
         left_expr = self._parse_conjunction()
-        if not self._tokens.at_keyword(KeywordType.OR):
+        if not self._tokens.at_type(TokenType.OR):
             return left_expr
 
         expr = ast.BoolOpNode(op=ast.BoolOperator.OR)
         expr.values.append(left_expr)
 
-        while self._tokens.expect_keyword(KeywordType.OR):
+        while self._tokens.expect_type(TokenType.OR):
             expr.values.append(self._parse_conjunction())
 
         return expr
 
     def _parse_conjunction(self):
         left_expr = self._parse_inversion()
-        if not self._tokens.at_keyword(KeywordType.AND):
+        if not self._tokens.at_type(TokenType.AND):
             return left_expr
 
         expr = ast.BoolOpNode(op=ast.BoolOperator.AND)
         expr.values.append(left_expr)
 
-        while self._tokens.expect_keyword(KeywordType.AND):
+        while self._tokens.expect_type(TokenType.AND):
             expr.values.append(self._parse_inversion())
 
         return expr
 
     def _parse_inversion(self):
-        if self._tokens.expect_keyword(KeywordType.NOT):
+        if self._tokens.expect_type(TokenType.NOT):
             expr = self._parse_inversion()
             return ast.UnaryOpNode(op=ast.UnaryOperator.NOT, operand=expr)
 
         return self._parse_comparison()
 
     def _parse_comparison(self):
-        pass
+        left_expr = self._parse_bitwise_or()
+
+        expr = ast.CompareNode(left=left_expr)
+
+        while True:
+            if self._tokens.expect_type(TokenType.EQEQUAL):
+                operator = ast.CmpOperator.EQ
+            elif self._tokens.expect_type(TokenType.NOTEQUAL):
+                operator = ast.CmpOperator.NOTEQ
+            elif self._tokens.expect_type(TokenType.LTHANEQ):
+                operator = ast.CmpOperator.LTE
+            elif self._tokens.expect_type(TokenType.LTHAN):
+                operator = ast.CmpOperator.LT
+            elif self._tokens.expect_type(TokenType.GTHANEQ):
+                operator = ast.CmpOperator.GTE
+            elif self._tokens.expect_type(TokenType.GTHAN):
+                operator = ast.CmpOperator.GT
+            elif self._tokens.expect_type(TokenType.IN):
+                operator = ast.CmpOperator.IN
+            elif (self._tokens.at_type(TokenType.NOT)
+                    and self._tokens.at_type(TokenType.IN, 1)):
+                self._tokens.advance(2)
+                operator = ast.CmpOperator.NOTIN
+            elif self._tokens.expect_type(TokenType.IS):
+                operator = ast.CmpOperator.IS
+            elif (self._tokens.at_type(TokenType.NOT)
+                    and self._tokens.at_type(TokenType.IN, 1)):
+                self._tokens.at_type(2)
+                operator = ast.CmpOperator.NOTIN
+            else:
+                if not expr.comparators:
+                    assert False
+
+                return expr
+
+            right_expr = self._parse_bitwise_or()
+            expr.comparators.append(ast.ComparatorNode(op=operator, value=right_expr))
 
     def _parse_bitwise_or(self):
         left_expr = self._parse_bitwise_xor()
@@ -349,14 +373,13 @@ class Parser:
         pass
 
     def _parse_primary_expression(self):
-        awaited = self._tokens.expect_keyword(KeywordType.AWAIT)
-        left_expr = self._parse_primary_expression()
+        awaited = self._tokens.expect_type(TokenType.AWAIT)
+        left_expr = self._parse_atom_expression()
 
         while True:
             if self._tokens.expect_type(TokenType.DOT):
-                token = self._tokens.peek()
-                if token.type is TokenType.IDENTIFIER:
-                    self._tokens.advance()
+                if self._tokens.at_type(TokenType.IDENTIFIER):
+                    token = self._tokens.consume(TokenType.IDENTIFIER)
                     left_expr = ast.AttributeNode(value=left_expr, attr=token.content)
                 else:
                     assert False
@@ -371,30 +394,38 @@ class Parser:
         return left_expr
 
     def _parse_atom_expression(self):
-        token = self._tokens.peek()
+        if self._tokens.at_type(TokenType.TRUE):
+            self._tokens.consume(TokenType.TRUE)
+            return ast.ConstantNode(type=ast.ConstantType.TRUE)
 
-        if token.type is TokenType.IDENTIFIER:
-            self._tokens.advance()
-            if token.keyword is not None:
-                return ast.NameNode(value=token.content)
-            elif token.keyword is KeywordType.TRUE:
-                return ast.ConstantNode(type=ast.ConstantType.TRUE)
-            elif token.keyword is KeywordType.FALSE:
-                return ast.ConstantType(type=ast.ConstantType.FALSE)
-            elif token.keyword is KeywordType.NONE:
-                return ast.ConstantType(type=ast.ConstantType.NONE)
-        elif token.type is TokenType.NUMBER:
+        if self._tokens.at_type(TokenType.FALSE):
+            self._tokens.consume(TokenType.FALSE)
+            return ast.ConstantNode(type=ast.ConstantType.FALSE)
+
+        if self._tokens.at_type(TokenType.NONE):
+            self._tokens.consume(TokenType.NONE)
+            return ast.ConstantNode(type=ast.ConstantType.NONE)
+
+        if self._tokens.at_type(TokenType.IDENTIFIER):
+            token = self._tokens.consume(TokenType.IDENTIFIER)
+            return ast.NameNode(value=token.content)
+
+        if self._tokens.at_type(TokenType.NUMBER):
             assert False
-        elif token.type is TokenType.STRING:
+
+        if self._tokens.at_type(TokenType.STRING):
             assert False
-        elif token.type is TokenType.ELLIPSIS:
-            self._tokens.advance()
+
+        if self._tokens.at_type(TokenType.ELLIPSIS):
             return ast.ConstantNode(type=ast.ConstantType.ELLIPSIS)
-        elif token.type is TokenType.LPAREN:
+
+        if self._tokens.at_type(TokenType.LPAREN):
             assert False
-        elif token.type is TokenType.LBRACKET:
+
+        if self._tokens.at_type(TokenType.LBRACKET):
             assert False
-        elif token.type is TokenType.LBRACE:
+
+        if self._tokens.at_type(TokenType.LBRACE):
             assert False
 
     def _parse_slices(self):

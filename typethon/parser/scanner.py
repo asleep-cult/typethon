@@ -6,7 +6,6 @@ import io
 from typing import Callable
 
 from .exceptions import BadEncodingDeclaration
-from .keywords import KEYWORDS
 from .stringreader import EOF, StringReader
 
 TABSIZE = 8
@@ -218,6 +217,79 @@ class TokenType(enum.IntEnum):
     RARROW = enum.auto()
     ELLIPSIS = enum.auto()
 
+    FALSE = enum.auto()
+    NONE = enum.auto()
+    TRUE = enum.auto()
+    AND = enum.auto()
+    ASSERT = enum.auto()
+    ASYNC = enum.auto()
+    AWAIT = enum.auto()
+    BREAK = enum.auto()
+    CLASS = enum.auto()
+    CONTINUE = enum.auto()
+    DEF = enum.auto()
+    DEL = enum.auto()
+    ELIF = enum.auto()
+    ELSE = enum.auto()
+    EXCEPT = enum.auto()
+    FINALLY = enum.auto()
+    FOR = enum.auto()
+    FROM = enum.auto()
+    GLOBAL = enum.auto()
+    IF = enum.auto()
+    IMPORT = enum.auto()
+    IN = enum.auto()
+    IS = enum.auto()
+    LAMBDA = enum.auto()
+    NONLOCAL = enum.auto()
+    NOT = enum.auto()
+    OR = enum.auto()
+    PASS = enum.auto()
+    RAISE = enum.auto()
+    RETURN = enum.auto()
+    TRY = enum.auto()
+    WHILE = enum.auto()
+    WITH = enum.auto()
+    YIELD = enum.auto()
+
+
+KEYWORDS = {
+    'False': TokenType.FALSE,
+    'None': TokenType.NONE,
+    'True': TokenType.TRUE,
+    'and': TokenType.AND,
+    'assert': TokenType.ASSERT,
+    'async': TokenType.ASYNC,
+    'await': TokenType.AWAIT,
+    'break': TokenType.BREAK,
+    'class': TokenType.CLASS,
+    'continue': TokenType.CONTINUE,
+    'def': TokenType.DEF,
+    'del': TokenType.DEL,
+    'elif': TokenType.ELIF,
+    'else': TokenType.ELSE,
+    'except': TokenType.EXCEPT,
+    'finally': TokenType.FINALLY,
+    'for': TokenType.FOR,
+    'from': TokenType.FROM,
+    'global': TokenType.GLOBAL,
+    'if': TokenType.IF,
+    'import': TokenType.IMPORT,
+    'in': TokenType.IN,
+    'is': TokenType.IS,
+    'lambda': TokenType.LAMBDA,
+    'nonlocal': TokenType.NONLOCAL,
+    'not': TokenType.NOT,
+    'or': TokenType.OR,
+    'pass': TokenType.PASS,
+    'raise': TokenType.RAISE,
+    'return': TokenType.RETURN,
+    'try': TokenType.TRY,
+    'while': TokenType.WHILE,
+    'with': TokenType.WITH,
+    'yield': TokenType.YIELD,
+}
+
 
 class Token:
     __slots__ = ('type', 'startpos', 'endpos', 'startlineno', 'endlineno',)
@@ -329,9 +401,16 @@ class _TokenContext:
                   self.startlineno, self.scanner.lineno()))
 
     def create_identifier_token(self, content: str) -> None:
-        self.scanner._tokens.append(
-            IdentifierToken(self.scanner, self.startpos, self.reader.tell(),
-                            self.startlineno, self.scanner.lineno(), content))
+        try:
+            keyword = KEYWORDS[content]
+        except KeyError:
+            self.scanner._tokens.append(
+                IdentifierToken(self.scanner, self.startpos, self.reader.tell(),
+                                self.startlineno, self.scanner.lineno(), content))
+        else:
+            self.scanner._tokens.append(
+                Token(self.scanner, keyword, self.startpos, self.reader.tell(),
+                      self.startlineno, self.scanner.lineno()))
 
     def create_string_token(self, content: str, flags: StringTokenFlags) -> None:
         self.scanner._tokens.append(

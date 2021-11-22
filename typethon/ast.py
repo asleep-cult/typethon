@@ -351,11 +351,17 @@ class YieldFromNode(BaseNode):
 class CompareNode(BaseNode):
     __slots__ = ('left', 'ops', 'comparators')
 
-    def __init__(self, *, left: ExpressionNode, ops: list[CmpOperator],
-                 comparators: list[ExpressionNode]) -> None:
+    def __init__(self, *, left: ExpressionNode) -> None:
         self.left = left
-        self.ops = ops
-        self.comparators = comparators
+        self.comparators: list[ComparatorNode] = []
+
+
+class ComparatorNode(BaseNode):
+    __slots__ = ('op', 'value')
+
+    def __init__(self, *, op: CmpOperator, value: ExpressionNode) -> None:
+        self.op = op
+        self.value = value
 
 
 class CallNode(BaseNode):
