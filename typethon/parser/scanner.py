@@ -720,7 +720,6 @@ class Scanner:
 
     def _scan_identifier(self, ctx: _TokenContext) -> None:
         content = ctx.reader.accumulate(_is_identifier)
-        print(content)
         if ctx.reader.expect(('\'', '"')):
             flags = 0
             for char in content:

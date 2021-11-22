@@ -9,7 +9,7 @@ from .parser.scanner import Token
 class BaseNode:
     __slots__ = ('startpos', 'endpos', 'startlineno', 'endlineno', 'linespans')
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         self = object.__new__(cls)
 
         self.startpos = -1
@@ -30,12 +30,26 @@ class BaseNode:
 
         return self
 
+    def __repr__(self):
+        attrs = ', '.join(f'{name}={getattr(self, name)}' for name in self.__class__.__slots__
+                          if name not in BaseNode.__slots__)
+        if not attrs:
+            return f'<{self.__class__.__name__}>'
+        return f'<{self.__class__.__name__} {attrs}>'
+
 
 class ModuleNode(BaseNode):
-    __slots__ = ('suite',)
+    __slots__ = ('body',)
 
     def __init__(self) -> None:
-        self.suite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
+
+
+class StatementList(BaseNode):
+    __slots__ = ('statements',)
+
+    def __init__(self) -> None:
+        self.statements: list[StatementNode] = []
 
 
 class FunctionDefNode(BaseNode):
@@ -143,9 +157,9 @@ class WithNode(BaseNode):
 class RaiseNode(BaseNode):
     __slots__ = ('exc', 'cause')
 
-    def __init__(self, *, exc: ExpressionNode, cause: ExpressionNode) -> None:
-        self.exc = exc
-        self.cause = cause
+    def __init__(self) -> None:
+        self.exc: Optional[ExpressionNode] = None
+        self.cause: Optional[ExpressionNode] = None
 
 
 class TryNode(BaseNode):
@@ -216,6 +230,7 @@ class ContinueNode(BaseNode):
 
 
 StatementNode = Union[
+    StatementList,
     FunctionDefNode,
     ClassDefNode,
     ReturnNode,
