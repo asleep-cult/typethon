@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from typing import Iterable, Optional, Union
+from typing import Optional, Union
 
 from .parser.scanner import Token
 
@@ -241,9 +241,9 @@ StatementNode = Union[
 class BoolOpNode(BaseNode):
     __slots__ = ('op', 'values')
 
-    def __init__(self, *, op: BoolOperator, values: list[ExpressionNode]) -> None:
+    def __init__(self, *, op: BoolOperator) -> None:
         self.op = op
-        self.values = values
+        self.values: list[ExpressionNode] = []
 
 
 class BinaryOpNode(BaseNode):
@@ -384,61 +384,84 @@ class JoinedStrNode(BaseNode):
 
 
 class ConstantNode(BaseNode):
+    __slots__ = ('type',)
+
+    def __init__(self, *, type: ConstantType) -> None:
+        self.type = type
+
+
+class IntegerNode(BaseNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: ConstantValueT) -> None:
+    def __init__(self, *, value: int) -> None:
+        super().__init__(type=ConstantType.INTEGER)
         self.value = value
 
 
-ConstantValueT = Union[
-    None,
-    Ellipsis,
-    int,
-    float,
-    complex,
-    bool,
-    str,
-    bytes,
-    Iterable['ConstantValueT'],
-]
+class FloatNode(ConstantNode):
+    __slots__ = ('value',)
+
+    def __init__(self, value: float) -> None:
+        super().__init__(type=ConstantType.FLOAT)
+        self.value = value
+
+
+class ComplexNode(ConstantNode):
+    __slots__ = ('value',)
+
+    def __init__(self, value: complex) -> None:
+        super().__init__(type=ConstantType.COMPLEX)
+        self.value = value
+
+
+class StringNode(ConstantNode):
+    __slots__ = ('value',)
+
+    def __init__(self, value: str) -> None:
+        super().__init__(type=ConstantType.STRING)
+        self.value = value
+
+
+class BytesNode(ConstantNode):
+    __slots__ = ('value',)
+
+    def __init__(self, value: bytes) -> None:
+        super().__init__(type=ConstantType.BYTES)
+        self.value = value
 
 
 class AttributeNode(BaseNode):
-    __slots__ = ('value', 'attr', 'ctx')
+    __slots__ = ('value', 'attr',)
 
-    def __init__(self, *, value: ExpressionNode, attr: str, ctx: ExprContext) -> None:
+    def __init__(self, *, value: ExpressionNode, attr: str) -> None:
         self.value = value
         self.attr = attr
-        self.ctx = ctx
 
 
 class SubscriptNode(BaseNode):
-    __slots__ = ('value', 'slice', 'ctx')
+    __slots__ = ('value', 'slice',)
 
-    def __init__(self, *, value: ExpressionNode, slice: ExpressionNode, ctx: ExprContext) -> None:
+    def __init__(self, *, value: ExpressionNode, slice: ExpressionNode) -> None:
         self.value = value
         self.slice = slice
-        self.ctx = ctx
 
 
 class StarredNode(BaseNode):
-    __slots__ = ('value', 'ctx')
+    __slots__ = ('value',)
 
-    def __init__(self, *, value: ExpressionNode, ctx: ExprContext) -> None:
+    def __init__(self, *, value: ExpressionNode) -> None:
         self.value = value
-        self.ctx = ctx
 
 
 class NameNode(BaseNode):
-    __slots__ = ('id', 'ctx')
+    __slots__ = ('value',)
 
-    def __init__(self, *, id: str, ctx: ExprContext) -> None:
-        self.id = id
-        self.ctx = ctx
+    def __init__(self, *, value: str) -> None:
+        self.value = value
 
 
 class ListNode(BaseNode):
-    __slots__ = ('elts', 'ctx')
+    __slots__ = ('elts',)
 
     def __init__(self) -> None:
         self.elts: list[ExpressionNode] = []
@@ -446,7 +469,7 @@ class ListNode(BaseNode):
 
 
 class TupleNode(BaseNode):
-    __slots__ = ('elts', 'ctx')
+    __slots__ = ('elts',)
 
     def __init__(self):
         self.elts: list[ExpressionNode] = []
@@ -551,6 +574,18 @@ class DictElt:
     def __init__(self, key: ExpressionNode, value: ExpressionNode) -> None:
         self.key = key
         self.value = value
+
+
+class ConstantType(enum.Enum):
+    TRUE = enum.auto()
+    FALSE = enum.auto()
+    NONE = enum.auto()
+    ELLIPSIS = enum.auto()
+    INTEGER = enum.auto()
+    FLOAT = enum.auto()
+    COMPLEX = enum.auto()
+    STRING = enum.auto()
+    BYTES = enum.auto()
 
 
 class ParameterType(enum.IntEnum):

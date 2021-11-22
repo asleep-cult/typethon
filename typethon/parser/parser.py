@@ -19,14 +19,14 @@ class Parser:
         self._postition += by
         return self._postition
 
-    def _peek(self, offset: int = 0) -> Token:
+    def _peek_token(self, offset: int = 0) -> Token:
         return self._tokens[self._postition + offset]
 
     def _peek_type(self, offset: int = 0) -> Token:
-        return self._peek(offset).type
+        return self._peek_token(offset).type
 
     def _peek_keyword(self, offset: int = 0) -> Optional[KeywordType]:
-        token = self._peek(offset)
+        token = self._peek_token(offset)
         if token.type is TokenType.IDENTIFIER:
             return token.keyword
 
@@ -44,7 +44,7 @@ class Parser:
 
     def _next_token(self) -> Token:
         try:
-            return self._peek()
+            return self._peek_token()
         finally:
             self._advance()
 
@@ -148,10 +148,12 @@ class Parser:
         pass
 
     def _parse_break_statement(self) -> ast.BreakNode:
-        return ast.BreakNode().set_loc(self._next_token())
+        self._advance()
+        return ast.BreakNode()
 
     def _parse_continue_statement(self) -> ast.ContinueNode:
-        return ast.ContinueNode().set_loc(self._next_token())
+        self._advance()
+        return ast.ContinueNode()
 
     def _parse_del_statement(self):
         pass
@@ -166,7 +168,8 @@ class Parser:
         pass
 
     def _parse_pass_statement(self) -> ast.PassNode:
-        return ast.PassNode().set_loc(self._next_token())
+        self._advance()
+        return ast.PassNode()
 
     def _parse_raise_statement(self):
         pass
@@ -174,7 +177,198 @@ class Parser:
     def _parse_return_statement(self):
         pass
 
-    def _parse_star_expressions(self):
+    def _parse_expression(self):
+        if self._peek_keyword() is KeywordType.LAMBDA:
+            return self._parse_lambda_expression()
+
+        expr = self._parse_disjunction()
+        if self._peek_keyword() is KeywordType.IF:
+            return self._parse_if_expression(expr)
+
+        return expr
+
+    def _parse_lambda_expression(self) -> ast.LambdaNode:
+        pass
+
+    def _parse_if_expression(self, body: ast.ExpressionNode) -> ast.IfExpNode:
+        pass
+
+    def _parse_disjunction(self):
+        left_expr = self._parse_conjunction()
+        if self._peek_keyword() is not KeywordType.OR:
+            return left_expr
+
+        expr = ast.BoolOpNode(op=ast.BoolOperator.OR)
+        expr.values.append(left_expr)
+
+        while self._expect_keyword(KeywordType.OR):
+            expr.values.append(self._parse_conjunction())
+
+        return expr
+
+    def _parse_conjunction(self):
+        left_expr = self._parse_inversion()
+        if self._peek_keyword() is not KeywordType.AND:
+            return left_expr
+
+        expr = ast.BoolOpNode(op=ast.BoolOperator.AND)
+        expr.values.append(left_expr)
+
+        while self._expect_keyword(KeywordType.AND):
+            expr.values.append(self._parse_inversion())
+
+        return expr
+
+    def _parse_inversion(self):
+        if self._expect_keyword(KeywordType.NOT):
+            expr = self._parse_inversion()
+            return ast.UnaryOpNode(op=ast.UnaryOperator.NOT, operand=expr)
+
+        return self._parse_comparison()
+
+    def _parse_comparison(self):
+        pass
+
+    def _parse_bitwise_or(self):
+        left_expr = self._parse_bitwise_xor()
+
+        while self._expect_token(TokenType.VBAR):
+            right_expr = self._parse_bitwise_or()
+            left_expr = ast.BinaryOpNode(left=left_expr, op=ast.Operator.BITOR, right=right_expr)
+
+        return left_expr
+
+    def _parse_bitwise_xor(self):
+        left_expr = self._parse_bitwise_and()
+
+        while self._expect_token(TokenType.CIRCUMFLEX):
+            right_expr = self._parse_bitwise_xor()
+            left_expr = ast.BinaryOpNode(left=left_expr, op=ast.Operator.BITXOR, right=right_expr)
+
+        return left_expr
+
+    def _parse_bitwise_and(self):
+        left_expr = self._parse_shift_expression()
+
+        while self._expect_token(TokenType.AMPERSAND):
+            right_expr = self._parse_bitwise_and()
+            left_expr = ast.BinaryOpNode(left=left_expr, op=ast.Operator.BITAND, right=right_expr)
+
+        return left_expr
+
+    def _parse_shift_expression(self):
+        left_expr = self._parse_arithmetic_sum()
+
+        while True:
+            if self._expect_token(TokenType.LSHIFT):
+                operator = ast.Operator.LSHIFT
+            elif self._expect_token(TokenType.RSHIFT):
+                operator = ast.Operator.RSHIFT
+            else:
+                return left_expr
+
+            right_expr = self._parse_shift_expression()
+            left_expr = ast.BinaryOpNode(left=left_expr, op=operator, right=right_expr)
+
+    def _parse_arithmetic_sum(self):
+        left_expr = self._parse_arithmetic_term()
+
+        while True:
+            if self._expect_token(TokenType.PLUS):
+                operator = ast.Operator.ADD
+            elif self._expect_token(TokenType.MINUS):
+                operator = ast.Operator.SUB
+            else:
+                return left_expr
+
+            right_expr = self._parse_arithmetic_sum()
+            left_expr = ast.BinaryOpNode(left=left_expr, op=operator, right_expr=right_expr)
+
+    def _parse_arithmetic_term(self):
+        left_expr = self._parse_arithmetic_factor()
+
+        while True:
+            if self._expect_token(TokenType.STAR):
+                operator = ast.Operator.MULT
+            elif self._expect_token(TokenType.SLASH):
+                operator = ast.Operator.DIV
+            elif self._expect_token(TokenType.DOUBLESLASH):
+                operator = ast.Operator.FLOORDIV
+            elif self._expect_token(TokenType.PERCENT):
+                operator = ast.Operator.MOD
+            elif self._expect_token(TokenType.AT):
+                operator = ast.Operator.MATMULT
+            else:
+                return left_expr
+
+            right_expr = self._parse_arithmetic_term()
+            left_expr = ast.BinaryOpNode(left=left_expr, op=operator, right=right_expr)
+
+    def _parse_arithmetic_factor(self):
+        if self._expect_token(TokenType.PLUS):
+            operator = ast.UnaryOperator.UADD
+        elif self._expect_token(TokenType.MINUS):
+            operator = ast.UnaryOperator.USUB
+        elif self._expect_token(TokenType.TILDE):
+            operator = ast.UnaryOperator.INVERT
+        else:
+            return self._parse_arithmetic_power()
+
+        expr = self._parse_arithmetic_factor()
+        return ast.UnaryOpNode(op=operator, operand=expr)
+
+    def _parse_arithmetic_power(self):
+        pass
+
+    def _parse_primary_expression(self):
+        awaited = self._expect_keyword(KeywordType.AWAIT)
+        left_expr = self._parse_primary_expression()
+
+        while True:
+            if self._expect_token(TokenType.DOT):
+                token = self._next_token()
+                if token.type is TokenType.IDENTIFIER:
+                    left_expr = ast.AttributeNode(value=left_expr, attr=token.content)
+                else:
+                    assert False
+            else:
+                # ast.CallNode
+                # ast.SliceNode
+                break
+
+        if awaited:
+            left_expr = ast.AwaitNode(value=left_expr)
+
+        return left_expr
+
+    def _parse_atom_expression(self):
+        token = self._peek_token()
+
+        if token.type is TokenType.IDENTIFIER:
+            self._advance()
+            if token.keyword is not None:
+                return ast.NameNode(value=token.content)
+            elif token.keyword is KeywordType.TRUE:
+                return ast.ConstantNode(type=ast.ConstantType.TRUE)
+            elif token.keyword is KeywordType.FALSE:
+                return ast.ConstantType(type=ast.ConstantType.FALSE)
+            elif token.keyword is KeywordType.NONE:
+                return ast.ConstantType(type=ast.ConstantType.NONE)
+        elif token.type is TokenType.NUMBER:
+            assert False
+        elif token.type is TokenType.STRING:
+            assert False
+        elif token.type is TokenType.ELLIPSIS:
+            self._advance()
+            return ast.ConstantNode(type=ast.ConstantType.ELLIPSIS)
+        elif token.type is TokenType.LPAREN:
+            assert False
+        elif token.type is TokenType.LBRACKET:
+            assert False
+        elif token.type is TokenType.LBRACE:
+            assert False
+
+    def _parse_slices(self):
         pass
 
     def parse(self):
