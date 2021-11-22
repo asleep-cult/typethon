@@ -274,7 +274,7 @@ class LambdaNode(BaseNode):
 class IfExpNode(BaseNode):
     __slots__ = ('condition', 'body', 'elsebody')
 
-    def __init__(self, *, condition: ExpressionNode, body: ExpressionNode,
+    def __init__(self, *, body: ExpressionNode, condition: ExpressionNode,
                  elsebody: ExpressionNode) -> None:
         self.condition = condition
         self.body = body
@@ -401,7 +401,7 @@ class IntegerNode(BaseNode):
 class FloatNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, value: float) -> None:
+    def __init__(self, *, value: float) -> None:
         super().__init__(type=ConstantType.FLOAT)
         self.value = value
 
@@ -409,7 +409,7 @@ class FloatNode(ConstantNode):
 class ComplexNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, value: complex) -> None:
+    def __init__(self, *, value: complex) -> None:
         super().__init__(type=ConstantType.COMPLEX)
         self.value = value
 
@@ -417,7 +417,7 @@ class ComplexNode(ConstantNode):
 class StringNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, value: str) -> None:
+    def __init__(self, *, value: str) -> None:
         super().__init__(type=ConstantType.STRING)
         self.value = value
 
@@ -425,7 +425,7 @@ class StringNode(ConstantNode):
 class BytesNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, value: bytes) -> None:
+    def __init__(self, *, value: bytes) -> None:
         super().__init__(type=ConstantType.BYTES)
         self.value = value
 
@@ -479,7 +479,7 @@ class TupleNode(BaseNode):
 class SliceNode(BaseNode):
     __slots__ = ('start', 'stop', 'step')
 
-    def __init__(self, start: Optional[int], stop: Optional[int], step: Optional[int]) -> None:
+    def __init__(self, *, start: Optional[int], stop: Optional[int], step: Optional[int]) -> None:
         self.start = start
         self.stop = stop
         self.step = step
@@ -553,7 +553,7 @@ class ExceptHandlerNode(BaseNode):
 class ComprehensionNode(BaseNode):
     __slots__ = ('is_async', 'target', 'iterator', 'ifs')
 
-    def __init__(self, target: ExpressionNode, iterator: ExpressionNode) -> None:
+    def __init__(self, *, target: ExpressionNode, iterator: ExpressionNode) -> None:
         self.is_async = False
         self.target = target
         self.iterator = iterator
@@ -563,7 +563,7 @@ class ComprehensionNode(BaseNode):
 class AliasNode(BaseNode):
     __slots__ = ('name', 'asname')
 
-    def __init__(self, name: str, asname: str) -> None:
+    def __init__(self, *, name: str, asname: str) -> None:
         self.name = name
         self.asname = asname
 
@@ -571,7 +571,7 @@ class AliasNode(BaseNode):
 class DictElt:
     __slots__ = ('key', 'value')
 
-    def __init__(self, key: ExpressionNode, value: ExpressionNode) -> None:
+    def __init__(self, *, key: ExpressionNode, value: ExpressionNode) -> None:
         self.key = key
         self.value = value
 
