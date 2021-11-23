@@ -4,7 +4,7 @@ import io
 from typing import Optional
 
 from .exceptions import InternalParserError
-from .scanner import Token, TokenType, scan
+from .scanner import NumericTokenFlags, Token, TokenType, scan
 from .. import ast
 
 
@@ -264,6 +264,10 @@ class Parser:
         expr = self._parse_expression()
         stmt = ast.WhileNode(condition=expr)
         stmt.body.extend(self._parse_block().statements)
+
+        if self._tokens.expect_type(TokenType.ELSE):
+            stmt.elsebody.extend(self._parse_block().statements)
+
         return stmt
 
     def _parse_with_statement(self):
@@ -297,10 +301,36 @@ class Parser:
         pass
 
     def _parse_global_statement(self):
-        pass
+        self._tokens.consume(TokenType.GLOBAL)
+        stmt = ast.GlobalNode()
+
+        while True:
+            if not self._tokens.at_type(TokenType.COMMA):
+                assert False
+
+            token = self._tokens.consume(TokenType.IDENTIFIER)
+            stmt.names.append(token.content)
+
+            if not self._tokens.expect_type(TokenType.COMMA):
+                break
+
+        return stmt
 
     def _parse_nonlocal_statement(self):
-        pass
+        self._tokens.consume(TokenType.GLOBAL)
+        stmt = ast.NonlocalNode()
+
+        while True:
+            if not self._tokens.at_type(TokenType.IDENTIFIER):
+                assert False
+
+            token = self._tokens.consume(TokenType.IDENTIFIER)
+            stmt.names.append(token.content)
+
+            if not self._tokens.expect_type(TokenType.COMMA):
+                break
+
+        return stmt
 
     def _parse_pass_statement(self) -> ast.PassNode:
         self._tokens.consume(TokenType.PASS)
@@ -458,7 +488,7 @@ class Parser:
                     operator = ast.CmpOperator.IS
             elif (self._tokens.at_type(TokenType.NOT)
                     and self._tokens.at_type(TokenType.IN, 1)):
-                self._tokens.at_type(2)
+                self._tokens.advance(2)
                 operator = ast.CmpOperator.NOTIN
             else:
                 if expr is not None:
@@ -608,10 +638,26 @@ class Parser:
             return ast.NameNode(value=token.content)
 
         if self._tokens.at_type(TokenType.NUMBER):
-            assert False
+            token = self._tokens.consume(TokenType.NUMBER)
+            if token.flags & NumericTokenFlags.IMAGINARY:
+                return ast.ComplexNode(value=complex(token.content))
+            elif token.flags & NumericTokenFlags.FLOAT:
+                return ast.FloatNode(value=float(token.content))
+            else:
+                if token.flags & NumericTokenFlags.INTEGER:
+                    base = 10
+                elif token.flags & NumericTokenFlags.HEXADECIMAL:
+                    base = 16
+                elif token.flags & NumericTokenFlags.OCTAL:
+                    base = 8
+                elif token.flags & NumericTokenFlags.BINARY:
+                    base = 2
+
+                return ast.IntegerNode(value=int(token.content, base))
 
         if self._tokens.at_type(TokenType.STRING):
-            assert False
+            token = self._tokens.consume(TokenType.STRING)
+            return ast.StringNode(value=token.content)
 
         if self._tokens.at_type(TokenType.ELLIPSIS):
             return ast.ConstantNode(type=ast.ConstantType.ELLIPSIS)

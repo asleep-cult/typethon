@@ -133,7 +133,7 @@ class ForNode(BaseNode):
 
 
 class WhileNode(BaseNode):
-    __slots__ = ('condition', 'body')
+    __slots__ = ('condition', 'body', 'elsebody')
 
     def __init__(self, *, condition: ExpressionNode) -> None:
         self.condition = condition
@@ -409,7 +409,7 @@ class ConstantNode(BaseNode):
         self.type = type
 
 
-class IntegerNode(BaseNode):
+class IntegerNode(ConstantNode):
     __slots__ = ('value',)
 
     def __init__(self, *, value: int) -> None:
