@@ -1,17 +1,17 @@
-from typing import Callable, Iterable, Optional, Union
+from __future__ import annotations
+
+from typing import Callable, Iterable, Union
 
 
-class _EOF(str):
+class EOFType(str):
     def __repr__(self):
         return '<EOF>'
 
 
-EOF = _EOF('\0')
+EOF = EOFType()
 
 
 class StringReader:
-    __slots__ = ('source', '_position')
-
     def __init__(self, source: str) -> None:
         self.source = source
         self._position = 0
@@ -19,43 +19,34 @@ class StringReader:
     def tell(self) -> int:
         return self._position
 
-    def eof(self) -> bool:
-        return self._position >= len(self.source)
+    def advance(self, amount: int = 1) -> int:
+        self._position += amount
+        return self._position
 
-    def at(self, position: Optional[int] = None) -> str:
-        if position is None:
-            position = self._position
+    def peek(self, offset: int = 0) -> str:
         try:
-            return self.source[position]
+            return self.source[self._position + offset]
         except IndexError:
             return EOF
 
-    def advance(self, by: int = 1) -> int:
-        if not self.eof():
-            self._position += by
+    def skip(self, chars: Iterable[str]) -> int:
+        while self.peek() in chars:
+            self.advance()
+
         return self._position
 
-    def skiptoeof(self):
-        self._position = len(self.source)
+    def skip_spaces(self) -> int:
+        self.skip((' ', '\t', '\f'))
 
-    def skip(self, chars: Iterable[str]) -> None:
-        while self.at() in chars:
-            self.advance()
-
-    def skipws(self, *, newlines: bool = False) -> None:
+    def skip_whitespaces(self, *, newlines: bool = False) -> int:
         if newlines:
-            self.skip((' ', '\t', '\f', '\n', '\r'))
+            self.skip_spaces()
         else:
-            self.skip((' ', '\t', '\f'))
+            self.skip((' ', '\t', '\n', '\r', '\f'))
 
-    def skipspaces(self):
-        self.skip((' ', '\t'))
+        return self._position
 
-    def skipuntil(self, chars: Iterable[str]) -> None:
-        while self.at() not in chars:
-            self.advance()
-
-    def skipfind(self, strings: Union[str, Iterable[str]]) -> bool:
+    def skip_expect(self, strings: Union[str, Iterable[str]]) -> bool:
         if isinstance(strings, str):
             strings = (strings,)
 
@@ -67,32 +58,65 @@ class StringReader:
 
         return False
 
-    def expect(self, chars: Iterable[str], n: int = 1) -> bool:
-        for i in range(n):
+    def expect(self, chars: Iterable[str], times: int = 1) -> bool:
+        for i in range(times):
             if self.peek(i) not in chars:
                 return False
-        self.advance(n)
-        return True
 
-    def peek(self, offset: int) -> str:
-        return self.at(self._position + offset)
-
-    def next(self) -> str:
-        try:
-            return self.at()
-        finally:
-            self.advance()
-
-    def nextwhile(self, func: Callable[[str], bool]) -> None:
-        while True:
-            char = self.at()
-            if func(char):
-                self.advance()
-            else:
-                break
+        self.advance(times)
+        return False
 
     def accumulate(self, func: Callable[[str], bool]) -> str:
-        start = self._position
-        self.nextwhile(func)
-        end = self._position
-        return self.source[start:end]
+        startpos = self.tell()
+        while func(self.peek()):
+            self.advance()
+
+        endpos = self.tell()
+        return self.source[startpos:endpos]
+
+    @staticmethod
+    def is_identifier_start(char: str) -> bool:
+        return (
+            'a' <= char <= 'z'
+            or 'A' <= char <= 'Z'
+            or char == '_'
+            or char >= '\x80'
+        )
+
+    @staticmethod
+    def is_identifier(char: str) -> bool:
+        return (
+            'a' <= char <= 'z'
+            or 'A' <= char <= 'Z'
+            or '0' <= char <= '9'
+            or char == '_'
+            or char >= '\x80'
+        )
+
+    @staticmethod
+    def is_digit(char: str) -> bool:
+        return '0' <= char <= '9'
+
+    @staticmethod
+    def is_hexadecimal(char: str) -> bool:
+        return (
+            'a' <= char <= 'f'
+            or 'A' <= char <= 'F'
+            or '1' <= char <= '9'
+        )
+
+    @staticmethod
+    def is_octal(char: str) -> bool:
+        return '0' <= char <= '7'
+
+    @staticmethod
+    def is_binary(char: str) -> bool:
+        return char == '0' or char == '1'
+
+    @staticmethod
+    def is_terminator(char: str) -> bool:
+        return char == '\'' or char == '\"'
+
+    @staticmethod
+    def is_escape(char: str) -> bool:
+        return char == '\\'
