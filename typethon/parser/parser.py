@@ -34,7 +34,7 @@ class _TokenStream:
             TokenType.ELLIPSIS, TokenType.PLUS, TokenType.MINUS, TokenType.TILDE,
             TokenType.LPAREN, TokenType.LBRACKET, TokenType.LBRACE)
 
-    def _at_starred_expr(self, offset: int = 0) -> bool:
+    def at_starred_expr(self, offset: int = 0) -> bool:
         return self.peek_type(offset) is TokenType.STAR or self.at_expr()
 
     def expect_type(self, type: TokenType) -> bool:
@@ -134,6 +134,93 @@ class Parser:
         if self._tokens.at_type(TokenType.RETURN):
             return self._parse_return_statement()
 
+        expr = self._parse_star_expressions()
+        if self._tokens.expect_type(TokenType.COLON):
+            if not expr.is_single_target():
+                assert False
+
+            ann_expr = self._parse_expression()
+            stmt = ast.AnnAssignNode(target=expr, annotation=ann_expr)
+
+            if self._tokens.expect_type(TokenType.EQUAL):
+                if self._tokens.at_type(TokenType.YIELD):
+                    stmt.value = self._parse_yield_expression()
+                else:
+                    stmt.value = self._parse_star_expressions()
+
+            return stmt
+        elif self._tokens.expect_type(TokenType.EQUAL):
+            exprs = []
+            exprs.append(expr)
+            expr = self._parse_star_expressions()
+
+            while self._tokens.expect_type(TokenType.EQUAL):
+                if not expr.is_target():
+                    assert False
+
+                exprs.append(expr)
+                expr = self._parse_star_expressions()
+
+            return ast.AssignNode(targets=exprs, value=expr)
+        else:
+            if self._tokens.expect_type(TokenType.PLUSEQUAL):
+                operator = ast.Operator.ADD
+            elif self._tokens.expect_type(TokenType.MINUSEQUAL):
+                operator = ast.Operator.SUB
+            elif self._tokens.expect_type(TokenType.STAR):
+                operator = ast.Operator.MULT
+            elif self._tokens.expect_type(TokenType.AT):
+                operator = ast.Operator.MATMULT
+            elif self._tokens.expect_type(TokenType.SLASHEQUAL):
+                operator = ast.Operator.DIV
+            elif self._tokens.expect_type(TokenType.DOUBLESLASH):
+                operator = ast.Operator.FLOORDIV
+            elif self._tokens.expect_type(TokenType.PERCENT):
+                operator = ast.Operator.MOD
+            elif self._tokens.expect_type(TokenType.AMPERSAND):
+                operator = ast.Operator.BITAND
+            elif self._tokens.expect_type(TokenType.VBAR):
+                operator = ast.Operator.BITOR
+            elif self._tokens.expect_type(TokenType.CIRCUMFLEX):
+                operator = ast.Operator.BITXOR
+            elif self._tokens.expect_type(TokenType.DOUBLELTHANEQUAL):
+                operator = ast.Operator.LSHIFT
+            elif self._tokens.expect_type(TokenType.DOUBLEGTHANEQUAL):
+                operator = ast.Operator.RSHIFT
+            elif self._tokens.expect_type(TokenType.DOUBLESTAREQUAL):
+                operator = ast.Operator.POW
+            else:
+                return ast.ExprNode(expr=expr)
+
+            if self._tokens.expect_type(TokenType.YIELD):
+                value_expr = self._parse_yield_expression()
+            else:
+                value_expr = self._parse_star_expressions()
+
+            return ast.AugAssignNode(target=expr, op=operator, value=value_expr)
+
+    def _parse_block(self) -> ast.StatementList:
+        if not self._tokens.expect_type(TokenType.COLON):
+            assert False
+
+        if self._tokens.expect_type(TokenType.NEWLINE):
+            if not self._tokens.expect_type(TokenType.INDENT):
+                assert False
+
+            stmts = ast.StatementList()
+
+            while not self._tokens.expect_type(TokenType.DEDENT):
+                if not self._tokens.expect_type(TokenType.NEWLINE):
+                    stmt = self._parse_statement()
+                    if isinstance(stmt, ast.StatementList):
+                        stmts.statements.extend(stmt.statements)
+                    else:
+                        stmts.statements.append(stmt)
+
+            return stmts
+
+        return self._parse_simple_statements()
+
     def _parse_async_statement(self) -> Optional[ast.StatementNode]:
         if self._tokens.at_type(TokenType.DEF):
             return self._parse_class_def()
@@ -154,13 +241,30 @@ class Parser:
         pass
 
     def _parse_if_statement(self):
-        pass
+        self._tokens.consume(TokenType.IF)
+        expr = self._parse_expression()
+        if_stmt = stmt = ast.IfNode(condition=expr)
+        stmt.body.extend(self._parse_block().statements)
+
+        while self._tokens.expect_type(TokenType.ELIF):
+            expr = self._parse_expression()
+            stmt.elsebody = stmt, = [ast.IfNode(condition=expr)]
+            stmt.body.extend(self._parse_block().statements)
+
+        if self._tokens.expect_type(TokenType.ELSE):
+            stmt.elsebody.extend(self._parse_block().statements)
+
+        return if_stmt
 
     def _parse_try_statement(self):
         pass
 
     def _parse_while_statement(self):
-        pass
+        self._tokens.consume(TokenType.WHILE)
+        expr = self._parse_expression()
+        stmt = ast.WhileNode(condition=expr)
+        stmt.body.extend(self._parse_block().statements)
+        return stmt
 
     def _parse_with_statement(self):
         pass
@@ -169,7 +273,14 @@ class Parser:
         pass
 
     def _parse_assert_statement(self):
-        pass
+        self._tokens.consume(TokenType.ASSERT)
+        expr = self._parse_expression()
+        stmt = ast.AssertNode(condition=expr)
+
+        if self._tokens.expect_type(TokenType.COMMA):
+            stmt.condition = self._parse_expression()
+
+        return stmt
 
     def _parse_break_statement(self) -> ast.BreakNode:
         self._tokens.consume(TokenType.BREAK)
@@ -255,7 +366,7 @@ class Parser:
         expr.elts.append(left_expr)
 
         while (self._tokens.expect_type(TokenType.COMMA)
-                and self._tokens._at_starred_expr()):
+                and self._tokens.at_starred_expr()):
             expr.elts.append(self._parse_star_expression())
 
         return expr
@@ -266,6 +377,20 @@ class Parser:
             return ast.StarredNode(value=expr)
 
         return self._parse_expression()
+
+    def _parse_yield_expression(self) -> ast.YieldNode:
+        self._tokens.consume(TokenType.YIELD)
+
+        if self._tokens.expect_type(TokenType.FROM):
+            expr = self._parse_expression()
+            return ast.YieldFromNode(value=expr)
+        else:
+            expr = ast.YieldNode()
+
+            if self._tokens.at_expr():
+                expr.value = self._parse_expression()
+
+            return expr
 
     def _parse_lambda_expression(self) -> ast.LambdaNode:
         pass
@@ -378,9 +503,9 @@ class Parser:
         left_expr = self._parse_arithmetic_sum()
 
         while True:
-            if self._tokens.expect_type(TokenType.LSHIFT):
+            if self._tokens.expect_type(TokenType.DOUBLELTHAN):
                 operator = ast.Operator.LSHIFT
-            elif self._tokens.expect_type(TokenType.RSHIFT):
+            elif self._tokens.expect_type(TokenType.DOUBLEGTHAN):
                 operator = ast.Operator.RSHIFT
             else:
                 return left_expr

@@ -199,8 +199,8 @@ class TokenType(enum.IntEnum):
     NOTEQUAL = enum.auto()
     LTHANEQ = enum.auto()
     GTHANEQ = enum.auto()
-    LSHIFT = enum.auto()
-    RSHIFT = enum.auto()
+    DOUBLELTHAN = enum.auto()
+    DOUBLEGTHAN = enum.auto()
     DOUBLESTAR = enum.auto()
     PLUSEQUAL = enum.auto()
     MINUSEQUAL = enum.auto()
@@ -210,9 +210,9 @@ class TokenType(enum.IntEnum):
     AMPERSANDEQUAL = enum.auto()
     VBAREQUAL = enum.auto()
     CIRCUMFLEXEQUAL = enum.auto()
-    LSHIFTEQUAL = enum.auto()
-    RSHIFTEQUAL = enum.auto()
-    DOUBLESTARQEUAL = enum.auto()
+    DOUBLELTHANEQUAL = enum.auto()
+    DOUBLEGTHANEQUAL = enum.auto()
+    DOUBLESTAREQUAL = enum.auto()
     DOUBLESLASHEQUAL = enum.auto()
     ATEQUAL = enum.auto()
     RARROW = enum.auto()
@@ -518,7 +518,7 @@ class _TokenScanner:
         elif reader.expect('*'):
             if reader.expect('*'):
                 if reader.expect('='):
-                    ctx.create_token(TokenType.DOUBLESTARQEUAL)
+                    ctx.create_token(TokenType.DOUBLESTAREQUAL)
                 else:
                     ctx.create_token(TokenType.DOUBLESTAR)
             elif reader.expect('='):
@@ -553,9 +553,9 @@ class _TokenScanner:
         elif reader.expect('<'):
             if reader.expect('<'):
                 if reader.expect('='):
-                    ctx.create_token(TokenType.LSHIFTEQUAL)
+                    ctx.create_token(TokenType.DOUBLELTHANEQUAL)
                 else:
-                    ctx.create_token(TokenType.LSHIFT)
+                    ctx.create_token(TokenType.DOUBLELTHAN)
             elif reader.expect('='):
                 ctx.create_token(TokenType.LTHANEQ)
             else:
@@ -563,9 +563,9 @@ class _TokenScanner:
         elif reader.expect('>'):
             if reader.expect('>'):
                 if reader.expect('='):
-                    ctx.create_token(TokenType.RSHIFTEQUAL)
+                    ctx.create_token(TokenType.DOUBLEGTHANEQUAL)
                 else:
-                    ctx.create_token(TokenType.RSHIFT)
+                    ctx.create_token(TokenType.DOUBLEGTHAN)
             elif reader.expect('='):
                 ctx.create_token(TokenType.GTHANEQ)
             else:

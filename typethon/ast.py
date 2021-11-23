@@ -19,6 +19,13 @@ class BaseNode:
 
         return self
 
+    def __repr__(self):
+        attrs = ', '.join(f'{name}={getattr(self, name)!r}' for name in self.__class__.__slots__
+                          if name not in BaseNode.__slots__)
+        if not attrs:
+            return f'<{self.__class__.__name__}>'
+        return f'<{self.__class__.__name__} {attrs}>'
+
     def set_loc(self, starttok: Token, endtok: Optional[Token] = None) -> None:
         if endtok is None:
             endtok = starttok
@@ -30,12 +37,11 @@ class BaseNode:
 
         return self
 
-    def __repr__(self):
-        attrs = ', '.join(f'{name}={getattr(self, name)}' for name in self.__class__.__slots__
-                          if name not in BaseNode.__slots__)
-        if not attrs:
-            return f'<{self.__class__.__name__}>'
-        return f'<{self.__class__.__name__} {attrs}>'
+    def is_target(self):
+        return False
+
+    def is_single_target(self):
+        return False
 
 
 class ModuleNode(BaseNode):
@@ -53,25 +59,25 @@ class StatementList(BaseNode):
 
 
 class FunctionDefNode(BaseNode):
-    __slots__ = ('is_async', 'name', 'parameters', 'suite', 'decorators', 'returns')
+    __slots__ = ('is_async', 'name', 'parameters', 'body', 'decorators', 'returns')
 
     def __init__(self, *, name: str) -> None:
         self.is_async = False
         self.name: str = name
         self.parameters: list[ParameterNode] = []
-        self.suite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
         self.decorators: list[ExpressionNode] = []
         self.returns: Optional[ExpressionNode] = None
 
 
 class ClassDefNode(BaseNode):
-    __slots__ = ('name', 'bases', 'kwargs', 'suite', 'decorators')
+    __slots__ = ('name', 'bases', 'kwargs', 'body', 'decorators')
 
     def __init__(self, *, name: str) -> None:
         self.name: str = name
         self.bases: list[ExpressionNode] = []
         self.kwargs: list[KeywordArgumentNode] = []
-        self.suite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
         self.decorators: list[ExpressionNode] = []
 
 
@@ -109,49 +115,48 @@ class AugAssignNode(BaseNode):
 class AnnAssignNode(BaseNode):
     __sltos__ = ('target', 'annotation', 'value')
 
-    def __init__(self, *, target: ExpressionNode, annotation: ExpressionNode,
-                 value: ExpressionNode) -> None:
+    def __init__(self, *, target: ExpressionNode, annotation: ExpressionNode) -> None:
         self.target = target
         self.annotation = annotation
-        self.value = value
+        self.value: Optional[ExpressionNode] = None
 
 
 class ForNode(BaseNode):
-    __slots__ = ('is_async', 'target', 'iterator', 'suite', 'elsesuite')
+    __slots__ = ('is_async', 'target', 'iterator', 'body', 'elsebody')
 
     def __init__(self, *, target: ExpressionNode, iterator: ExpressionNode) -> None:
         self.is_async = False
         self.target = target
         self.iterator = iterator
-        self.suite: list[ExpressionNode] = []
-        self.elsesuite: list[ExpressionNode] = []
+        self.body: list[ExpressionNode] = []
+        self.elsebody: list[ExpressionNode] = []
 
 
 class WhileNode(BaseNode):
-    __slots__ = ('condition', 'suite')
+    __slots__ = ('condition', 'body')
 
     def __init__(self, *, condition: ExpressionNode) -> None:
         self.condition = condition
-        self.suite: list[StatementNode] = []
-        self.elsesuite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
+        self.elsebody: list[StatementNode] = []
 
 
 class IfNode(BaseNode):
-    __slots__ = ('condition', 'suite', 'elsesuite')
+    __slots__ = ('condition', 'body', 'elsebody')
 
     def __init__(self, *, condition: ExpressionNode) -> None:
         self.condition = condition
-        self.suite: list[StatementNode] = []
-        self.elsesuite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
+        self.elsebody: list[StatementNode] = []
 
 
 class WithNode(BaseNode):
-    __slots__ = ('is_async', 'items', 'suite')
+    __slots__ = ('is_async', 'items', 'body')
 
     def __init__(self) -> None:
         self.is_async = False
         self.items: list[WithItemNode] = []
-        self.suite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
 
 
 class RaiseNode(BaseNode):
@@ -163,21 +168,21 @@ class RaiseNode(BaseNode):
 
 
 class TryNode(BaseNode):
-    __slots__ = ('suite', 'handlers', 'elsesuite', 'finalsuite')
+    __slots__ = ('body', 'handlers', 'elsebody', 'finalbody')
 
     def __init__(self) -> None:
-        self.suite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
         self.handlers: list[ExceptHandlerNode] = []
-        self.elsesuite: list[StatementNode] = []
-        self.finalsuite: list[StatementNode] = []
+        self.elsebody: list[StatementNode] = []
+        self.finalbody: list[StatementNode] = []
 
 
 class AssertNode(BaseNode):
     __slots__ = ('condition', 'message')
 
-    def __init__(self, *, condition: ExpressionNode, message: Optional[str]) -> None:
+    def __init__(self, *, condition: ExpressionNode) -> None:
         self.condition = condition
-        self.message = message
+        self.message: Optional[str] = None
 
 
 class ImportNode(BaseNode):
@@ -279,11 +284,11 @@ class UnaryOpNode(BaseNode):
 
 
 class LambdaNode(BaseNode):
-    __slots__ = ('parameters', 'suite')
+    __slots__ = ('parameters', 'body')
 
     def __init__(self) -> None:
         self.parameters: list[ParameterNode] = []
-        self.suite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
 
 
 class IfExpNode(BaseNode):
@@ -364,7 +369,7 @@ class YieldFromNode(BaseNode):
 
 
 class CompareNode(BaseNode):
-    __slots__ = ('left', 'ops', 'comparators')
+    __slots__ = ('left', 'comparators')
 
     def __init__(self, *, left: ExpressionNode) -> None:
         self.left = left
@@ -395,13 +400,6 @@ class FormattedValueNode(BaseNode):
         self.value = value
         self.conversion: Optional[int] = None
         self.spec: Optional[ExpressionNode] = None
-
-
-class JoinedStrNode(BaseNode):
-    __slots__ = ('values',)
-
-    def __init__(self, *, values: list[ExpressionNode]) -> None:
-        self.values = values
 
 
 class ConstantNode(BaseNode):
@@ -458,6 +456,12 @@ class AttributeNode(BaseNode):
         self.value = value
         self.attr = attr
 
+    def is_target(self):
+        return True
+
+    def is_single_target(self):
+        return True
+
 
 class SubscriptNode(BaseNode):
     __slots__ = ('value', 'slice',)
@@ -466,12 +470,21 @@ class SubscriptNode(BaseNode):
         self.value = value
         self.slice = slice
 
+    def is_target(self):
+        return True
+
+    def is_single_target(self):
+        return True
+
 
 class StarredNode(BaseNode):
     __slots__ = ('value',)
 
     def __init__(self, *, value: ExpressionNode) -> None:
         self.value = value
+
+    def is_target(self):
+        return self.value.is_target()
 
 
 class NameNode(BaseNode):
@@ -480,6 +493,12 @@ class NameNode(BaseNode):
     def __init__(self, *, value: str) -> None:
         self.value = value
 
+    def is_target(self):
+        return True
+
+    def is_single_target(self):
+        return True
+
 
 class ListNode(BaseNode):
     __slots__ = ('elts',)
@@ -487,12 +506,18 @@ class ListNode(BaseNode):
     def __init__(self) -> None:
         self.elts: list[ExpressionNode] = []
 
+    def is_target(self):
+        return all(expr.is_target() for expr in self.elts)
+
 
 class TupleNode(BaseNode):
     __slots__ = ('elts',)
 
     def __init__(self):
         self.elts: list[ExpressionNode] = []
+
+    def is_target(self):
+        return all(expr.is_target() for expr in self.elts)
 
 
 class SliceNode(BaseNode):
@@ -522,7 +547,6 @@ ExpressionNode = Union[
     CompareNode,
     CallNode,
     FormattedValueNode,
-    JoinedStrNode,
     ConstantNode,
     AttributeNode,
     SubscriptNode,
@@ -561,12 +585,12 @@ class WithItemNode(BaseNode):
 
 
 class ExceptHandlerNode(BaseNode):
-    __slots__ = ('type', 'target', 'suite')
+    __slots__ = ('type', 'target', 'body')
 
     def __init__(self) -> None:
         self.type: Optional[ExpressionNode] = None
         self.target: Optional[str] = None
-        self.suite: list[StatementNode] = []
+        self.body: list[StatementNode] = []
 
 
 class ComprehensionNode(BaseNode):
