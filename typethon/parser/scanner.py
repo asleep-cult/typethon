@@ -55,6 +55,7 @@ class Scanner:
         self._linestarts = []
         self._parenstack = []
         self._indentstack = []
+        self._indents = []
 
     def _parenstack_push(self, type: TokenType) -> None:
         self._parenstack.append(type)
@@ -78,6 +79,9 @@ class Scanner:
 
     def _lineno(self) -> int:
         return len(self._linestarts)
+
+    def _scan_indents(self) -> None:
+        pass
 
     def _scan_identifier(self) -> IdentifierToken:
         startpos = self._reader.tell()
@@ -255,6 +259,13 @@ class Scanner:
             if self._reader is None:
                 self._readline()
 
+                if not self._newline:
+                    if not self._parenstack:
+                        self._scan_indents()
+
+            if self._indents:
+                return self._indents.pop(0)
+
             self._reader.skip_whitespace(newlines=True)
             if self._reader.at_eof():
                 # Immediate EOF from reader -- we've reached the end of the file
@@ -276,9 +287,11 @@ class Scanner:
                     return self.factory.create_token(keyword, len(token.content))
                 else:
                     return token
-            elif StringReader.is_digit(char):
+
+            if StringReader.is_digit(char):
                 return self._scan_number()
-            elif StringReader.is_escape(char):
+
+            if StringReader.is_escape(char):
                 self._reader.advance()
 
                 if not self._reader.at_eof():
@@ -287,20 +300,21 @@ class Scanner:
 
                 self._reader = None
                 continue
-            elif StringReader.is_comment(char):
+
+            if StringReader.is_comment(char):
                 startpos = self._reader.tell()
                 endpos = len(self._reader.source)
                 self.factory.create_comment(self._reader.source[startpos:endpos])
 
                 self._reader = None
                 continue
-            else:
-                token = self._scan_token()
-                if token is not None:
-                    return token
 
-            # We've encountered something invalid and must recover by skipping to a
-            # whitespace character and returning an ERROR token
+            token = self._scan_token()
+            if token is not None:
+                return token
+
+            # If we reach this point then the character is not a valid token.
+            # We recover by skipping to a whitespace character and returning and ERROR token.
             startpos = self._reader.tell()
             while (
                 not self._reader.at_eof()

@@ -84,6 +84,18 @@ class StringReader:
         )
 
     @staticmethod
+    def is_newline(char: str) -> bool:
+        return char == '\n'
+
+    @staticmethod
+    def is_blank(char: str) -> bool:
+        return (
+            StringReader.is_comment(char)
+            or StringReader.is_escape(char)
+            or StringReader.is_newline(char)
+        )
+
+    @staticmethod
     def is_identifier_start(char: str) -> bool:
         return (
             'a' <= char <= 'z'
