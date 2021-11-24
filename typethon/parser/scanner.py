@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 from typing import Optional
 
-from .stringreader import EOF, StringReader
+from .stringreader import StringReader
 from .tokens import (
     IdentifierToken,
     KEYWORDS,
@@ -21,26 +21,25 @@ class TokenFactory:
     def __init__(self, scanner: Scanner) -> None:
         self.scanner = scanner
 
-    def create_token(self, type: TokenType, length: int) -> Token:
+    def create_range(self, length: int) -> TextRange:
         position = self.scanner._position()
         lineno = self.scanner._lineno()
-        range = TextRange(position - length, position, lineno, lineno)
-        return Token(type, range)
+        return TextRange(position - length, position, lineno, lineno)
+
+    def create_token(self, type: TokenType, length: int) -> Token:
+        return Token(type, self.create_range(length))
 
     def create_identifier(self, content: str) -> IdentifierToken:
-        position = self.scanner._position()
-        lineno = self.scanner._lineno()
-        range = TextRange(position - len(content), position, lineno, lineno)
-        return IdentifierToken(range, content)
+        return IdentifierToken(self.create_range(len(content)), content)
 
     def create_number(self, flags: NumberTokenFlags, content: str) -> NumberToken:
-        position = self.scanner._position()
-        lineno = self.scanner._lineno()
-        range = TextRange(position - len(content), position, lineno, lineno)
-        return NumberToken(range, flags, content)
+        return NumberToken(self.create_range(len(content)), flags, content)
 
     def create_string(self, range: TextRange, flags: StringTokenFlags, content: str) -> StringToken:
         return StringToken(range, flags, content)
+
+    def create_comment(self, content: str) -> None:
+        return None
 
 
 class Scanner:
@@ -81,10 +80,10 @@ class Scanner:
         return len(self._linestarts)
 
     def _scan_identifier(self) -> IdentifierToken:
+        startpos = self._reader.tell()
         assert StringReader.is_identifier_start(self._reader.peek())
         self._reader.advance()
 
-        startpos = self._reader.tell()
         while StringReader.is_identifier(self._reader.peek()):
             self._reader.advance()
 
@@ -125,7 +124,7 @@ class Scanner:
             return self.factory.create_token(TokenType.OPENBRACE, 1)
 
         elif self._reader.expect('}'):
-            if self._parenstack_push() is not TokenType.OPENBRACE:
+            if self._parenstack_back() is not TokenType.OPENBRACE:
                 return self.factory.create_token(TokenType.ERROR, 1)
 
             self._parenstack_pop()
@@ -255,31 +254,59 @@ class Scanner:
         while True:
             if self._reader is None:
                 self._readline()
-            else:
-                self._reader.skip_whitespaces(newlines=True)
+
+            self._reader.skip_whitespace(newlines=True)
+            if self._reader.at_eof():
+                # Immediate EOF from reader -- we've reached the end of the file
+                if self._reader.tell() == 0:
+                    return self.factory.create_token(TokenType.EOF, 0)
+
+                self._reader = None
+                continue
 
             char = self._reader.peek()
             if StringReader.is_identifier_start(char):
                 token = self._scan_identifier()
 
-                char = self._reader.peek()
-                if StringReader.is_terminator(char):
+                if StringReader.is_terminator(self._reader.peek()):
                     return self._scan_string(prefixes=token.content)
 
-                try:
-                    keyword = KEYWORDS[token.content]
-                except KeyError:
-                    return token
-                else:
+                keyword = KEYWORDS.get(token.content)
+                if keyword is not None:
                     return self.factory.create_token(keyword, len(token.content))
+                else:
+                    return token
             elif StringReader.is_digit(char):
                 return self._scan_number()
             elif StringReader.is_escape(char):
                 self._reader.advance()
 
-                if not self._reader.expect(EOF):
+                if not self._reader.at_eof():
                     length = len(self._reader.source) - self._reader.tell()
                     return self.factory.create_token(TokenType.ERROR, length)
 
                 self._reader = None
                 continue
+            elif StringReader.is_comment(char):
+                startpos = self._reader.tell()
+                endpos = len(self._reader.source)
+                self.factory.create_comment(self._reader.source[startpos:endpos])
+
+                self._reader = None
+                continue
+            else:
+                token = self._scan_token()
+                if token is not None:
+                    return token
+
+            # We've encountered something invalid and must recover by skipping to a
+            # whitespace character and returning an ERROR token
+            startpos = self._reader.tell()
+            while (
+                not self._reader.at_eof()
+                and not StringReader.is_whitespace(self._reader.peek())
+            ):
+                self._reader.advance()
+
+            endpos = self._reader.tell()
+            return self.factory.create_token(TokenType.ERROR, endpos - startpos)

@@ -28,7 +28,7 @@ def parse_encoding_declaration(line: bytes, *, bom: bool = False) -> Optional[st
     except UnicodeDecodeError:
         raise BadEncodingDeclaration('The encoding declaration is not a valid UTF-8 sequence')
 
-    reader.skip_spaces()
+    reader.skip_whitespace()
     if (
         not reader.expect('#')
         or not reader.skip_expect('coding')

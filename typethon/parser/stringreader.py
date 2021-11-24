@@ -16,11 +16,15 @@ class StringReader:
         self.source = source
         self._position = 0
 
+    def at_eof(self) -> bool:
+        return self._position >= len(self.source)
+
     def tell(self) -> int:
         return self._position
 
     def advance(self, amount: int = 1) -> int:
-        self._position += amount
+        if not self.at_eof():
+            self._position += amount
         return self._position
 
     def peek(self, offset: int = 0) -> str:
@@ -35,16 +39,11 @@ class StringReader:
 
         return self._position
 
-    def skip_spaces(self) -> int:
-        self.skip((' ', '\t', '\f'))
-
-    def skip_whitespaces(self, *, newlines: bool = False) -> int:
+    def skip_whitespace(self, *, newlines: bool = False) -> int:
         if newlines:
-            self.skip_spaces()
+            return self.skip((' ', '\t', '\n', '\r', '\f'))
         else:
-            self.skip((' ', '\t', '\n', '\r', '\f'))
-
-        return self._position
+            return self.skip((' ', '\t', '\f'))
 
     def skip_expect(self, strings: Union[str, Iterable[str]]) -> bool:
         if isinstance(strings, str):
@@ -73,6 +72,16 @@ class StringReader:
 
         endpos = self.tell()
         return self.source[startpos:endpos]
+
+    @staticmethod
+    def is_whitespace(char: str) -> bool:
+        return (
+            char == ' '
+            or char == '\t'
+            or char == '\f'
+            or char == '\r'
+            or char == '\n'
+        )
 
     @staticmethod
     def is_identifier_start(char: str) -> bool:
@@ -120,3 +129,7 @@ class StringReader:
     @staticmethod
     def is_escape(char: str) -> bool:
         return char == '\\'
+
+    @staticmethod
+    def is_comment(char: str) -> bool:
+        return char == '#'
