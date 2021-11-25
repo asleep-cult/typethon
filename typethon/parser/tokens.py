@@ -211,3 +211,29 @@ class StringToken(Token):
 
     def __repr__(self):
         return f'<{self.__class__.__class__} flags={self.flags!r} {self.content!r} {self.range!r}>'
+
+
+class IndentToken(Token):
+    __slots__ = ('inconsistent',)
+
+    def __init__(self, range: TextRange, inconsistent: bool) -> None:
+        super().__init__(TokenType.INDENT, range)
+        self.inconsistent = inconsistent
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__} inconsistent={self.inconsistent} {self.range!r}>'
+
+
+class DedentToken(Token):
+    __slots__ = ('inconsistent', 'diverges')
+
+    def __init__(self, range: TextRange, inconsistent: bool, diverges: bool) -> None:
+        super().__init__(TokenType.DEDENT, range)
+        self.inconsistent = inconsistent
+        self.diverges = diverges
+
+    def __repr__(self) -> str:
+        return (
+            f'<{self.__class__.__name__} inconsistent={self.inconsistent}'
+            f' diverges={self.diverges} {self.range!r}>'
+        )

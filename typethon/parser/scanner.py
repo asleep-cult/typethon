@@ -5,7 +5,9 @@ from typing import Optional
 
 from .stringreader import StringReader
 from .tokens import (
+    DedentToken,
     IdentifierToken,
+    IndentToken,
     KEYWORDS,
     NumberToken,
     NumberTokenFlags,
@@ -15,6 +17,10 @@ from .tokens import (
     TokenType,
 )
 from ..textrange import TextRange
+
+
+TABSIZE = 8
+ALTTABSIZE = 1
 
 
 class TokenFactory:
@@ -38,6 +44,12 @@ class TokenFactory:
     def create_string(self, range: TextRange, flags: StringTokenFlags, content: str) -> StringToken:
         return StringToken(range, flags, content)
 
+    def create_indent(self, *, inconsistent: bool = False) -> IndentToken:
+        return IndentToken(self.create_range(self.scanner._position()), inconsistent)
+
+    def create_dedent(self, *, inconsistent: bool = False, diverges: bool = False) -> DedentToken:
+        return DedentToken(self.create_range(self.scanner._position()), inconsistent, diverges)
+
     def create_comment(self, content: str) -> None:
         return None
 
@@ -49,13 +61,19 @@ class Scanner:
         self.source = source
         self.factory = factory(self)
 
-        self._newline = False
         self._reader = None
+
+        self._newline = False
+        self._scannedindents = False
 
         self._linestarts = []
         self._parenstack = []
+
         self._indentstack = []
+        self._altindentstack = []
         self._indents = []
+
+        self._add_indent(0, 0)
 
     def _parenstack_push(self, type: TokenType) -> None:
         self._parenstack.append(type)
@@ -66,12 +84,26 @@ class Scanner:
     def _parenstack_back(self) -> Optional[TokenType]:
         try:
             return self._parenstack[-1]
-        except IndexError:
+        except KeyError:
             return None
 
-    def _readline(self) -> None:
+    def _add_indent(self, indent: int, altindent: int) -> None:
+        self._indentstack.append(indent)
+        self._altindentstack.append(altindent)
+
+    def _remove_indent(self) -> None:
+        self._indentstack.pop()
+        self._altindentstack.pop()
+
+    def _get_indent(self, index) -> int:
+        return self._indentstack[index]
+
+    def _get_altindent(self, index) -> int:
+        return self._altindentstack[index]
+
+    def _readline(self) -> StringReader:
         self._linestarts.append(self.source.tell())
-        self._reader = StringReader(self.source.readline())
+        return StringReader(self.source.readline())
 
     def _position(self) -> int:
         assert self._reader is not None
@@ -81,7 +113,57 @@ class Scanner:
         return len(self._linestarts)
 
     def _scan_indents(self) -> None:
-        pass
+        indent = altindent = 0
+        while True:
+            if self._reader.expect(' '):
+                indent += 1
+                altindent += 1
+            elif self._reader.expect('\t'):
+                indent += ((indent / TABSIZE) + 1) * TABSIZE
+                altindent += ((indent / ALTTABSIZE) + 1) * ALTTABSIZE
+            else:
+                break
+
+        if StringReader.is_blank(self._reader.peek()):
+            return
+
+        lastindent = self._get_indent(-1)
+        lastaltindent = self._get_altindent(-1)
+
+        if indent == lastindent:
+            if altindent != lastaltindent:
+                self._indents.append(self.factory.create_indent(inconsistent=True))
+        elif indent > lastindent:
+            if altindent <= lastaltindent:
+                self._indents.append(self.factory.create_indent(inconsistent=True))
+            else:
+                self._add_indent(indent, altindent)
+                self._indents.append(self.factory.create_indent())
+        else:
+            while indent < self._get_indent(-2):
+                self._remove_indent()
+                self._indents.append(self.factory.create_dedent())
+
+            self._remove_indent()
+
+            lastindent = self._get_indent(-1)
+            lastaltindent = self._get_altindent(-1)
+
+            if indent == lastindent:
+                if altindent != lastaltindent:
+                    self._indents.append(self.factory.create_dedent(inconsistent=True))
+                else:
+                    self._indents.append(self.factory.create_dedent())
+            else:
+                inconsistent = (
+                    indent == lastindent and altindent != lastaltindent
+                )
+                self._indents.append(
+                    self.factory.create_dedent(inconsistent=inconsistent, diverges=True)
+                )
+
+        self._scannedindents = True
+        self._newline = False
 
     def _scan_identifier(self) -> IdentifierToken:
         startpos = self._reader.tell()
@@ -255,24 +337,24 @@ class Scanner:
             return self.factory.create_token(TokenType.CIRCUMFLEX, 1)
 
     def scan(self) -> Token:
-        while True:
-            if self._reader is None:
-                self._readline()
+        if self._reader is None:
+            self._reader = self._readline()
 
-                if not self._newline:
-                    if not self._parenstack:
-                        self._scan_indents()
+        while True:
+            if self._reader.at_eof():
+                if self._reader.tell() == 0:
+                    # Immediate EOF from reader -- we've reached the end of the file
+                    return self.factory.create_token(TokenType.EOF, 0)
+
+                self._reader = self._readline()
+                if not self._scannedindents:
+                    self._scan_indents()
 
             if self._indents:
                 return self._indents.pop(0)
 
-            self._reader.skip_whitespace(newlines=True)
+            self._reader.skip_whitespace()
             if self._reader.at_eof():
-                # Immediate EOF from reader -- we've reached the end of the file
-                if self._reader.tell() == 0:
-                    return self.factory.create_token(TokenType.EOF, 0)
-
-                self._reader = None
                 continue
 
             char = self._reader.peek()
@@ -291,22 +373,34 @@ class Scanner:
             if StringReader.is_digit(char):
                 return self._scan_number()
 
+            if StringReader.is_terminator(char):
+                return self._scan_string()
+
+            if StringReader.is_newline(char):
+                self._reader.advance()
+
+                if self._parenstack or self._newline:
+                    continue
+
+                self._newline = True
+                self._scannedindents = False
+                return self.factory.create_token(TokenType.NEWLINE, 1)
+
             if StringReader.is_escape(char):
                 self._reader.advance()
 
-                if not self._reader.at_eof():
-                    length = len(self._reader.source) - self._reader.tell()
-                    return self.factory.create_token(TokenType.ERROR, length)
+                if self._reader.at_eof():
+                    continue
 
-                self._reader = None
-                continue
+                startpos = self._reader.tell()
+                return self.factory.create_token(
+                    TokenType.ERROR, self._reader.skip_to_eof() - startpos
+                )
 
             if StringReader.is_comment(char):
-                startpos = self._reader.tell()
-                endpos = len(self._reader.source)
+                startpos, endpos = self._reader.tell(), self._reader.skip_to_eof()
                 self.factory.create_comment(self._reader.source[startpos:endpos])
 
-                self._reader = None
                 continue
 
             token = self._scan_token()

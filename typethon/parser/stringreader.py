@@ -4,6 +4,9 @@ from typing import Callable, Iterable, Union
 
 
 class EOFType(str):
+    def __new__(cls):
+        return str.__new__(cls, '\0')
+
     def __repr__(self):
         return '<EOF>'
 
@@ -39,6 +42,9 @@ class StringReader:
 
         return self._position
 
+    def skip_to_eof(self) -> int:
+        return self.advance(len(self.source) - self.tell())
+
     def skip_whitespace(self, *, newlines: bool = False) -> int:
         if newlines:
             return self.skip((' ', '\t', '\n', '\r', '\f'))
@@ -63,7 +69,7 @@ class StringReader:
                 return False
 
         self.advance(times)
-        return False
+        return True
 
     def accumulate(self, func: Callable[[str], bool]) -> str:
         startpos = self.tell()
