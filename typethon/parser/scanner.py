@@ -41,7 +41,11 @@ class TokenFactory:
     def create_number(self, flags: NumberTokenFlags, content: str) -> NumberToken:
         return NumberToken(self.create_range(len(content)), flags, content)
 
-    def create_string(self, range: TextRange, flags: StringTokenFlags, content: str) -> StringToken:
+    def create_string(
+        self, range: TextRange, flags: StringTokenFlags, content: Optional[str] = None
+    ) -> StringToken:
+        if content is None:
+            content = ''
         return StringToken(range, flags, content)
 
     def create_indent(self, *, inconsistent: bool = False) -> IndentToken:
@@ -112,6 +116,17 @@ class Scanner:
     def _lineno(self) -> int:
         return len(self._linestarts)
 
+    def _get_identifier(self) -> str:
+        startpos = self._reader.tell()
+        assert StringReader.is_identifier_start(self._reader.peek())
+        self._reader.advance()
+
+        while StringReader.is_identifier(self._reader.peek()):
+            self._reader.advance()
+
+        endpos = self._reader.tell()
+        return self._reader.source[startpos:endpos]
+
     def _scan_indents(self) -> None:
         indent = altindent = 0
         while True:
@@ -165,21 +180,21 @@ class Scanner:
         self._scannedindents = True
         self._newline = False
 
-    def _scan_identifier(self) -> IdentifierToken:
-        startpos = self._reader.tell()
-        assert StringReader.is_identifier_start(self._reader.peek())
-        self._reader.advance()
+    def _maybe_number(self) -> bool:
+        char = self._reader.peek()
+        if char == '.':
+            char = self._reader.peek(1)
+            if char == 'E' or char == 'e':
+                char = self._reader.peek(2)
+                if char == '+' or char == '-':
+                    char = self._reader.peek(3)
 
-        while StringReader.is_identifier(self._reader.peek()):
-            self._reader.advance()
-
-        endpos = self._reader.tell()
-        return self.factory.create_identifier(self._reader.source[startpos:endpos])
+        return StringReader.is_digit(char)
 
     def _scan_number(self) -> NumberToken:
-        assert StringReader.is_digit(self._reader.peek())
+        assert self._maybe_number()
 
-        flags = 0
+        flags = NumberTokenFlags.NONE
         leading_zero = False
 
         startpos = self._reader.tell()
@@ -243,8 +258,8 @@ class Scanner:
             else:
                 if leading_zero:
                     if self._reader.peek() != '0':
-                        # We set the LEADING_ZERO flag because the number
-                        # started with a zero but contained non-zero characters
+                        # We set the LEADING_ZERO flag because the number started
+                        # with a zero but contained at least 1 non-zero character
                         flags |= NumberTokenFlags.LEADING_ZERO
 
                 self._reader.advance()
@@ -289,11 +304,102 @@ class Scanner:
             if self._reader.peek(-1) == '_':
                 flags |= NumberTokenFlags.TRAILING_UNDERSCORE
 
+        if self._reader.expect(('J', 'j')):
+            flags |= NumberTokenFlags.IMAGINARY
+
         endpos = self._reader.tell()
         return self.factory.create_number(flags, self._reader.source[startpos:endpos])
 
     def _scan_string(self, *, prefixes: Optional[str] = None) -> StringToken:
-        pass
+        startlineno = self._lineno()
+        startpos = self._reader.tell()
+
+        flags = StringTokenFlags.NONE
+
+        if prefixes is not None:
+            for char in prefixes:
+                if char == 'R' or char == 'r':
+                    flag = StringTokenFlags.RAW
+                elif char == 'B' or char == 'b':
+                    flag = StringTokenFlags.BYTES
+                elif char == 'F' or char == 'f':
+                    flag = StringTokenFlags.FORMAT
+                else:
+                    flag |= StringTokenFlags.INVALID_PREFIX
+
+                if flags & flag:
+                    flags |= StringTokenFlags.INVALID_PREFIX
+                else:
+                    flags |= flag
+
+            startpos -= len(prefixes)
+
+        terminator = self._reader.peek()
+        assert StringReader.is_terminator(terminator)
+        self._reader.advance()
+
+        termsize = 1
+
+        if self._reader.expect(terminator):
+            if self._reader.expect(terminator):
+                termsize = 3
+            else:
+                return self.factory.create_string(
+                    TextRange(startpos, startpos + 1, startlineno, startlineno)
+                )
+
+        content = io.StringIO()
+        contentstart = self._reader.tell()
+
+        terminated = False
+
+        while not terminated:
+            if self._reader.at_eof():
+                if self._reader.tell() == 0:
+                    # Immediate EOF from reader -- we've reached the end of the file
+                    flags |= StringTokenFlags.UNTERMINATED
+                else:
+                    self._reader = self._readline()
+                    contentstart = 0
+
+            char = self._reader.peek()
+            if StringReader.is_newline(char):
+                if termsize == 3:
+                    contentend = self._reader.skip_to_eof()
+                else:
+                    contentend = self._reader.tell()
+                    flags |= StringTokenFlags.UNTERMINATED
+
+            elif StringReader.is_escape(char):
+                if StringReader.is_newline(self._reader.peek(1)):
+                    contentend = self._reader.skip_to_eof()
+                else:
+                    self._reader.advance(2)
+                    continue
+
+            elif char == terminator:
+                contentend = self._reader.tell()
+                if self._reader.expect(terminator, termsize):
+                    terminated = True
+                else:
+                    self._reader.advance(1)
+                    continue
+
+            else:
+                self._reader.advance(1)
+                continue
+
+            content.write(self._reader.source[contentstart:contentend])
+
+            if flags & StringTokenFlags.UNTERMINATED:
+                break
+
+        endlineno = self._lineno()
+        endpos = self._reader.tell()
+
+        return self.factory.create_string(
+            TextRange(startpos, endpos, startlineno, endlineno), flags, content.getvalue()
+        )
 
     def _scan_token(self) -> Optional[Token]:
         if self._reader.expect('('):
@@ -470,21 +576,21 @@ class Scanner:
             if self._reader.at_eof():
                 continue
 
+            if self._maybe_number():
+                return self._scan_number()
+
             char = self._reader.peek()
             if StringReader.is_identifier_start(char):
-                token = self._scan_identifier()
+                content = self._get_identifier()
 
                 if StringReader.is_terminator(self._reader.peek()):
-                    return self._scan_string(prefixes=token.content)
+                    return self._scan_string(prefixes=content)
 
-                keyword = KEYWORDS.get(token.content)
+                keyword = KEYWORDS.get(content)
                 if keyword is not None:
-                    return self.factory.create_token(keyword, len(token.content))
+                    return self.factory.create_token(keyword, len(content))
                 else:
-                    return token
-
-            if StringReader.is_digit(char):
-                return self._scan_number()
+                    return self.factory.create_identifier(content)
 
             if StringReader.is_terminator(char):
                 return self._scan_string()

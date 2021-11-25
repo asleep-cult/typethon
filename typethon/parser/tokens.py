@@ -171,6 +171,8 @@ class IdentifierToken(Token):
 
 
 class NumberTokenFlags(enum.IntFlag):
+    NONE = 0
+
     BINARY = enum.auto()
     OCTAL = enum.auto()
     HEXADECIMAL = enum.auto()
@@ -201,12 +203,15 @@ class NumberToken(Token):
 
 
 class StringTokenFlags(enum.IntFlag):
+    NONE = 0
+
     RAW = enum.auto()
     BYTES = enum.auto()
     FORMAT = enum.auto()
 
     # Exceptional
     UNTERMINATED = enum.auto()
+    INVALID_PREFIX = enum.auto()
 
 
 class StringToken(Token):
@@ -218,7 +223,7 @@ class StringToken(Token):
         self.content = content
 
     def __repr__(self):
-        return f'<{self.__class__.__class__} flags={self.flags!r} {self.content!r} {self.range!r}>'
+        return f'<{self.__class__.__name__} flags={self.flags!r} {self.content!r} {self.range!r}>'
 
 
 class IndentToken(Token):
