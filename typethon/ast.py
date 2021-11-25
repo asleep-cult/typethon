@@ -3,102 +3,112 @@ from __future__ import annotations
 import enum
 from typing import Optional, Union
 
-from .parser.scanner import Token
+from .textrange import TextRange
 
 
 class BaseNode:
-    __slots__ = ('startpos', 'endpos', 'startlineno', 'endlineno', 'linespans')
+    __slots__ = ('range',)
 
-    def __new__(cls, *args, **kwargs):
-        self = object.__new__(cls)
-
-        self.startpos = -1
-        self.endpos = -1
-        self.startlineno = -1
-        self.endlineno = -1
-
-        return self
+    def __init__(self, range: TextRange) -> None:
+        self.range = range
 
     def __repr__(self):
-        attrs = ', '.join(f'{name}={getattr(self, name)!r}' for name in self.__class__.__slots__
-                          if name not in BaseNode.__slots__)
+        attrs = ', '.join(
+            f'{name}={getattr(self, name)!r}'
+            for name in self.__class__.__slots__ if name not in BaseNode.__slots__
+        )
         if not attrs:
-            return f'<{self.__class__.__name__}>'
+            return f'{self.__class__.__name__}()'
         return f'<{self.__class__.__name__} {attrs}>'
-
-    def set_loc(self, starttok: Token, endtok: Optional[Token] = None) -> None:
-        if endtok is None:
-            endtok = starttok
-
-        self.startpos = starttok.startpos
-        self.endpos = endtok.endpos
-        self.startlineno = starttok.startlineno
-        self.endlineno = endtok.endlineno
-
-        return self
-
-    def is_target(self):
-        return False
-
-    def is_single_target(self):
-        return False
 
 
 class ModuleNode(BaseNode):
     __slots__ = ('body',)
 
-    def __init__(self) -> None:
-        self.body: list[StatementNode] = []
+    def __init__(self, range: TextRange, *, body: list[StatementNode]) -> None:
+        super().__init__(range)
+        self.body = body
 
 
 class StatementList(BaseNode):
     __slots__ = ('statements',)
 
-    def __init__(self) -> None:
-        self.statements: list[StatementNode] = []
+    def __init__(self, range: TextRange, *, statements: list[StatementNode]) -> None:
+        super().__init__(range)
+        self.statements = statements
 
 
 class FunctionDefNode(BaseNode):
     __slots__ = ('is_async', 'name', 'parameters', 'body', 'decorators', 'returns')
 
-    def __init__(self, *, name: str) -> None:
-        self.is_async = False
-        self.name: str = name
-        self.parameters: list[ParameterNode] = []
-        self.body: list[StatementNode] = []
-        self.decorators: list[ExpressionNode] = []
-        self.returns: Optional[ExpressionNode] = None
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        is_async: bool,
+        name: str,
+        parameters: list[ParameterNode],
+        body: list[StatementNode],
+        decorators: list[ExpressionNode],
+        returns: Optional[ExpressionNode],
+    ) -> None:
+        super().__init__(range)
+        self.is_async = is_async
+        self.name = name
+        self.parameters = parameters
+        self.body = body
+        self.decorators = decorators
+        self.returns = returns
 
 
 class ClassDefNode(BaseNode):
     __slots__ = ('name', 'bases', 'kwargs', 'body', 'decorators')
 
-    def __init__(self, *, name: str) -> None:
-        self.name: str = name
-        self.bases: list[ExpressionNode] = []
-        self.kwargs: list[KeywordArgumentNode] = []
-        self.body: list[StatementNode] = []
-        self.decorators: list[ExpressionNode] = []
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        name: str,
+        bases: list[ExpressionNode],
+        kwargs: list[KeywordArgumentNode],
+        body: list[StatementNode],
+        decorators: list[ExpressionNode],
+    ) -> None:
+        super().__init__(range)
+        self.name = name
+        self.bases = bases
+        self.kwargs = kwargs
+        self.body = body
+        self.decorators = decorators
 
 
 class ReturnNode(BaseNode):
     __slots__ = ('value',)
 
-    def __init__(self) -> None:
-        self.value: Optional[ExpressionNode] = None
+    def __init__(self, range: TextRange, *, value: Optional[ExpressionNode]) -> None:
+        super().__init__(range)
+        self.value = value
 
 
 class DeleteNode(BaseNode):
     __slots__ = ('targets',)
 
-    def __init__(self) -> None:
-        self.targets: list[ExpressionNode] = []
+    def __init__(self, range: TextRange, *, targets: list[ExpressionNode]) -> None:
+        super().__init__(range)
+        self.targets = targets
 
 
 class AssignNode(BaseNode):
     __slots__ = ('targets', 'value')
 
-    def __init__(self, *, targets: list[ExpressionNode], value: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        targets: list[ExpressionNode],
+        value: ExpressionNode,
+    ) -> None:
+        super().__init__(range)
         self.targets = targets
         self.value = value
 
@@ -106,7 +116,15 @@ class AssignNode(BaseNode):
 class AugAssignNode(BaseNode):
     __slots__ = ('target', 'op', 'value')
 
-    def __init__(self, *, target: ExpressionNode, op: Operator, value: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        target: ExpressionNode,
+        op: Operator,
+        value: ExpressionNode,
+    ) -> None:
+        super().__init__(range)
         self.target = target
         self.op = op
         self.value = value
@@ -115,110 +133,185 @@ class AugAssignNode(BaseNode):
 class AnnAssignNode(BaseNode):
     __sltos__ = ('target', 'annotation', 'value')
 
-    def __init__(self, *, target: ExpressionNode, annotation: ExpressionNode) -> None:
+    def __init__(
+        self,
+        *,
+        target: ExpressionNode,
+        annotation: ExpressionNode,
+        value: Optional[ExpressionNode],
+    ) -> None:
         self.target = target
         self.annotation = annotation
-        self.value: Optional[ExpressionNode] = None
+        self.value = value
 
 
 class ForNode(BaseNode):
-    __slots__ = ('is_async', 'target', 'iterator', 'body', 'elsebody')
+    __slots__ = ('is_async', 'target', 'iterator', 'body', 'else_body')
 
-    def __init__(self, *, target: ExpressionNode, iterator: ExpressionNode) -> None:
-        self.is_async = False
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        is_async: bool,
+        target: ExpressionNode,
+        iterator: ExpressionNode,
+        body: list[ExpressionNode],
+        else_body: list[ExpressionNode],
+    ) -> None:
+        super().__init__(range)
+        self.is_async = is_async
         self.target = target
         self.iterator = iterator
-        self.body: list[ExpressionNode] = []
-        self.elsebody: list[ExpressionNode] = []
+        self.body = body
+        self.else_body = else_body
 
 
 class WhileNode(BaseNode):
-    __slots__ = ('condition', 'body', 'elsebody')
+    __slots__ = ('condition', 'body', 'else_body')
 
-    def __init__(self, *, condition: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        condition: ExpressionNode,
+        body: list[StatementNode],
+        else_body: list[StatementNode],
+    ) -> None:
+        super().__init__(range)
         self.condition = condition
-        self.body: list[StatementNode] = []
-        self.elsebody: list[StatementNode] = []
+        self.body = body
+        self.else_body = else_body
 
 
 class IfNode(BaseNode):
-    __slots__ = ('condition', 'body', 'elsebody')
+    __slots__ = ('condition', 'body', 'else_body')
 
-    def __init__(self, *, condition: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        condition: ExpressionNode,
+        body: list[StatementNode],
+        else_body: list[StatementNode],
+    ) -> None:
+        super().__init__(range)
         self.condition = condition
-        self.body: list[StatementNode] = []
-        self.elsebody: list[StatementNode] = []
+        self.body = body
+        self.else_body = else_body
 
 
 class WithNode(BaseNode):
     __slots__ = ('is_async', 'items', 'body')
 
-    def __init__(self) -> None:
-        self.is_async = False
-        self.items: list[WithItemNode] = []
-        self.body: list[StatementNode] = []
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        is_async: bool,
+        items: list[WithItemNode],
+        body: list[StatementNode],
+    ) -> None:
+        super().__init__(range)
+        self.is_async = is_async
+        self.items = items
+        self.body = body
 
 
 class RaiseNode(BaseNode):
     __slots__ = ('exc', 'cause')
 
-    def __init__(self) -> None:
-        self.exc: Optional[ExpressionNode] = None
-        self.cause: Optional[ExpressionNode] = None
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        exc: Optional[ExpressionNode],
+        cause: Optional[ExpressionNode],
+    ) -> None:
+        super().__init__(range)
+        self.exc = exc
+        self.cause = cause
 
 
 class TryNode(BaseNode):
-    __slots__ = ('body', 'handlers', 'elsebody', 'finalbody')
+    __slots__ = ('body', 'handlers', 'else_body', 'final_body')
 
-    def __init__(self) -> None:
-        self.body: list[StatementNode] = []
-        self.handlers: list[ExceptHandlerNode] = []
-        self.elsebody: list[StatementNode] = []
-        self.finalbody: list[StatementNode] = []
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        body: list[StatementNode],
+        handlers: list[ExceptHandlerNode],
+        else_body: list[StatementNode],
+        final_body: list[StatementNode],
+    ) -> None:
+        super().__init__(range)
+        self.body = body
+        self.handlers = handlers
+        self.else_body = else_body
+        self.final_body = final_body
 
 
 class AssertNode(BaseNode):
     __slots__ = ('condition', 'message')
 
-    def __init__(self, *, condition: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        condition: ExpressionNode,
+        message: Optional[ExpressionNode],
+    ) -> None:
+        super().__init__(range)
         self.condition = condition
-        self.message: Optional[str] = None
+        self.message = message
 
 
 class ImportNode(BaseNode):
     __slots__ = ('names',)
 
-    def __init__(self) -> None:
-        self.names: list[AliasNode] = []
+    def __init__(self, range: TextRange, *, names: list[AliasNode]) -> None:
+        super().__init__(range)
+        self.names = names
 
 
 class ImportFromNode(BaseNode):
     __slots__ = ('module', 'names', 'level')
 
-    def __init__(self) -> None:
-        self.module: Optional[str] = None
-        self.names: list[AliasNode] = None
-        self.level: Optional[int] = None
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        module: Optional[str],
+        names: list[AliasNode],
+        level: Optional[int],
+    ) -> None:
+        super().__init__(range)
+        self.module = module
+        self.names = names
+        self.level = level
 
 
 class GlobalNode(BaseNode):
     __slots__ = ('names',)
 
-    def __init__(self) -> None:
-        self.names: list[str] = []
+    def __init__(self, range: TextRange, *, names: list[str]) -> None:
+        super().__init__(range)
+        self.names = names
 
 
 class NonlocalNode(BaseNode):
     __slots__ = ('names',)
 
-    def __init__(self) -> None:
-        self.names: list[str] = []
+    def __init__(self, range: TextRange, *, names: list[str]) -> None:
+        super().__init__(range)
+        self.names = names
 
 
 class ExprNode(BaseNode):
     __slots__ = ('expr',)
 
-    def __init__(self, *, expr: ExpressionNode) -> None:
+    def __init__(self, range: TextRange, *, expr: ExpressionNode) -> None:
+        super().__init__(range)
         self.expr = expr
 
 
@@ -261,15 +354,30 @@ StatementNode = Union[
 class BoolOpNode(BaseNode):
     __slots__ = ('op', 'values')
 
-    def __init__(self, *, op: BoolOperator) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        op: BoolOperator,
+        values: list[ExpressionNode],
+    ) -> None:
+        super().__init__(range)
         self.op = op
-        self.values: list[ExpressionNode] = []
+        self.values = values
 
 
 class BinaryOpNode(BaseNode):
     __slots__ = ('left', 'op', 'right')
 
-    def __init__(self, *, left: ExpressionNode, op: Operator, right: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        left: ExpressionNode,
+        op: Operator,
+        right: ExpressionNode
+    ) -> None:
+        super().__init__(range)
         self.left = left
         self.op = op
         self.right = right
@@ -278,7 +386,14 @@ class BinaryOpNode(BaseNode):
 class UnaryOpNode(BaseNode):
     __slots__ = ('op', 'operand')
 
-    def __init__(self, *, op: UnaryOperator, operand: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        op: UnaryOperator,
+        operand: ExpressionNode
+    ) -> None:
+        super().__init__(range)
         self.op = op
         self.operand = operand
 
@@ -286,100 +401,161 @@ class UnaryOpNode(BaseNode):
 class LambdaNode(BaseNode):
     __slots__ = ('parameters', 'body')
 
-    def __init__(self) -> None:
-        self.parameters: list[ParameterNode] = []
-        self.body: list[StatementNode] = []
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        parameters: list[ParameterNode],
+        body: list[StatementNode]
+    ) -> None:
+        super().__init__(range)
+        self.parameters = parameters
+        self.body = body
 
 
 class IfExpNode(BaseNode):
-    __slots__ = ('condition', 'body', 'elsebody')
+    __slots__ = ('condition', 'body', 'else_body')
 
-    def __init__(self, *, body: ExpressionNode, condition: ExpressionNode,
-                 elsebody: ExpressionNode) -> None:
-        self.condition = condition
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        body: ExpressionNode,
+        condition: ExpressionNode,
+        else_body: ExpressionNode,
+    ) -> None:
+        super().__init__(range)
         self.body = body
-        self.elsebody = elsebody
+        self.condition = condition
+        self.else_body = else_body
 
 
 class DictNode(BaseNode):
     __slots__ = ('elts',)
 
-    def __init__(self) -> None:
-        self.elts: list[DictElt] = []
+    def __init__(self, range: TextRange, *, elts: list[ExpressionNode]) -> None:
+        super().__init__(range)
+        self.elts = elts
 
 
 class SetNode(BaseNode):
     __slots__ = ('elts',)
 
-    def __init__(self) -> None:
-        self.elts: list[ExpressionNode] = []
+    def __init__(self, range: TextRange, *, elts: list[SetNode]) -> None:
+        super().__init__(range)
+        self.elts = elts
 
 
 class ListCompNode(BaseNode):
     __slots__ = ('elt', 'comprehensions')
 
-    def __init__(self, *, elt: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        elt: ExpressionNode,
+        comprehensions: list[ComprehensionNode]
+    ) -> None:
+        super().__init__(range)
         self.elt = elt
-        self.comprehensions: list[ComprehensionNode] = []
+        self.comprehensions = comprehensions
 
 
 class SetCompNode(BaseNode):
     __slots__ = ('elt', 'comprehensions')
 
-    def __init__(self, *, elt: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        elt: ExpressionNode,
+        comprehensions: list[ComprehensionNode],
+    ) -> None:
+        super().__init__(range)
         self.elt = elt
-        self.comprehensions: list[ComprehensionNode] = []
+        self.comprehensions = comprehensions
 
 
 class DictCompNode(BaseNode):
     __slots__ = ('elt', 'comprehensions')
 
-    def __init__(self, *, elt: DictElt) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        elt: DictElt,
+        comprehensions: list[ComprehensionNode],
+    ) -> None:
+        super().__init__(range)
         self.elt = elt
-        self.comprehensions: list[ComprehensionNode] = []
+        self.comprehensions = comprehensions
 
 
 class GeneratorExpNode(BaseNode):
     __slots__ = ('elt', 'comprehensions')
 
-    def __init__(self, *, elt: DictElt) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        elt: DictElt,
+        comprehensions: list[ComprehensionNode],
+    ) -> None:
+        super().__init__(range)
         self.elt = elt
-        self.comprehensions: list[ComprehensionNode] = []
+        self.comprehensions = comprehensions
 
 
 class AwaitNode(BaseNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: ExpressionNode) -> None:
+    def __init__(self, range: TextRange, *, value: ExpressionNode) -> None:
+        super().__init__(range)
         self.value = value
 
 
 class YieldNode(BaseNode):
     __slots__ = ('value',)
 
-    def __init__(self) -> None:
-        self.value: Optional[ExpressionNode] = None
+    def __init__(self, range: TextRange, *, value: Optional[ExpressionNode]) -> None:
+        super().__init__(range)
+        self.value = value
 
 
 class YieldFromNode(BaseNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: ExpressionNode) -> None:
+    def __init__(self, range: TextRange, *, value: ExpressionNode) -> None:
+        super().__init__(range)
         self.value = value
 
 
 class CompareNode(BaseNode):
     __slots__ = ('left', 'comparators')
 
-    def __init__(self, *, left: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        left: ExpressionNode,
+        comparators: list[ComparatorNode]
+    ) -> None:
+        super().__init__(range)
         self.left = left
-        self.comparators: list[ComparatorNode] = []
+        self.comparators = comparators
 
 
 class ComparatorNode(BaseNode):
     __slots__ = ('op', 'value')
 
-    def __init__(self, *, op: CmpOperator, value: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        op: CmpOperator,
+        value: ExpressionNode,
+    ) -> None:
+        super().__init__(range)
         self.op = op
         self.value = value
 
@@ -387,143 +563,147 @@ class ComparatorNode(BaseNode):
 class CallNode(BaseNode):
     __slots__ = ('func', 'args', 'kwargs')
 
-    def __init__(self, *, func: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        func: ExpressionNode,
+        args: list[ExpressionNode],
+        kwargs: list[KeywordArgumentNode],
+    ) -> None:
+        super().__init__(range)
         self.func = func
-        self.args: list[ExpressionNode] = []
-        self.kwargs: list[KeywordArgumentNode] = []
+        self.args = args
+        self.kwargs = kwargs
 
 
 class FormattedValueNode(BaseNode):
     __slots__ = ('value', 'conversion', 'spec')
 
-    def __init__(self, *, value: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        value: ExpressionNode,
+        conversion: Optional[int],
+        spec: Optional[ExpressionNode],
+    ) -> None:
+        super().__init__(range)
         self.value = value
-        self.conversion: Optional[int] = None
-        self.spec: Optional[ExpressionNode] = None
+        self.conversion = conversion
+        self.spec = spec
 
 
 class ConstantNode(BaseNode):
     __slots__ = ('type',)
 
-    def __init__(self, *, type: ConstantType) -> None:
+    def __init__(self, range: TextRange, *, type: ConstantType) -> None:
+        super().__init__(range)
         self.type = type
 
 
 class IntegerNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: int) -> None:
-        super().__init__(type=ConstantType.INTEGER)
+    def __init__(self, range: TextRange, *, value: int) -> None:
+        super().__init__(range, type=ConstantType.INTEGER)
         self.value = value
 
 
 class FloatNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: float) -> None:
-        super().__init__(type=ConstantType.FLOAT)
+    def __init__(self, range: TextRange, *, value: float) -> None:
+        super().__init__(range, type=ConstantType.FLOAT)
         self.value = value
 
 
 class ComplexNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: complex) -> None:
-        super().__init__(type=ConstantType.COMPLEX)
+    def __init__(self, range: TextRange, *, value: complex) -> None:
+        super().__init__(range, type=ConstantType.COMPLEX)
         self.value = value
 
 
 class StringNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: str) -> None:
-        super().__init__(type=ConstantType.STRING)
+    def __init__(self, range: TextRange, *, value: str) -> None:
+        super().__init__(range, type=ConstantType.STRING)
         self.value = value
 
 
 class BytesNode(ConstantNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: bytes) -> None:
-        super().__init__(type=ConstantType.BYTES)
+    def __init__(self, range: TextRange, * value: bytes) -> None:
+        super().__init__(range, type=ConstantType.BYTES)
         self.value = value
 
 
 class AttributeNode(BaseNode):
     __slots__ = ('value', 'attr',)
 
-    def __init__(self, *, value: ExpressionNode, attr: str) -> None:
+    def __init__(self, range: TextRange, *, value: ExpressionNode, attr: str) -> None:
+        super().__init__(range)
         self.value = value
         self.attr = attr
-
-    def is_target(self):
-        return True
-
-    def is_single_target(self):
-        return True
 
 
 class SubscriptNode(BaseNode):
     __slots__ = ('value', 'slice',)
 
-    def __init__(self, *, value: ExpressionNode, slice: ExpressionNode) -> None:
+    def __init__(self, range: TextRange, *, value: ExpressionNode, slice: ExpressionNode) -> None:
+        super().__init__(range)
         self.value = value
         self.slice = slice
-
-    def is_target(self):
-        return True
-
-    def is_single_target(self):
-        return True
 
 
 class StarredNode(BaseNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: ExpressionNode) -> None:
+    def __init__(self, range: TextRange, *, value: ExpressionNode) -> None:
+        super().__init__(range)
         self.value = value
-
-    def is_target(self):
-        return self.value.is_target()
 
 
 class NameNode(BaseNode):
     __slots__ = ('value',)
 
-    def __init__(self, *, value: str) -> None:
+    def __init__(self, range: TextRange, *, value: str) -> None:
+        super().__init__(range)
         self.value = value
-
-    def is_target(self):
-        return True
-
-    def is_single_target(self):
-        return True
 
 
 class ListNode(BaseNode):
     __slots__ = ('elts',)
 
-    def __init__(self) -> None:
-        self.elts: list[ExpressionNode] = []
-
-    def is_target(self):
-        return all(expr.is_target() for expr in self.elts)
+    def __init__(self, range: TextRange, *, elts: list[ExpressionNode]) -> None:
+        super().__init__(range)
+        self.elts = elts
 
 
 class TupleNode(BaseNode):
     __slots__ = ('elts',)
 
-    def __init__(self):
-        self.elts: list[ExpressionNode] = []
-
-    def is_target(self):
-        return all(expr.is_target() for expr in self.elts)
+    def __init__(self, range: TextRange, *, elts: list[ExpressionNode]) -> None:
+        super().__init__(range)
+        self.elts = elts
 
 
 class SliceNode(BaseNode):
     __slots__ = ('start', 'stop', 'step')
 
-    def __init__(self, *, start: Optional[int], stop: Optional[int], step: Optional[int]) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        start: Optional[int],
+        stop: Optional[int],
+        step: Optional[int]
+    ) -> None:
+        super().__init__(range)
         self.start = start
         self.stop = stop
         self.step = step
@@ -559,19 +739,29 @@ ExpressionNode = Union[
 
 
 class ParameterNode(BaseNode):
-    __slots__ = ('type', 'name', 'annotation', 'default')
+    __slots__ = ('name', 'type', 'annotation', 'default')
 
-    def __init__(self, *, type: ParameterType, name: str) -> None:
-        self.type = type
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        name: str,
+        type: ParameterType,
+        annotation: Optional[ExpressionNode],
+        default: Optional[ExpressionNode],
+    ) -> None:
+        super().__init__(range)
         self.name = name
-        self.annotation: Optional[ExpressionNode] = None
-        self.default: Optional[ExpressionNode] = None
+        self.type = type
+        self.annotation = annotation
+        self.default = default
 
 
 class KeywordArgumentNode(BaseNode):
     __slots__ = ('name', 'value')
 
-    def __init__(self, *, name: Optional[str], value: ExpressionNode) -> None:
+    def __init__(self, range: TextRange, *, name: Optional[str], value: ExpressionNode) -> None:
+        super().__init__(range)
         self.name = name
         self.value = value
 
@@ -579,34 +769,56 @@ class KeywordArgumentNode(BaseNode):
 class WithItemNode(BaseNode):
     __slots__ = ('contextmanager', 'targets')
 
-    def __init__(self, contextmanager: ExpressionNode) -> None:
+    def __init__(
+        self,
+        range: TextRange,
+        contextmanager: ExpressionNode,
+        targets: list[ExpressionNode]
+    ) -> None:
+        super().__init__(range)
         self.contextmanager = contextmanager
-        self.targets: list[ExpressionNode] = []
+        self.targets = targets
 
 
 class ExceptHandlerNode(BaseNode):
     __slots__ = ('type', 'target', 'body')
 
-    def __init__(self) -> None:
-        self.type: Optional[ExpressionNode] = None
-        self.target: Optional[str] = None
-        self.body: list[StatementNode] = []
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        type: Optional[ExpressionNode],
+        target: Optional[str],
+        body: list[StatementNode],
+    ) -> None:
+        super().__init__(range)
+        self.type = type
+        self.target = target
+        self.body = body
 
 
 class ComprehensionNode(BaseNode):
     __slots__ = ('is_async', 'target', 'iterator', 'ifs')
 
-    def __init__(self, *, target: ExpressionNode, iterator: ExpressionNode) -> None:
-        self.is_async = False
+    def __init__(
+        self,
+        range: TextRange,
+        *,
+        is_async: bool,
+        target: ExpressionNode,
+        iterator: ExpressionNode,
+    ) -> None:
+        super().__init__(range)
+        self.is_async = is_async
         self.target = target
         self.iterator = iterator
-        self.ifs: list[ExpressionNode] = []
 
 
 class AliasNode(BaseNode):
     __slots__ = ('name', 'asname')
 
-    def __init__(self, *, name: str, asname: str) -> None:
+    def __init__(self, range: TextRange, *, name: str, asname: str) -> None:
+        super().__init__(range)
         self.name = name
         self.asname = asname
 
@@ -614,7 +826,8 @@ class AliasNode(BaseNode):
 class DictElt:
     __slots__ = ('key', 'value')
 
-    def __init__(self, *, key: ExpressionNode, value: ExpressionNode) -> None:
+    def __init__(self, range: TextRange, *, key: ExpressionNode, value: ExpressionNode) -> None:
+        super().__init__(range)
         self.key = key
         self.value = value
 

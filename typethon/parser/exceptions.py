@@ -1,6 +1,2 @@
-class BadEncodingDeclaration(Exception):
-    pass
-
-
-class InternalParserError(Exception):
+class BadEncodingDeclaration:
     pass
