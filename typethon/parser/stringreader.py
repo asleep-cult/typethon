@@ -141,6 +141,10 @@ class StringReader:
         return char == '0' or char == '1'
 
     @staticmethod
+    def is_indent(char: str) -> bool:
+        return char == '\t' or char == ' '
+
+    @staticmethod
     def is_terminator(char: str) -> bool:
         return char == '\'' or char == '\"'
 

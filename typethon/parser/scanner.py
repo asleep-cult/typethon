@@ -129,15 +129,13 @@ class Scanner:
 
     def _scan_indents(self) -> None:
         indent = altindent = 0
-        while True:
+        while StringReader.is_indent(self._reader.peek()):
             if self._reader.expect(' '):
                 indent += 1
                 altindent += 1
             elif self._reader.expect('\t'):
                 indent += ((indent / TABSIZE) + 1) * TABSIZE
                 altindent += ((indent / ALTTABSIZE) + 1) * ALTTABSIZE
-            else:
-                break
 
         if StringReader.is_blank(self._reader.peek()):
             return
