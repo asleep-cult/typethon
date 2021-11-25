@@ -180,6 +180,13 @@ class NumberTokenFlags(enum.IntFlag):
 
     IMAGINARY = enum.auto()
 
+    # Exceptional
+    EMPTY = enum.auto()
+    LEADING_ZERO = enum.auto()
+    CONSECUTIVE_UNDERSCORES = enum.auto()
+    TRAILING_UNDERSCORE = enum.auto()
+    INVALID_EXPONENT = enum.auto()
+
 
 class NumberToken(Token):
     __slots__ = ('flags', 'content')
@@ -198,6 +205,7 @@ class StringTokenFlags(enum.IntFlag):
     BYTES = enum.auto()
     FORMAT = enum.auto()
 
+    # Exceptional
     UNTERMINATED = enum.auto()
 
 

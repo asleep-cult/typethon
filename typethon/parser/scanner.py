@@ -177,7 +177,120 @@ class Scanner:
         return self.factory.create_identifier(self._reader.source[startpos:endpos])
 
     def _scan_number(self) -> NumberToken:
-        pass
+        assert StringReader.is_digit(self._reader.peek())
+
+        flags = 0
+        leading_zero = False
+
+        startpos = self._reader.tell()
+
+        if self._reader.expect('0'):
+            if self._reader.expect(('X', 'x')):
+                flags |= NumberTokenFlags.HEXADECIMAL
+                while (
+                    StringReader.is_hexadecimal(self._reader.peek())
+                    or self._reader.peek() == '_'
+                ):
+                    if self._reader.expect('_'):
+                        if self._reader.expect('_'):
+                            flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+                    else:
+                        self._reader.advance()
+
+            elif self._reader.expect(('O', 'o')):
+                flags |= NumberTokenFlags.OCTAL
+                while (
+                    StringReader.is_octal(self._reader.peek())
+                    or self._reader.peek() == '_'
+                ):
+                    if self._reader.expect('_'):
+                        if self._reader.expect('_'):
+                            flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+                    else:
+                        self._reader.advance()
+
+            elif self._reader.expect(('B', 'b')):
+                flags |= NumberTokenFlags.BINARY
+                while (
+                    StringReader.is_hexadecimal(self._reader.peek())
+                    or self._reader.peek() == '_'
+                ):
+                    if self._reader.expect('_'):
+                        if self._reader.expect('_'):
+                            flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+                    else:
+                        self._reader.advance()
+
+            if flags != 0:
+                endpos = self._reader.tell()
+                if endpos <= startpos + 2:
+                    flags |= NumberTokenFlags.EMPTY
+
+                if self._reader.peek(-1) == '_':
+                    flags |= NumberTokenFlags.TRAILING_UNDERSCORE
+
+                return self.factory.create_number(flags, self._reader.source[startpos:endpos])
+
+            leading_zero = True
+
+        while (
+            StringReader.is_digit(self._reader.peek())
+            or self._reader.peek() == '_'
+        ):
+            if self._reader.expect('_'):
+                if self._reader.expect('_'):
+                    flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+            else:
+                if leading_zero:
+                    if self._reader.peek() != '0':
+                        # We set the LEADING_ZERO flag because the number
+                        # started with a zero but contained non-zero characters
+                        flags |= NumberTokenFlags.LEADING_ZERO
+
+                self._reader.advance()
+
+        if self._reader.peek(-1) == '_':
+            flags |= NumberTokenFlags.TRAILING_UNDERSCORE
+
+        if self._reader.expect('.'):
+            flags |= NumberTokenFlags.FLOAT
+
+            while (
+                StringReader.is_digit(self._reader.peek())
+                or self._reader.peek() == '_'
+            ):
+                if self._reader.expect('_'):
+                    if self._reader.expect('_'):
+                        flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+                else:
+                    self._reader.advance()
+
+            if self._reader.peek(-1) == '_':
+                flags |= NumberTokenFlags.TRAILING_UNDERSCORE
+
+        if self._reader.expect(('E', 'e')):
+            flags |= NumberTokenFlags.FLOAT
+
+            self._reader.skip(('+', '-'))
+
+            if not StringReader.is_digit(self._reader.peek()):
+                flags |= NumberTokenFlags.INVALID_EXPONENT
+
+            while (
+                StringReader.is_digit(self._reader.peek())
+                or self._reader.peek() == '_'
+            ):
+                if self._reader.expect('_'):
+                    if self._reader.expect('_'):
+                        flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+                else:
+                    self._reader.advance()
+
+            if self._reader.peek(-1) == '_':
+                flags |= NumberTokenFlags.TRAILING_UNDERSCORE
+
+        endpos = self._reader.tell()
+        return self.factory.create_number(flags, self._reader.source[startpos:endpos])
 
     def _scan_string(self, *, prefixes: Optional[str] = None) -> StringToken:
         pass

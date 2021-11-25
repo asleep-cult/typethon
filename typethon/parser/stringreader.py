@@ -129,7 +129,7 @@ class StringReader:
         return (
             'a' <= char <= 'f'
             or 'A' <= char <= 'F'
-            or '1' <= char <= '9'
+            or '0' <= char <= '9'
         )
 
     @staticmethod
