@@ -325,7 +325,7 @@ class Scanner:
                 elif char == 'F' or char == 'f':
                     flag = StringTokenFlags.FORMAT
                 else:
-                    flag |= StringTokenFlags.INVALID_PREFIX
+                    flag = StringTokenFlags.INVALID_PREFIX
 
                 if flags & flag:
                     flags |= StringTokenFlags.INVALID_PREFIX
