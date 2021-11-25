@@ -36,7 +36,7 @@ def parse_encoding_declaration(line: bytes, *, bom: bool = False) -> Optional[st
     ):
         return None
 
-    reader.skip_spaces()
+    reader.skip_whitespace()
 
     encoding = normalize_encoding(reader.accumulate(
         lambda char: char.isalnum() or char == '_' or char == '-' or char == '.'
@@ -77,19 +77,10 @@ def open(file, mode, encoding='utf-8', *args, **kwargs):
     if not line:
         return default
 
-    encoding = parse_encoding_declaration(line)
-    if encoding is not None:
-        return encoding
-
-    if line.strip() != b'#':
-        return default
-
-    line = fp.readline()
-    if not isinstance(line, bytes):
-        raise TypeError(f'readline() should return bytes, not {line.__class__.__name__!r}')
-
-    if not line:
-        return default
+    if line.strip() == b'#':
+        line = fp.readline()
+        if not isinstance(line, bytes):
+            raise TypeError(f'readline() should return bytes, not {line.__class__.__name__!r}')
 
     encoding = parse_encoding_declaration(line)
     if encoding is not None:
