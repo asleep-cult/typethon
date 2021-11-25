@@ -158,6 +158,12 @@ class Token(TextRange):
     def is_number(self) -> bool:
         return self.type is TokenType.NUMBER
 
+    def is_indent(self) -> bool:
+        return self.type is TokenType.INDENT
+
+    def is_dedent(self) -> bool:
+        return self.type is TokenType.DEDENT
+
 
 class IdentifierToken(Token):
     __slots__ = ('content',)
