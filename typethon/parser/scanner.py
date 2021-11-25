@@ -343,7 +343,7 @@ class Scanner:
                 termsize = 3
             else:
                 return self.factory.create_string(
-                    TextRange(startpos, startpos + 1, startlineno, startlineno)
+                    TextRange(startpos, startpos + 1, startlineno, startlineno), flags
                 )
 
         content = io.StringIO()
@@ -537,6 +537,10 @@ class Scanner:
                 return self.factory.create_token(TokenType.EQEQUAL, 2)
 
             return self.factory.create_token(TokenType.EQUAL, 1)
+
+        elif self._reader.expect('!'):
+            if self._reader.expect('='):
+                return self.factory.create_token(TokenType.NOTEQUAL, 2)
 
         elif self._reader.expect('%'):
             if self._reader.expect('='):
