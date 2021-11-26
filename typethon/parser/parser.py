@@ -114,11 +114,11 @@ class Parser:
             TokenType.RETURN: self._parse_return_statement,
         }
 
-    def _alternative(self, rule: Callable[[], T]) -> Optional[T]:
+    def _alternative(self, rule: Callable[[], T], *args, **kwargs) -> Optional[T]:
         stream = self._stream
         self._stream = self._stream.view()
         try:
-            value = rule()
+            value = rule(*args, **kwargs)
             self._stream.commit()
             return value
         finally:
@@ -242,13 +242,27 @@ class Parser:
     def _parse_return_statement(self):
         pass
 
-    def _parse_expression(self):
+    def _parse_expression(self, *, starred=False):
         """
-        expression:
+        expression(starred=true):
+            | '*' bitwise_or
+            | expression(starred=false)
+
+        expression(starred=false):
             | disjunction
             | disjunction 'if' disjunction 'else' expression
             | lambda_expression
         """
+        if starred:
+            token = self._stream.expect(TokenType.STAR)
+            if token is not None:
+                value = self._parse_bitwise_or()
+
+                expression = ast.StarredNode(value.range, value=value)
+                expression.range.extend(value.range)
+
+                return expression
+
         token = self._stream.peek()
         if token.type is TokenType.LAMBDA:
             return self._parse_lambda_expression()
@@ -271,22 +285,23 @@ class Parser:
 
         return expression
 
-    def _parse_expressions(self):
+    def _parse_expression_list(self, *, starred=False):
         """
-        expressions:
-            | expression
-            | expression (',' expression)* [',']
+        expressions(starred):
+            | expression(starred)
+            | expression(starred) (',' expression(starred))* [',']
         """
-        expression = self._parse_expression()
+        expression = self._parse_expression(starred=starred)
         if self._stream.expect(TokenType.COMMA) is None:
             return expression
 
         expression = ast.TupleNode(expression.range, elts=[expression])
 
         while True:
-            expr = self._alternative(self._parse_expression)
+            expr = self._alternative(self._parse_expression, starred=True)
             if expr is not None:
                 expression.elts.append(expr)
+                expression.range.extend(expr.range)
             else:
                 break
 
@@ -298,57 +313,75 @@ class Parser:
 
         return expression
 
-    def _parse_star_expression(self):
-        """
-        star_expression:
-            | '*' bitwise_or
-            | expression
-        """
-        token = self._stream.expect(TokenType.STAR)
-        if token is not None:
-            value = self._parse_bitwise_or()
+    def _parse_lambda_expression(self):
+        pass
 
-            expression = ast.StarredNode(token.range, value=value)
-            expression.range.extend(value.range)
+    def _parse_disjunction(self):
+        """
+        disjunction:
+            | conjunction
+            | conjunction ('or' conjunction)+
+        """
+        expression = self._parse_conjunction()
 
+        token = self._stream.peek()
+        if token.type is not TokenType.OR:
             return expression
 
-        return self._parse_expression()
-
-    def _parse_star_expressions(self):
-        """
-        star_expressions:
-            | star_expression
-            | star_expression (',' star_expression)* [';']
-        """
-        expression = self._parse_expression()
-        if self._stream.expect(TokenType.COMMA) is None:
-            return expression
-
-        expression = ast.TupleNode(expression.range, [expression])
+        expression = ast.BoolOpNode(expression.range, op=ast.BoolOperator.OR, values=[])
 
         while True:
-            expr = self._alternative(self._parse_star_expression)
-            if expr is not None:
-                expression.elts.append(expr)
-            else:
-                break
-
-            token = self._stream.expect(TokenType.COMMA)
+            token = self._stream.expect(TokenType.OR)
             if token is not None:
-                expr.range.extend(token.range)
+                value = self._parse_conjunction()
+
+                expression.values.append(value)
+                expression.range.extend(value.range)
             else:
                 break
 
         return expression
 
-    def _parse_lambda_expression(self):
-        pass
-
-    def _parse_disjunction(self):
-        pass
-
     def _parse_conjunction(self):
+        """
+        conjunction:
+            | inversion
+            | inversion ('or' inversion)+
+        """
+        expression = self._parse_inversion()
+
+        token = self._stream.peek()
+        if token.type is not TokenType.OR:
+            return expression
+
+        expression = ast.BoolOpNode(expression.range, op=ast.BoolOperator.OR, values=[])
+
+        while True:
+            token = self._stream.expect(TokenType.OR)
+            if token is not None:
+                value = self._parse_inversion()
+
+                expression.values.append(value)
+                expression.range.extend(value.range)
+            else:
+                break
+
+        return expression
+
+    def _parse_inversion(self):
+        """
+        conjunction:
+            | 'not' inversion
+            | comparison
+        """
+        token = self._stream.expect(TokenType.NOT)
+        if token is not None:
+            operand = self._parse_inversion()
+            return ast.UnaryOpNode(token.range, ast.UnaryOperator.NOT, operand=operand)
+
+        return self._parse_comparison()
+
+    def _parse_comparison(self):
         pass
 
     def _parse_bitwise_or(self):

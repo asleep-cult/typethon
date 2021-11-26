@@ -116,6 +116,35 @@ class Scanner:
     def _lineno(self) -> int:
         return len(self._linestarts)
 
+    def _is_at_number(self) -> bool:
+        char = self._reader.peek()
+        if char == '.':
+            char = self._reader.peek(1)
+            if char in ('E' 'e'):
+                char = self._reader.peek(2)
+                if char in ('+' '-'):
+                    char = self._reader.peek(3)
+
+        return StringReader.is_digit(char)
+
+    def _get_number_flags(self, func: Callable[[str], bool]) -> NumberTokenFlags:
+        flags = NumberTokenFlags.NONE
+
+        while (
+            func(self._reader.peek())
+            or self._reader.peek() == '_'
+        ):
+            if self._reader.expect('_'):
+                if self._reader.expect('_'):
+                    flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+            else:
+                self._reader.advance()
+
+        if self._reader.peek(-1) == '_':
+            flags |= NumberTokenFlags.TRAILING_UNDERSCORE
+
+        return flags
+
     def _get_identifier(self) -> str:
         startpos = self._reader.tell()
         assert StringReader.is_identifier_start(self._reader.peek())
@@ -150,8 +179,9 @@ class Scanner:
             if altindent <= lastaltindent:
                 self._indents.append(self.factory.create_indent(inconsistent=True))
             else:
-                self._add_indent(indent, altindent)
                 self._indents.append(self.factory.create_indent())
+
+            self._add_indent(indent, altindent)
         else:
             while indent < self._get_indent(-2):
                 self._remove_indent()
@@ -177,35 +207,6 @@ class Scanner:
 
         self._scannedindents = True
         self._newline = False
-
-    def _is_at_number(self) -> bool:
-        char = self._reader.peek()
-        if char == '.':
-            char = self._reader.peek(1)
-            if char in ('E' 'e'):
-                char = self._reader.peek(2)
-                if char in ('+' '-'):
-                    char = self._reader.peek(3)
-
-        return StringReader.is_digit(char)
-
-    def _get_number_flags(self, func: Callable[[str], bool]) -> None:
-        flags = NumberTokenFlags.NONE
-
-        while (
-            func(self._reader.peek())
-            or self._reader.peek() == '_'
-        ):
-            if self._reader.expect('_'):
-                if self._reader.expect('_'):
-                    flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
-            else:
-                self._reader.advance()
-
-        if self._reader.peek(-1) == '_':
-            flags |= NumberTokenFlags.TRAILING_UNDERSCORE
-
-        return flags
 
     def _scan_number(self) -> NumberToken:
         assert self._is_at_number()
