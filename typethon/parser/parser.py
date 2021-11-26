@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from io import TextIOBase
-from typing import Callable, Optional, TypeVar
+from typing import Callable, Optional, TYPE_CHECKING, TypeVar
 
 from .scanner import Scanner
 from .tokens import Token, TokenType
 from .. import ast
 
 T = TypeVar('T')
+
+if TYPE_CHECKING:
+    from typing_extensions import ParamSpec
+
+    P = ParamSpec('P')
 
 
 class TokenStream:
@@ -31,10 +36,6 @@ class TokenStream:
             self._tokencache.append(token)
 
         return token
-
-    def lookahead(self, func: Callable[[Token], bool]) -> Optional[Token]:
-        if func(self.peek()):
-            return self.next()
 
     def expect(self, type: TokenType) -> Optional[Token]:
         if self.peek().type is type:
@@ -67,10 +68,6 @@ class TokenStreamView:
             self.stream._tokencache.append(token)
 
         return token
-
-    def lookahead(self, func: Callable[[Token], bool]) -> Optional[Token]:
-        if func(self.peek()):
-            return self.next()
 
     def expect(self, type: TokenType) -> Optional[Token]:
         if self.peek().type is type:
@@ -114,7 +111,47 @@ class Parser:
             TokenType.RETURN: self._parse_return_statement,
         }
 
-    def _alternative(self, rule: Callable[[], T], *args, **kwargs) -> Optional[T]:
+        self._unaryop_table = {
+            TokenType.PLUS: ast.UnaryOperator.UADD,
+            TokenType.MINUS: ast.UnaryOperator.USUB,
+            TokenType.TILDE: ast.UnaryOperator.INVERT,
+        }
+
+        self._sum_table = {
+            TokenType.PLUS: ast.Operator.ADD,
+            TokenType.MINUS: ast.Operator.SUB,
+        }
+
+        self._term_table = {
+            TokenType.STAR: ast.Operator.MULT,
+            TokenType.SLASH: ast.Operator.DIV,
+            TokenType.DOUBLESLASH: ast.Operator.FLOORDIV,
+            TokenType.PERCENT: ast.Operator.MOD,
+            TokenType.AT: ast.Operator.MATMULT,
+        }
+
+        self._shift_table = {
+            TokenType.DOUBLELTHAN: ast.Operator.LSHIFT,
+            TokenType.DOUBLEGTHAN: ast.Operator.RSHIFT,
+        }
+
+        self._augassign_table = {
+            TokenType.PLUSEQUAL: ast.Operator.ADD,
+            TokenType.MINUSEQUAL: ast.Operator.SUB,
+            TokenType.STAREQUAL: ast.Operator.MULT,
+            TokenType.ATEQUAL: ast.Operator.MATMULT,
+            TokenType.SLASHEQUAL: ast.Operator.DIV,
+            TokenType.DOUBLESLASHEQUAL: ast.Operator.FLOORDIV,
+            TokenType.PERCENTEQUAL: ast.Operator.MOD,
+            TokenType.AMPERSANDEQUAL: ast.Operator.BITAND,
+            TokenType.VERTICALBAREQUAL: ast.Operator.BITOR,
+            TokenType.CIRCUMFLEXEQUAL: ast.Operator.BITXOR,
+            TokenType.DOUBLELTHANEQUAL: ast.Operator.LSHIFT,
+            TokenType.DOUBLEGTHANEQUAL: ast.Operator.RSHIFT,
+            TokenType.DOUBLESTAREQUAL: ast.Operator.POW,
+        }
+
+    def _alternative(self, rule: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> Optional[T]:
         stream = self._stream
         self._stream = self._stream.view()
         try:
@@ -199,8 +236,8 @@ class Parser:
 
             token = self._stream.peek()
             if (
-                token.type == TokenType.NEWLINE
-                or token.type == TokenType.EOF
+                token.type is TokenType.NEWLINE
+                or token.type is TokenType.EOF
             ):
                 break
 
@@ -240,7 +277,12 @@ class Parser:
         pass
 
     def _parse_return_statement(self):
-        pass
+        token = self._stream.expect(TokenType.RETURN)
+        assert token is not None
+
+        expression = self._alternative(self._parse_expression_list, starred=True)
+
+        return ast.ReturnNode(token.range, value=expression)
 
     def _parse_expression(self, *, starred=False):
         """
@@ -377,7 +419,7 @@ class Parser:
         token = self._stream.expect(TokenType.NOT)
         if token is not None:
             operand = self._parse_inversion()
-            return ast.UnaryOpNode(token.range, ast.UnaryOperator.NOT, operand=operand)
+            return ast.UnaryOpNode(token.range, operator=ast.UnaryOperator.NOT, operand=operand)
 
         return self._parse_comparison()
 
@@ -385,6 +427,231 @@ class Parser:
         pass
 
     def _parse_bitwise_or(self):
+        """
+        bitwise_or:
+            | bitwise_xor
+            | bitwise_or '|' bitwise_xor
+        """
+        expression = self._parse_bitwise_xor()
+
+        while True:
+            token = self._stream.expect(TokenType.VERTICALBAR)
+            if token is None:
+                break
+
+            right = self._parse_bitwise_xor()
+            expression = ast.BinaryOpNode(
+                expression.range, left=expression, op=ast.Operator.BITOR, right=right
+            )
+
+        return expression
+
+    def _parse_bitwise_xor(self):
+        """
+        bitwise_xor:
+            | bitwise_and
+            | bitwise_xor '^' bitwise_and
+        """
+        expression = self._parse_bitwise_and()
+
+        while True:
+            token = self._stream.expect(TokenType.CIRCUMFLEX)
+            if token is None:
+                break
+
+            right = self._parse_bitwise_and()
+            expression = ast.BinaryOpNode(
+                expression.range, left=expression, op=ast.Operator.BITXOR, right=right
+            )
+
+        return expression
+
+    def _parse_bitwise_and(self):
+        """
+        bitwise_and:
+            | bitwise_shift
+            | bitwise_and '&' bitwise_shift
+        """
+        expression = self._parse_bitwise_shift()
+
+        while True:
+            token = self._stream.expect(TokenType.AMPERSAND)
+            if token is None:
+                break
+
+            right = self._parse_bitwise_shift()
+            expression = ast.BinaryOpNode(
+                expression.range, left=expression, op=ast.Operator.BITAND, right=right
+            )
+
+        return expression
+
+    def _parse_bitwise_shift(self):
+        """
+        bitwise_shift:
+            | arithmetic_sum
+            | bitwise_shift '<<' arithmetic_sum
+            | bitwise_shift '>>' arithmetic_sum
+        """
+        expression = self._parse_arithmetic_sum()
+
+        while True:
+            token = self._stream.peek()
+            try:
+                operator = self._shift_table[token.type]
+            except KeyError:
+                break
+
+            right = self._parse_arithmetic_sum()
+            expression = ast.BinaryOpNode(
+                expression.range, left=expression, op=operator, right=right
+            )
+
+            self._stream.next()
+
+        return expression
+
+    def _parse_arithmetic_sum(self):
+        """
+        arithmetic_sum:
+            | term
+            | arithmetic_sum '+' term
+            | arithmetic_cum '-' term
+        """
+        expression = self._parse_arithmetic_term()
+
+        while True:
+            token = self._stream.peek()
+            try:
+                operator = self._term_table[token.type]
+            except KeyError:
+                break
+
+            right = self._parse_arithmetic_term()
+            expression = ast.BinaryOpNode(
+                expression.range, left=expression, op=operator, right=right
+            )
+
+        return expression
+
+    def _parse_arithmetic_term(self):
+        """
+        arithmetic_term:
+            | factor
+            | arithmetic_term '*' factor
+            | arithmetic_term '/' factor
+            | arithmetic_term '//' factor
+            | arithmetic_term '%' factor
+            | arithmetic_term '@' factor
+        """
+        expression = self._parse_arithmetic_factor()
+
+        while True:
+            token = self._stream.peek()
+            try:
+                operator = self._term_table[token.type]
+            except KeyError:
+                break
+
+            right = self._parse_arithmetic_factor()
+            expression = ast.BinaryOpNode(
+                expression.range, left=expression, op=operator, right=right
+            )
+
+        return expression
+
+    def _parse_arithmetic_factor(self):
+        """
+        arithmeic_factor:
+            | arithmetic_power
+            | '+' arithmetic_factor
+            | '-' arithmetic_factor
+            | '~' arithmetic_factor
+        """
+        token = self._stream.peek()
+        try:
+            operator = self._unaryop_table[token.type]
+        except KeyError:
+            return self._parse_arithmetic_power()
+        else:
+            expression = self._parse_arithmetic_factor()
+            return ast.UnaryOpNode(token.range, op=operator, operand=expression)
+
+    def _parse_arithmetic_power(self):
+        """
+        arithmetic_power:
+            | primary
+            | ['await'] primary '**' factor
+        """
+        await_token = self._stream.expect(TokenType.AWAIT)
+
+        expression = self._parse_primary_expression()
+
+        if self._stream.expect(TokenType.DOUBLESTAR) is not None:
+            right = self._parse_arithmetic_factor()
+            expression = ast.BinaryOpNode(
+                expression.range, left=expression, op=ast.Operator.POW, right=right
+            )
+
+        if await_token is not None:
+            expression = ast.AwaitNode(await_token.range, value=expression)
+
+        return expression
+
+    def _parse_primary_expression(self):
+        expression = self._parse_atom_expression()
+
+        while True:
+            token = self._stream.peek()
+            if token.type is TokenType.DOT:
+                self._stream.next()
+                token = self._stream.expect(TokenType.IDENTIFIER)
+                if token is not None:
+                    expression = ast.AttributeNode(
+                        expression.range, value=expression, attr=token.content
+                    )
+                else:
+                    assert False, '<Expected Identifier>'
+            elif token.type is TokenType.OPENPAREN:
+                assert False, '<Call Function>'
+            elif token.type is TokenType.OPENBRACKET:
+                assert False, '<Subscript>'
+            else:
+                break
+
+        return expression
+
+    def _parse_slice_expressions(self):
+        pass
+
+    def _parse_slice_expression(self):
+        pass
+
+    def _parse_atom_expression(self):
+        token = self._stream.next()
+
+        if token.type is TokenType.TRUE:
+            return ast.ConstantNode(token.range, type=ast.ConstantType.TRUE)
+
+        if token.type is TokenType.FALSE:
+            return ast.ConstantNode(token.range, type=ast.ConstantType.FALSE)
+
+        if token.type is TokenType.NONE:
+            return ast.ConstantNode(token.range, type=ast.ConstantType.NONE)
+
+        if token.type is TokenType.ELLIPSIS:
+            return ast.ConstantNode(token.range, type=ast.ConstantType.ELLIPSIS)
+
+        if token.type is TokenType.OPENPAREN:
+            assert False, '<Tuple/Group>'
+
+        if token.type is TokenType.OPENBRACKET:
+            assert False, '<List>'
+
+        if token.type is TokenType.OPENBRACE:
+            assert False, '<Dict/Set>'
+
+    def _parse_group_expression(self):
         pass
 
     def parse(self) -> ast.BaseNode:

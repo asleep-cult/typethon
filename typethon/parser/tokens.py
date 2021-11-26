@@ -30,7 +30,7 @@ class TokenType(enum.IntEnum):
     STAR = enum.auto()
     AT = enum.auto()
     SLASH = enum.auto()
-    VERTICELBAR = enum.auto()
+    VERTICALBAR = enum.auto()
     AMPERSAND = enum.auto()
     LTHAN = enum.auto()
     GTHAN = enum.auto()
