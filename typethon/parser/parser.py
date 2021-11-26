@@ -13,10 +13,15 @@ class TokenStream:
         self.scanner = scanner
         self._tokencache = []
 
-    def next_token(self) -> Token:
-        return self._tokencache.pop(0)
+    def next(self) -> Token:
+        try:
+            token = self._tokencache.pop(0)
+        except IndexError:
+            token = self.scanner.scan()
 
-    def peek_token(self) -> Token:
+        return token
+
+    def peek(self) -> Token:
         try:
             token = self._tokencache[0]
         except IndexError:
@@ -26,12 +31,12 @@ class TokenStream:
         return token
 
     def lookahead(self, func: Callable[[Token], bool]) -> Optional[Token]:
-        if func(self.peek_token()):
-            return self.next_token()
+        if func(self.peek()):
+            return self.next()
 
     def expect(self, type: TokenType) -> Optional[Token]:
-        if self.peek_token().type is type:
-            return self.next_token()
+        if self.peek().type is type:
+            return self.next()
 
     def view(self) -> TokenStreamView:
         return TokenStreamView(self)
@@ -46,13 +51,13 @@ class TokenStreamView:
         self.stream = stream
         self._position = 0
 
-    def next_token(self):
+    def next(self):
         try:
-            return self.peek_token()
+            return self.peek()
         finally:
             self._position += 1
 
-    def peek_token(self) -> Token:
+    def peek(self) -> Token:
         try:
             token = self.stream._tokencache[self._position]
         except IndexError:
@@ -62,15 +67,41 @@ class TokenStreamView:
         return token
 
     def lookahead(self, func: Callable[[Token], bool]) -> Optional[Token]:
-        if func(self.peek_token()):
-            return self.next_token()
+        if func(self.peek()):
+            return self.next()
 
     def expect(self, type: TokenType) -> Optional[Token]:
-        if self.peek_token().type is type:
-            return self.next_token()
+        if self.peek().type is type:
+            return self.next()
 
     def commit(self) -> None:
         del self.stream._tokencache[:self._position]
+
+    def view(self):
+        raise self.stream.view()
+
+
+class _AlternativeRule:
+    def __init__(self, parser: Parser) -> None:
+        self.parser = parser
+        self._stream = self.parser._stream
+        self._failed = False
+
+    def failed(self) -> bool:
+        return self._failed
+
+    def __enter__(self) -> _AlternativeRule:
+        self.parser._stream = self._stream.view()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self._failed = True
+        else:
+            self.parser._stream.commit()
+            self.parser._stream = self._stream
+
+        return True
 
 
 class Parser:
@@ -78,45 +109,63 @@ class Parser:
         self.source = source
         self._stream = None
 
-    def _parse_compound_statement(self) -> ast.StatementNode:
-        token = self._stream.peek_token()
+        self._compound_statement_table = {
+            TokenType.ASYNC: self._parse_async_statement,
+            TokenType.CLASS: self._parse_class_def,
+            TokenType.DEF: self._parse_function_def,
+            TokenType.FOR: self._parse_for_statement,
+            TokenType.IF: self._parse_if_statement,
+            TokenType.TRY: self._parse_try_statement,
+            TokenType.WHILE: self._parse_while_statement,
+            TokenType.WITH: self._parse_with_statement,
+            TokenType.AT: self._parse_decorated_statement,
+        }
 
-        # &'async': async_statement
-        if token.type is TokenType.ASYNC:
-            return self._parse_async_statement()
+        self._simple_statement_table = {
+            TokenType.ASSERT: self._parse_assert_statement,
+            TokenType.BREAK: self._parse_break_statement,
+            TokenType.CONTINUE: self._parse_continue_statement,
+            TokenType.DEL: self._parse_delete_statement,
+            TokenType.FROM: self._parse_import_statement,
+            TokenType.GLOBAL: self._parse_global_statement,
+            TokenType.IMPORT: self._parse_import_statement,
+            TokenType.NONLOCAL: self._parse_nonlocal_statement,
+            TokenType.PASS: self._parse_pass_statement,
+            TokenType.RAISE: self._parse_raise_statement,
+            TokenType.RETURN: self._parse_return_statement,
+        }
 
-        # &'class': class_def
-        if token.type is TokenType.CLASS:
-            return self._parse_class_def()
+    def _create_alternative(self) -> _AlternativeRule:
+        return _AlternativeRule(self)
 
-        # &'for': for_statement
-        if token.type is TokenType.FOR:
-            return self._parse_for_statement()
+    def _parse_statement(self) -> ast.StatementNode:
+        """
+        compound_statement:
+            | async_statement
+            | class_def
+            | function_def
+            | for_statement
+            | if_statement
+            | try_statement
+            | while_statement
+            | with_statement
+            | decorated_statement
 
-        # &'if': for_statement
-        if token.type is TokenType.IF:
-            return self._parse_if_statement()
-
-        # &'try': try_statement
-        if token.type is TokenType.TRY:
-            return self._parse_if_statement()
-
-        # &'while': while_statement
-        if token.type is TokenType.WHILE:
-            return self._parse_while_statement()
-
-        # &'with': with_statement
-        if token.type is TokenType.WITH:
-            return self._parse_with_statement()
-
-        # &'@': decorated_statement
-        if token.type is TokenType.AT:
-            return self._parse_decorated_statement()
+        statement: compound_statement | simple_statements
+        """
+        token = self._stream.peek()
+        try:
+            return self._compound_statement_table[token.type]()
+        except KeyError:
+            return self._parse_simple_statements()
 
     def _parse_async_statement(self):
         pass
 
     def _parse_class_def(self):
+        pass
+
+    def _parse_function_def(self):
         pass
 
     def _parse_for_statement(self):
@@ -135,6 +184,159 @@ class Parser:
         pass
 
     def _parse_decorated_statement(self):
+        pass
+
+    def _parse_simple_statement(self) -> ast.StatementNode:
+        """
+        simple_statement:
+            | assignment
+            | star_expressions
+            | assert_statement
+            | break_statement
+            | continue_statement
+            | delete_statement
+            | global_statement
+            | import_statement
+            | nonlocal_statement
+            | pass_statement
+            | raise_statement
+            | return_statement
+        """
+        token = self._stream.peek()
+        try:
+            return self._simple_statement_table[token.type]()
+        except KeyError:
+            with self._create_alternative() as alternative:
+                alternative.commit()
+
+    def _parse_simple_statements(self) -> ast.StatementNode:
+        """
+        simple_statement:
+            | assignment
+            | star_expressions
+            | assert_statement
+            | break_statement
+            | continue_statement
+            | delete_statement
+            | global_statement
+            | import_statement
+            | nonlocal_statement
+            | pass_statement
+            | raise_statement
+            | return_statement
+
+        simple_statements:
+            | simple_statement (';' simple_statement)* [';'] NEWLINE
+        """
+        token = self._stream.peek()
+        statement = ast.StatementList(token.range)
+
+        while True:
+            statement.statements.append(self._parse_simple_statement())
+
+            if self._stream.expect(TokenType.SEMICOLON) is None:
+                break
+
+            token = self._stream.peek()
+            if (
+                token.type == TokenType.NEWLINE
+                or token.type == TokenType.EOF
+            ):
+                break
+
+        token = self._stream.expect(TokenType.NEWLINE)
+        if token is not None:
+            statement.range.extend(token.range)
+        else:
+            assert False, '<Missing Newline>'
+
+        return statement
+
+    def _parse_assert_statement(self):
+        pass
+
+    def _parse_break_statement(self):
+        pass
+
+    def _parse_continue_statement(self):
+        pass
+
+    def _parse_delete_statement(self):
+        pass
+
+    def _parse_import_statement(self):
+        pass
+
+    def _parse_global_statement(self):
+        pass
+
+    def _parse_nonlocal_statement(self):
+        pass
+
+    def _parse_pass_statement(self):
+        pass
+
+    def _parse_raise_statement(self):
+        pass
+
+    def _parse_return_statement(self):
+        pass
+
+    def _parse_expression(self):
+        """
+        expression:
+            | disjunction
+            | disjunction 'if' disjunction 'else' expression
+            | lambda_expression
+        """
+        token = self._stream.peek()
+        if token.type is TokenType.LAMBDA:
+            return self._parse_lambda_expression()
+
+        disjunction = self._parse_disjunction()
+        if self._stream.expect(TokenType.IF) is None:
+            raise disjunction
+
+        condition = self._parse_disjunction()
+
+        if self._stream.expect(TokenType.ELSE) is None:
+            assert False, '<Missing Else>'
+
+        body = self._parse_expression()
+
+        expression = ast.IfExpNode(
+            range=token.range, body=disjunction, condition=condition, else_body=body
+        )
+        expression.range.extend(body.range)
+
+        return expression
+
+    def _parse_expressions(self):
+        expression = self._parse_expression()
+        if self._stream.expect(TokenType.COMMA) is None:
+            return expression
+
+        expression = ast.TupleNode(expression.range, elts=[expression])
+
+        while True:
+            with self._create_alternative() as alternative:
+                expression.elts.append(self._parse_expression())
+
+            if alternative.failed():
+                break
+
+            token = self._stream.expect(TokenType.COMMA)
+            if token is not None:
+                expression.range.extend(token.range)
+            else:
+                break
+
+        return expression
+
+    def _parse_lambda_expression(self):
+        pass
+
+    def _parse_disjunction(self):
         pass
 
     def parse(self) -> ast.BaseNode:

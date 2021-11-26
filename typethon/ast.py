@@ -10,7 +10,7 @@ class BaseNode:
     __slots__ = ('range',)
 
     def __init__(self, range: TextRange) -> None:
-        self.range = range
+        self.range = range.copy()
 
     def __repr__(self):
         attrs = ', '.join(
@@ -22,20 +22,20 @@ class BaseNode:
         return f'<{self.__class__.__name__} {attrs}>'
 
 
+class StatementList(BaseNode):
+    __slots__ = ('statements',)
+
+    def __init__(self, range: TextRange) -> None:
+        super().__init__(range)
+        self.statements = []
+
+
 class ModuleNode(BaseNode):
     __slots__ = ('body',)
 
     def __init__(self, range: TextRange, *, body: list[StatementNode]) -> None:
         super().__init__(range)
         self.body = body
-
-
-class StatementList(BaseNode):
-    __slots__ = ('statements',)
-
-    def __init__(self, range: TextRange, *, statements: list[StatementNode]) -> None:
-        super().__init__(range)
-        self.statements = statements
 
 
 class FunctionDefNode(BaseNode):

@@ -33,3 +33,6 @@ class TextRange:
 
         self.endpos = max(self.startpos, range.endpos)
         self.endlineno = max(self.endlineno, range.endlineno)
+
+    def copy(self) -> TextRange:
+        return TextRange(self.startpos, self.endpos, self.startlineno, self.endlineno)
