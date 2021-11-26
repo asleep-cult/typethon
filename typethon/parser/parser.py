@@ -127,15 +127,8 @@ class Parser:
     def _parse_statement(self) -> ast.StatementNode:
         """
         compound_statement:
-            | async_statement
-            | class_def
-            | function_def
-            | for_statement
-            | if_statement
-            | try_statement
-            | while_statement
-            | with_statement
-            | decorated_statement
+            | async_statement | class_def | function_def | for_statement | if_statement
+            | try_statement | while_statement | with_statement | decorated_statement
 
         statement: compound_statement | simple_statements
         """
@@ -175,41 +168,22 @@ class Parser:
     def _parse_simple_statement(self) -> ast.StatementNode:
         """
         simple_statement:
-            | assignment
-            | star_expressions
-            | assert_statement
-            | break_statement
-            | continue_statement
-            | delete_statement
-            | global_statement
-            | import_statement
-            | nonlocal_statement
-            | pass_statement
-            | raise_statement
-            | return_statement
+            | assignment | star_expressions | assert_statement | break_statement
+            | continue_statement | delete_statement | global_statement | import_statement
+            | nonlocal_statement | pass_statement | raise_statement | return_statement
         """
         token = self._stream.peek()
         try:
             return self._simple_statement_table[token.type]()
         except KeyError:
-            with self._create_alternative() as alternative:
-                alternative.commit()
+            pass
 
     def _parse_simple_statements(self) -> ast.StatementNode:
         """
         simple_statement:
-            | assignment
-            | star_expressions
-            | assert_statement
-            | break_statement
-            | continue_statement
-            | delete_statement
-            | global_statement
-            | import_statement
-            | nonlocal_statement
-            | pass_statement
-            | raise_statement
-            | return_statement
+            | assignment | star_expressions | assert_statement | break_statement
+            | continue_statement | delete_statement | global_statement | import_statement
+            | nonlocal_statement | pass_statement | raise_statement | return_statement
 
         simple_statements:
             | simple_statement (';' simple_statement)* [';'] NEWLINE

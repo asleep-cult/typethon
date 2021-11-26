@@ -218,6 +218,7 @@ class StringTokenFlags(enum.IntFlag):
     # Exceptional
     UNTERMINATED = enum.auto()
     INVALID_PREFIX = enum.auto()
+    DUPLICATE_PREFIX = enum.auto()
 
 
 class StringToken(Token):

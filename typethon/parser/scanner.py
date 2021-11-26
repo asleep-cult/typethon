@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import io
-from typing import Optional
+from typing import Callable, Optional
 
 from .stringreader import StringReader
 from .tokens import (
@@ -134,8 +134,8 @@ class Scanner:
                 indent += 1
                 altindent += 1
             elif self._reader.expect('\t'):
-                indent += ((indent / TABSIZE) + 1) * TABSIZE
-                altindent += ((indent / ALTTABSIZE) + 1) * ALTTABSIZE
+                indent += ((indent // TABSIZE) + 1) * TABSIZE
+                altindent += ((indent // ALTTABSIZE) + 1) * ALTTABSIZE
 
         if StringReader.is_blank(self._reader.peek()):
             return
@@ -178,19 +178,37 @@ class Scanner:
         self._scannedindents = True
         self._newline = False
 
-    def _maybe_number(self) -> bool:
+    def _is_at_number(self) -> bool:
         char = self._reader.peek()
         if char == '.':
             char = self._reader.peek(1)
-            if char == 'E' or char == 'e':
+            if char in ('E' 'e'):
                 char = self._reader.peek(2)
-                if char == '+' or char == '-':
+                if char in ('+' '-'):
                     char = self._reader.peek(3)
 
         return StringReader.is_digit(char)
 
+    def _get_number_flags(self, func: Callable[[str], bool]) -> None:
+        flags = NumberTokenFlags.NONE
+
+        while (
+            func(self._reader.peek())
+            or self._reader.peek() == '_'
+        ):
+            if self._reader.expect('_'):
+                if self._reader.expect('_'):
+                    flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+            else:
+                self._reader.advance()
+
+        if self._reader.peek(-1) == '_':
+            flags |= NumberTokenFlags.TRAILING_UNDERSCORE
+
+        return flags
+
     def _scan_number(self) -> NumberToken:
-        assert self._maybe_number()
+        assert self._is_at_number()
 
         flags = NumberTokenFlags.NONE
         leading_zero = False
@@ -198,49 +216,26 @@ class Scanner:
         startpos = self._reader.tell()
 
         if self._reader.expect('0'):
-            if self._reader.expect(('X', 'x')):
-                flags |= NumberTokenFlags.HEXADECIMAL
-                while (
-                    StringReader.is_hexadecimal(self._reader.peek())
-                    or self._reader.peek() == '_'
-                ):
-                    if self._reader.expect('_'):
-                        if self._reader.expect('_'):
-                            flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
-                    else:
-                        self._reader.advance()
-
-            elif self._reader.expect(('O', 'o')):
-                flags |= NumberTokenFlags.OCTAL
-                while (
-                    StringReader.is_octal(self._reader.peek())
-                    or self._reader.peek() == '_'
-                ):
-                    if self._reader.expect('_'):
-                        if self._reader.expect('_'):
-                            flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
-                    else:
-                        self._reader.advance()
-
-            elif self._reader.expect(('B', 'b')):
-                flags |= NumberTokenFlags.BINARY
-                while (
-                    StringReader.is_hexadecimal(self._reader.peek())
-                    or self._reader.peek() == '_'
-                ):
-                    if self._reader.expect('_'):
-                        if self._reader.expect('_'):
-                            flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
-                    else:
-                        self._reader.advance()
+            if self._reader.expect('X' 'x'):
+                flags |= (
+                    NumberTokenFlags.HEXADECIMAL
+                    | self._get_number_flags(StringReader.is_hexadecimal)
+                )
+            elif self._reader.expect('O' 'o'):
+                flags |= (
+                    NumberTokenFlags.OCTAL
+                    | self._get_number_flags(StringReader.is_octal)
+                )
+            elif self._reader.expect('B' 'b'):
+                flags |= (
+                    NumberTokenFlags.BINARY
+                    | self._get_number_flags(StringReader.is_binary)
+                )
 
             if flags != 0:
                 endpos = self._reader.tell()
                 if endpos <= startpos + 2:
                     flags |= NumberTokenFlags.EMPTY
-
-                if self._reader.peek(-1) == '_':
-                    flags |= NumberTokenFlags.TRAILING_UNDERSCORE
 
                 return self.factory.create_number(flags, self._reader.source[startpos:endpos])
 
@@ -266,43 +261,21 @@ class Scanner:
             flags |= NumberTokenFlags.TRAILING_UNDERSCORE
 
         if self._reader.expect('.'):
+            flags |= (
+                NumberTokenFlags.FLOAT | self._get_number_flags(StringReader.is_digit)
+            )
+
+        if self._reader.expect('E' 'e'):
             flags |= NumberTokenFlags.FLOAT
 
-            while (
-                StringReader.is_digit(self._reader.peek())
-                or self._reader.peek() == '_'
-            ):
-                if self._reader.expect('_'):
-                    if self._reader.expect('_'):
-                        flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
-                else:
-                    self._reader.advance()
-
-            if self._reader.peek(-1) == '_':
-                flags |= NumberTokenFlags.TRAILING_UNDERSCORE
-
-        if self._reader.expect(('E', 'e')):
-            flags |= NumberTokenFlags.FLOAT
-
-            self._reader.skip(('+', '-'))
+            self._reader.skip('+' '-')
 
             if not StringReader.is_digit(self._reader.peek()):
                 flags |= NumberTokenFlags.INVALID_EXPONENT
 
-            while (
-                StringReader.is_digit(self._reader.peek())
-                or self._reader.peek() == '_'
-            ):
-                if self._reader.expect('_'):
-                    if self._reader.expect('_'):
-                        flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
-                else:
-                    self._reader.advance()
+            flags |= self._get_number_flags(StringReader.is_digit)
 
-            if self._reader.peek(-1) == '_':
-                flags |= NumberTokenFlags.TRAILING_UNDERSCORE
-
-        if self._reader.expect(('J', 'j')):
+        if self._reader.expect('J' 'j'):
             flags |= NumberTokenFlags.IMAGINARY
 
         endpos = self._reader.tell()
@@ -315,18 +288,19 @@ class Scanner:
         flags = StringTokenFlags.NONE
 
         if prefixes is not None:
-            for char in prefixes:
-                if char == 'R' or char == 'r':
+            for char in prefixes.lower():
+                if char == 'r':
                     flag = StringTokenFlags.RAW
-                elif char == 'B' or char == 'b':
+                elif char == 'b':
                     flag = StringTokenFlags.BYTES
-                elif char == 'F' or char == 'f':
+                elif char == 'f':
                     flag = StringTokenFlags.FORMAT
                 else:
-                    flag = StringTokenFlags.INVALID_PREFIX
+                    flags |= StringTokenFlags.INVALID_PREFIX
+                    continue
 
                 if flags & flag:
-                    flags |= StringTokenFlags.INVALID_PREFIX
+                    flags |= StringTokenFlags.DUPLICATE_PREFIX
                 else:
                     flags |= flag
 
@@ -351,7 +325,7 @@ class Scanner:
 
         terminated = False
 
-        while not terminated:
+        while True:
             if self._reader.at_eof():
                 if self._reader.tell() == 0:
                     # Immediate EOF from reader -- we've reached the end of the file
@@ -389,7 +363,7 @@ class Scanner:
 
             content.write(self._reader.source[contentstart:contentend])
 
-            if flags & StringTokenFlags.UNTERMINATED:
+            if flags & StringTokenFlags.UNTERMINATED or terminated:
                 break
 
         endlineno = self._lineno()
@@ -578,7 +552,7 @@ class Scanner:
             if self._reader.at_eof():
                 continue
 
-            if self._maybe_number():
+            if self._is_at_number():
                 return self._scan_number()
 
             char = self._reader.peek()

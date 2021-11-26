@@ -47,9 +47,9 @@ class StringReader:
 
     def skip_whitespace(self, *, newlines: bool = False) -> int:
         if newlines:
-            return self.skip((' ', '\t', '\n', '\r', '\f'))
+            return self.skip(' ' '\t' '\n' '\r' '\f')
         else:
-            return self.skip((' ', '\t', '\f'))
+            return self.skip(' ' '\t' '\f')
 
     def skip_expect(self, strings: Union[str, Iterable[str]]) -> bool:
         if isinstance(strings, str):
@@ -81,13 +81,7 @@ class StringReader:
 
     @staticmethod
     def is_whitespace(char: str) -> bool:
-        return (
-            char == ' '
-            or char == '\t'
-            or char == '\f'
-            or char == '\r'
-            or char == '\n'
-        )
+        return char in (' ' '\t' '\f' '\r' '\n')
 
     @staticmethod
     def is_newline(char: str) -> bool:
@@ -138,15 +132,15 @@ class StringReader:
 
     @staticmethod
     def is_binary(char: str) -> bool:
-        return char == '0' or char == '1'
+        return char in ('0' '1')
 
     @staticmethod
     def is_indent(char: str) -> bool:
-        return char == '\t' or char == ' '
+        return char in ('\t' ' ')
 
     @staticmethod
     def is_terminator(char: str) -> bool:
-        return char == '\'' or char == '\"'
+        return char in ('\'' '\"')
 
     @staticmethod
     def is_escape(char: str) -> bool:
