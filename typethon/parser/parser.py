@@ -102,7 +102,7 @@ class Parser:
             TokenType.BREAK: self._parse_break_statement,
             TokenType.CONTINUE: self._parse_continue_statement,
             TokenType.DEL: self._parse_delete_statement,
-            TokenType.FROM: self._parse_import_statement,
+            TokenType.FROM: self._parse_import_from_statement,
             TokenType.GLOBAL: self._parse_global_statement,
             TokenType.IMPORT: self._parse_import_statement,
             TokenType.NONLOCAL: self._parse_nonlocal_statement,
@@ -151,7 +151,7 @@ class Parser:
             TokenType.DOUBLESTAREQUAL: ast.Operator.POW,
         }
 
-    def _alternative(self, rule: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> Optional[T]:
+    def _optional(self, rule: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> Optional[T]:
         stream = self._stream
         self._stream = self._stream.view()
         try:
@@ -262,7 +262,129 @@ class Parser:
         pass
 
     def _parse_import_statement(self):
-        pass
+        """
+        import_statement: 'import' (dotted_name_alias (',' dotted_name_alias)*)
+        """
+        import_token = self._stream.expect(TokenType.IMPORT)
+        assert import_token is not None
+
+        names = []
+        names.append(self._parse_dotted_name_alias())
+
+        while True:
+            token = self._stream.expect(TokenType.COMMA)
+            if token is not None:
+                names.append(self._parse_dotted_name_alias())
+            else:
+                break
+
+        return ast.ImportNode(import_token.range, names=names)
+
+    def _parse_import_from_statement(self):
+        """
+        import_from_targets:
+            | '*'
+            | '(' (name_alias (',' name_alias)*) ')'
+            | (name_alias (',' name_alias)*)
+
+        import_from_statement:
+            | 'from' ('.' | '...')* dotted_name 'import' import_from_targets
+            | 'from' ('.' | '...')+ 'import' import_from_targets
+        """
+        from_token = self._stream.expect(TokenType.FROM)
+        assert from_token is not None
+
+        level = 0
+        while True:
+            if self._stream.expect(TokenType.DOT) is not None:
+                level += 1
+            elif self._stream.expect(TokenType.ELLIPSIS) is not None:
+                level += 3
+            else:
+                break
+
+        if level != 0:
+            module = self._optional(self._dotted_name_helper)
+        else:
+            module = self._dotted_name_helper()
+
+        token = self._stream.expect(TokenType.STAR)
+        if token is not None:
+            names = None
+        else:
+            # The parenthesis are not required.
+            self._stream.expect(TokenType.OPENPAREN)
+
+            names = []
+            names.append(self._parse_name_alias())
+
+            while True:
+                token = self._stream.expect(TokenType.COMMA)
+                if token is not None:
+                    names.append(self._parse_name_alias())
+                else:
+                    break
+
+            self._stream.expect(TokenType.CLOSEPAREN)
+
+        return ast.ImportFromNode(from_token.range, module=module, names=names, level=level)
+
+    def _dotted_name_helper(self):
+        """
+        dotted_name: (name ('.' name)*)
+        """
+        names = []
+
+        token = self._stream.expect(TokenType.IDENTIFIER)
+        if token is None:
+            assert False, '<Expected Identifier>'
+
+        names.append(token.content)
+
+        while self._stream.expect(TokenType.DOT) is not None:
+            token = self._stream.expect(TokenType.IDENTIFIER)
+            if token is not None:
+                names.append(token.content)
+            else:
+                assert False, '<Expected Identifier>'
+
+        return '.'.join(names)
+
+    def _parse_dotted_name_alias(self):
+        """
+        name_alias: dotted_name ['AS' name]
+        """
+        name_token = self._stream.peek()
+        name = self._dotted_name_helper()
+
+        if self._stream.expect(TokenType.AS) is not None:
+            token = self._stream.expect(TokenType.IDENTIFIER)
+            if token is not None:
+                asname = token.content
+            else:
+                assert False, '<Expected Identifier>'
+        else:
+            asname = None
+
+        return ast.AliasNode(name_token.range, name=name, asname=asname)
+
+    def _parse_name_alias(self):
+        name_token = self._stream.expect(TokenType.IDENTIFIER)
+        if name_token is None:
+            assert False, '<Expected Identifier>'
+
+        name = name_token.content
+
+        if self._stream.expect(TokenType.AS) is not None:
+            token = self._stream.expect(TokenType.IDENTIFIER)
+            if token is not None:
+                asname = token.content
+            else:
+                assert False, '<Expected Identifier>'
+        else:
+            asname = None
+
+        return ast.AliasNode(name_token.range, name, asname)
 
     def _parse_global_statement(self):
         pass
@@ -277,12 +399,12 @@ class Parser:
         pass
 
     def _parse_return_statement(self):
-        token = self._stream.expect(TokenType.RETURN)
-        assert token is not None
+        return_token = self._stream.expect(TokenType.RETURN)
+        assert return_token is not None
 
-        expression = self._alternative(self._parse_expression_list, starred=True)
+        expression = self._optional(self._parse_expression_list, starred=True)
 
-        return ast.ReturnNode(token.range, value=expression)
+        return ast.ReturnNode(return_token.range, value=expression)
 
     def _parse_expression(self, *, starred=False):
         """
@@ -340,7 +462,7 @@ class Parser:
         expression = ast.TupleNode(expression.range, elts=[expression])
 
         while True:
-            expr = self._alternative(self._parse_expression, starred=True)
+            expr = self._optional(self._parse_expression, starred=True)
             if expr is not None:
                 expression.elts.append(expr)
                 expression.range.extend(expr.range)
@@ -650,6 +772,8 @@ class Parser:
 
         if token.type is TokenType.OPENBRACE:
             assert False, '<Dict/Set>'
+
+        assert False, '<Invalid Token>'
 
     def _parse_group_expression(self):
         pass

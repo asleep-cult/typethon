@@ -282,7 +282,7 @@ class ImportFromNode(BaseNode):
         range: TextRange,
         *,
         module: Optional[str],
-        names: list[AliasNode],
+        names: Optional[list[AliasNode]],
         level: Optional[int],
     ) -> None:
         super().__init__(range)
@@ -817,7 +817,7 @@ class ComprehensionNode(BaseNode):
 class AliasNode(BaseNode):
     __slots__ = ('name', 'asname')
 
-    def __init__(self, range: TextRange, *, name: str, asname: str) -> None:
+    def __init__(self, range: TextRange, *, name: str, asname: Optional[str]) -> None:
         super().__init__(range)
         self.name = name
         self.asname = asname

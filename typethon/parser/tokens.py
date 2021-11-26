@@ -69,6 +69,7 @@ class TokenType(enum.IntEnum):
     NONE = enum.auto()
     TRUE = enum.auto()
     AND = enum.auto()
+    AS = enum.auto()
     ASSERT = enum.auto()
     ASYNC = enum.auto()
     AWAIT = enum.auto()
@@ -106,6 +107,7 @@ KEYWORDS = {
     'None': TokenType.NONE,
     'True': TokenType.TRUE,
     'and': TokenType.AND,
+    'as': TokenType.AS,
     'assert': TokenType.ASSERT,
     'async': TokenType.ASYNC,
     'await': TokenType.AWAIT,
@@ -139,7 +141,7 @@ KEYWORDS = {
 }
 
 
-class Token(TextRange):
+class Token:
     __slots__ = ('type', 'range')
 
     def __init__(self, type: TokenType, range: TextRange) -> None:
