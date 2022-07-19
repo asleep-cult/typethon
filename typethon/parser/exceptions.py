@@ -1,2 +1,0 @@
-class BadEncodingDeclaration:
-    pass

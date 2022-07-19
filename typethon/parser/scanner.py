@@ -1,616 +1,602 @@
-from __future__ import annotations
+import typing
 
-import io
-from typing import Callable, Optional
-
-from .stringreader import StringReader
-from .tokens import (
-    DedentToken,
-    IdentifierToken,
-    IndentToken,
-    KEYWORDS,
-    NumberToken,
-    NumberTokenFlags,
-    StringToken,
-    StringTokenFlags,
+from ..tokens import (
+    DirectiveToken,
     Token,
     TokenType,
+    IndentToken,
+    DedentToken,
+    IdentifierToken,
+    StringToken,
+    StringTokenFlags,
+    NumberToken,
+    NumberTokenFlags,
 )
-from ..textrange import TextRange
 
-
+EOF = '\0'
 TABSIZE = 8
 ALTTABSIZE = 1
 
 
-class TokenFactory:
-    def __init__(self, scanner: Scanner) -> None:
-        self.scanner = scanner
+def is_whitespace(char: str) -> bool:
+    return char in ' \t\f\r'
 
-    def create_range(self, length: int) -> TextRange:
-        position = self.scanner._position()
-        lineno = self.scanner._lineno()
-        return TextRange(position - length, position, lineno, lineno)
 
-    def create_token(self, type: TokenType, length: int) -> Token:
-        return Token(type, self.create_range(length))
+def is_indent(char: str) -> bool:
+    return char in ' \t'
 
-    def create_identifier(self, content: str) -> IdentifierToken:
-        return IdentifierToken(self.create_range(len(content)), content)
 
-    def create_number(self, flags: NumberTokenFlags, content: str) -> NumberToken:
-        return NumberToken(self.create_range(len(content)), flags, content)
+def is_blank(char: str) -> bool:
+    return char == '#' or char == '\\' or char == '\n'
 
-    def create_string(
-        self, range: TextRange, flags: StringTokenFlags, content: Optional[str] = None
-    ) -> StringToken:
-        if content is None:
-            content = ''
-        return StringToken(range, flags, content)
 
-    def create_indent(self, *, inconsistent: bool = False) -> IndentToken:
-        return IndentToken(self.create_range(self.scanner._position()), inconsistent)
+def is_identifier_start(char: str) -> bool:
+    return (
+        'a' <= char <= 'z'
+        or 'A' <= char <= 'Z'
+        or char == '_'
+        or char >= '\x80'
+    )
 
-    def create_dedent(self, *, inconsistent: bool = False, diverges: bool = False) -> DedentToken:
-        return DedentToken(self.create_range(self.scanner._position()), inconsistent, diverges)
 
-    def create_comment(self, content: str) -> None:
-        return None
+def is_identifier(char: str) -> bool:
+    return (
+        'a' <= char <= 'z'
+        or 'A' <= char <= 'Z'
+        or '0' <= char <= '9'
+        or char == '_'
+        or char >= '\x80'
+    )
+
+
+def is_digit(char: str) -> bool:
+    return '0' <= char <= '9'
+
+
+def is_hexadecimal(char: str) -> bool:
+    return (
+        'a' <= char <= 'f'
+        or 'A' <= char <= 'F'
+        or '0' <= char <= '9'
+    )
+
+
+def is_octal(char: str) -> bool:
+    return '0' <= char <= '7'
+
+
+def is_binary(char: str) -> bool:
+    return char in '01'
 
 
 class Scanner:
-    def __init__(
-        self, source: io.TextIOBase, *, factory: type[TokenFactory] = TokenFactory
-    ) -> None:
+    def __init__(self, source: str) -> None:
         self.source = source
-        self.factory = factory(self)
+        self.position = 0
 
-        self._reader = None
+        self.is_newline = False
+        self.parenstack: typing.List[TokenType] = []
+        self.indentstack: typing.List[typing.Tuple[int, int]] = [(0, 0)]
+        self.indents: typing.List[typing.Union[IndentToken, DedentToken]] = []
 
-        self._newline = False
-        self._scannedindents = False
+    def is_eof(self) -> bool:
+        return self.position >= len(self.source)
 
-        self._linestarts = []
-        self._parenstack = []
+    def char_at(self, index: int) -> str:
+        if index >= len(self.source):
+            return EOF
 
-        self._indentstack = []
-        self._altindentstack = []
-        self._indents = []
+        return self.source[index]
 
-        self._add_indent(0, 0)
+    def peek_char(self, skip: int = 0) -> str:
+        return self.char_at(self.position + skip)
 
-    def _parenstack_push(self, type: TokenType) -> None:
-        self._parenstack.append(type)
+    def consume_char(self, skip: int = 1) -> str:
+        char = self.char_at(self.position)
 
-    def _parenstack_pop(self) -> None:
-        self._parenstack.pop()
+        if not self.is_eof():
+            self.position += skip
 
-    def _parenstack_back(self) -> Optional[TokenType]:
-        try:
-            return self._parenstack[-1]
-        except KeyError:
-            return None
+        return char
 
-    def _add_indent(self, indent: int, altindent: int) -> None:
-        self._indentstack.append(indent)
-        self._altindentstack.append(altindent)
+    def consume_while(self, predicate: typing.Callable[[str], bool]) -> bool:
+        start = self.position
 
-    def _remove_indent(self) -> None:
-        self._indentstack.pop()
-        self._altindentstack.pop()
+        while not self.is_eof() and predicate(self.peek_char()):
+            self.consume_char()
 
-    def _get_indent(self, index) -> int:
-        return self._indentstack[index]
+        return self.position != start
 
-    def _get_altindent(self, index) -> int:
-        return self._altindentstack[index]
+    def string_prefix_flag(self, char: str) -> typing.Optional[StringTokenFlags]:
+        if char == 'r':
+            return StringTokenFlags.RAW
+        elif char == 'b':
+            return StringTokenFlags.BYTES
+        elif char == 'f':
+            return StringTokenFlags.FORMAT
 
-    def _readline(self) -> StringReader:
-        self._linestarts.append(self.source.tell())
-        return StringReader(self.source.readline())
+    def string_terminated(self, terminator: str, multiline: bool) -> bool:
+        if not multiline:
+            return self.consume_char() == terminator
 
-    def _position(self) -> int:
-        assert self._reader is not None
-        return self._reader.tell()
+        char = self.consume_char()
+        assert char == terminator
 
-    def _lineno(self) -> int:
-        return len(self._linestarts)
+        if self.peek_char() == self.peek_char(1) == terminator:
+            self.consume_char(2)
+            return True
 
-    def _is_at_number(self) -> bool:
-        char = self._reader.peek()
-        if char == '.':
-            char = self._reader.peek(1)
-            if char in ('E' 'e'):
-                char = self._reader.peek(2)
-                if char in ('+' '-'):
-                    char = self._reader.peek(3)
+        return False
 
-        return StringReader.is_digit(char)
+    def scan_indentation(self) -> None:
+        start = self.position
 
-    def _get_number_flags(self, func: Callable[[str], bool]) -> NumberTokenFlags:
+        indent = 0
+        altindent = 0
+
+        while is_indent(self.peek_char()):
+            char = self.consume_char()
+
+            if char == ' ':
+                indent += 1
+                altindent += 1
+            elif char == '\t':
+                indent += ((indent // TABSIZE) + 1) * TABSIZE
+                altindent += ((indent // ALTTABSIZE) + 1) * ALTTABSIZE
+
+        if is_blank(self.peek_char()):
+            return
+
+        last_indent, last_altindent = self.indentstack[-1]
+
+        if indent == last_indent:
+            if altindent != last_altindent:
+                self.indents.append(
+                    IndentToken(start=start, end=self.position, inconsistent=True)
+                )
+        elif indent > last_indent:
+            if altindent <= last_altindent:
+                self.indents.append(
+                    IndentToken(start=start, end=self.position, inconsistent=True)
+                )
+            else:
+                self.indents.append(IndentToken(start=start, end=self.position))
+
+            self.indentstack.append((indent, altindent))
+        else:
+            while indent < self.indentstack[-2][0]:
+                self.indentstack.pop()
+                self.indents.append(DedentToken(start=start, end=self.position))
+
+            self.indentstack.pop()
+            last_indent, last_altindent = self.indentstack[-1]
+
+            if indent == last_indent:
+                if altindent != last_altindent:
+                    self.indents.append(
+                        DedentToken(start=start, end=self.position, inconsistent=True)
+                    )
+                else:
+                    self.indents.append(DedentToken(start=start, end=self.position))
+            else:
+                inconsistent = indent == last_indent and altindent != last_altindent
+                self.indents.append(
+                    DedentToken(
+                        start=start, end=self.position, inconsistent=inconsistent, diverges=True
+                    )
+                )
+
+        self.is_newline = False
+
+    def identifier_or_string(self) -> Token:
+        start = self.position
+
+        char = self.consume_char()
+        assert is_identifier_start(char)
+
+        self.consume_while(is_identifier)
+        content = self.source[start:self.position]
+
+        if self.peek_char() in '\'\"':
+            flags = StringTokenFlags.NONE
+
+            for char in content.lower():
+                flag = self.string_prefix_flag(char)
+                if flag is None:
+                    return IdentifierToken(start=start, end=self.position, content=content)
+
+                if flags & flag:
+                    flags |= StringTokenFlags.DUPLICATE_PREFIX
+
+                flags |= flag
+
+            return self.string(flags=flags)
+
+        token = IdentifierToken(start=start, end=self.position, content=content)
+
+        type = token.get_keyword()
+        if type is not None:
+            token = Token(type=type, start=start, end=self.position)
+
+        return token
+
+    def scan_number(self, predicate: typing.Callable[[str], bool]) -> NumberTokenFlags:
         flags = NumberTokenFlags.NONE
 
-        while (
-            func(self._reader.peek())
-            or self._reader.peek() == '_'
-        ):
-            if self._reader.expect('_'):
-                if self._reader.expect('_'):
-                    flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
-            else:
-                self._reader.advance()
+        while predicate(self.peek_char()) or self.peek_char() == '_':
+            char = self.consume_char()
 
-        if self._reader.peek(-1) == '_':
+            if char == '_' and self.peek_char() == '_':
+                self.consume_char()
+                flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
+
+        if self.peek_char(-1) == '_':
             flags |= NumberTokenFlags.TRAILING_UNDERSCORE
 
         return flags
 
-    def _get_identifier(self) -> str:
-        startpos = self._reader.tell()
-        assert StringReader.is_identifier_start(self._reader.peek())
-        self._reader.advance()
+    def number(self) -> NumberToken:
+        start = self.position
 
-        while StringReader.is_identifier(self._reader.peek()):
-            self._reader.advance()
-
-        endpos = self._reader.tell()
-        return self._reader.source[startpos:endpos]
-
-    def _scan_indents(self) -> None:
-        indent = altindent = 0
-        while StringReader.is_indent(self._reader.peek()):
-            if self._reader.expect(' '):
-                indent += 1
-                altindent += 1
-            elif self._reader.expect('\t'):
-                indent += ((indent // TABSIZE) + 1) * TABSIZE
-                altindent += ((indent // ALTTABSIZE) + 1) * ALTTABSIZE
-
-        if StringReader.is_blank(self._reader.peek()):
-            return
-
-        lastindent = self._get_indent(-1)
-        lastaltindent = self._get_altindent(-1)
-
-        if indent == lastindent:
-            if altindent != lastaltindent:
-                self._indents.append(self.factory.create_indent(inconsistent=True))
-        elif indent > lastindent:
-            if altindent <= lastaltindent:
-                self._indents.append(self.factory.create_indent(inconsistent=True))
-            else:
-                self._indents.append(self.factory.create_indent())
-
-            self._add_indent(indent, altindent)
-        else:
-            while indent < self._get_indent(-2):
-                self._remove_indent()
-                self._indents.append(self.factory.create_dedent())
-
-            self._remove_indent()
-
-            lastindent = self._get_indent(-1)
-            lastaltindent = self._get_altindent(-1)
-
-            if indent == lastindent:
-                if altindent != lastaltindent:
-                    self._indents.append(self.factory.create_dedent(inconsistent=True))
-                else:
-                    self._indents.append(self.factory.create_dedent())
-            else:
-                inconsistent = (
-                    indent == lastindent and altindent != lastaltindent
-                )
-                self._indents.append(
-                    self.factory.create_dedent(inconsistent=inconsistent, diverges=True)
-                )
-
-        self._scannedindents = True
-        self._newline = False
-
-    def _scan_number(self) -> NumberToken:
-        assert self._is_at_number()
+        char = self.peek_char()
+        assert char == '.' or is_digit(char)
 
         flags = NumberTokenFlags.NONE
-        leading_zero = False
 
-        startpos = self._reader.tell()
+        if char == '0':
+            self.consume_char()
+            char = self.peek_char()
 
-        if self._reader.expect('0'):
-            if self._reader.expect('X' 'x'):
-                flags |= (
-                    NumberTokenFlags.HEXADECIMAL
-                    | self._get_number_flags(StringReader.is_hexadecimal)
-                )
-            elif self._reader.expect('O' 'o'):
-                flags |= (
-                    NumberTokenFlags.OCTAL
-                    | self._get_number_flags(StringReader.is_octal)
-                )
-            elif self._reader.expect('B' 'b'):
-                flags |= (
-                    NumberTokenFlags.BINARY
-                    | self._get_number_flags(StringReader.is_binary)
-                )
+            if char in 'Xx':
+                self.consume_char()
+                flags |= NumberTokenFlags.HEXADECIMAL | self.scan_number(is_hexadecimal)
 
-            if flags != 0:
-                endpos = self._reader.tell()
-                if endpos <= startpos + 2:
+            elif char in 'Oo':
+                self.consume_char()
+                flags |= NumberTokenFlags.OCTAL | self.scan_number(is_octal)
+
+            elif char in 'Bb':
+                self.consume_char()
+                flags |= NumberTokenFlags.BINARY | self.scan_number(is_binary)
+
+            if flags != NumberTokenFlags.NONE:
+                if self.position <= start + 2:
                     flags |= NumberTokenFlags.EMPTY
 
-                return self.factory.create_number(flags, self._reader.source[startpos:endpos])
+                content = self.source[start:self.position]
+                return NumberToken(start=start, end=self.position, content=content, flags=flags)
 
-            leading_zero = True
+        flags |= self.scan_number(is_digit)
 
-        while (
-            StringReader.is_digit(self._reader.peek())
-            or self._reader.peek() == '_'
-        ):
-            if self._reader.expect('_'):
-                if self._reader.expect('_'):
-                    flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
-            else:
-                if leading_zero:
-                    if self._reader.peek() != '0':
-                        # We set the LEADING_ZERO flag because the number started
-                        # with a zero but contained at least 1 non-zero character
-                        flags |= NumberTokenFlags.LEADING_ZERO
+        content = self.source[start:self.position]
+        if char == '0' and content.count('0') != len(content):
+            flags |= NumberTokenFlags.LEADING_ZERO
 
-                self._reader.advance()
+        if self.peek_char() == '.':
+            self.consume_char()
+            flags |= NumberTokenFlags.FLOAT | self.scan_number(is_digit)
 
-        if self._reader.peek(-1) == '_':
-            flags |= NumberTokenFlags.TRAILING_UNDERSCORE
+        if self.peek_char() in 'Ee':
+            self.consume_char()
 
-        if self._reader.expect('.'):
-            flags |= (
-                NumberTokenFlags.FLOAT | self._get_number_flags(StringReader.is_digit)
-            )
+            if self.peek_char() in '+-':
+                self.consume_char()
 
-        if self._reader.expect('E' 'e'):
-            flags |= NumberTokenFlags.FLOAT
-
-            self._reader.skip('+' '-')
-
-            if not StringReader.is_digit(self._reader.peek()):
+            if not is_digit(self.peek_char()):
                 flags |= NumberTokenFlags.INVALID_EXPONENT
 
-            flags |= self._get_number_flags(StringReader.is_digit)
+            flags |= NumberTokenFlags.FLOAT | self.scan_number(is_digit)
 
-        if self._reader.expect('J' 'j'):
+        if self.peek_char() in 'Jj':
+            self.consume_char()
             flags |= NumberTokenFlags.IMAGINARY
 
-        endpos = self._reader.tell()
-        return self.factory.create_number(flags, self._reader.source[startpos:endpos])
+        content = self.source[start:self.position]
+        return NumberToken(start=start, end=self.position, content=content, flags=flags)
 
-    def _scan_string(self, *, prefixes: Optional[str] = None) -> StringToken:
-        startlineno = self._lineno()
-        startpos = self._reader.tell()
+    def newline(self) -> typing.Optional[Token]:
+        start = self.position
 
-        flags = StringTokenFlags.NONE
+        char = self.consume_char()
+        assert char == '\n'
 
-        if prefixes is not None:
-            for char in prefixes.lower():
-                if char == 'r':
-                    flag = StringTokenFlags.RAW
-                elif char == 'b':
-                    flag = StringTokenFlags.BYTES
-                elif char == 'f':
-                    flag = StringTokenFlags.FORMAT
-                else:
-                    flags |= StringTokenFlags.INVALID_PREFIX
-                    continue
+        if self.is_newline:
+            return None
 
-                if flags & flag:
-                    flags |= StringTokenFlags.DUPLICATE_PREFIX
-                else:
-                    flags |= flag
+        self.is_newline = True
+        return Token(type=TokenType.NEWLINE, start=start, end=self.position)
 
-            startpos -= len(prefixes)
+    def string(self, *, flags: StringTokenFlags = StringTokenFlags.NONE) -> StringToken:
+        start = self.position
 
-        terminator = self._reader.peek()
-        assert StringReader.is_terminator(terminator)
-        self._reader.advance()
+        terminator = self.consume_char()
+        multiline = False
+        assert terminator in '\'\"'
 
-        termsize = 1
+        if self.peek_char() == terminator:
+            self.consume_char()
 
-        if self._reader.expect(terminator):
-            if self._reader.expect(terminator):
-                termsize = 3
+            if self.peek_char() == terminator:
+                self.consume_char()
+                multiline = True
             else:
-                return self.factory.create_string(
-                    TextRange(startpos, startpos + 1, startlineno, startlineno), flags
-                )
+                return StringToken(start=start, end=self.position, content='', flags=flags)
 
-        content = io.StringIO()
-        contentstart = self._reader.tell()
+        terminator_size = 3 if multiline else 1
 
-        terminated = False
+        while flags & StringTokenFlags.UNTERMINATED == 0:
+            char = self.peek_char()
 
-        while True:
-            if self._reader.at_eof():
-                if self._reader.tell() == 0:
-                    # Immediate EOF from reader -- we've reached the end of the file
-                    flags |= StringTokenFlags.UNTERMINATED
-                else:
-                    self._reader = self._readline()
-                    contentstart = 0
+            if char == terminator:
+                if self.string_terminated(terminator, multiline):
+                    content = self.source[start + terminator_size:self.position - terminator_size]
+                    return StringToken(start=start, end=self.position, content=content, flags=flags)
 
-            char = self._reader.peek()
-            if StringReader.is_newline(char):
-                if termsize == 3:
-                    contentend = self._reader.skip_to_eof()
-                else:
-                    contentend = self._reader.tell()
-                    flags |= StringTokenFlags.UNTERMINATED
+            elif char == '\\':
+                self.consume_char()
 
-            elif StringReader.is_escape(char):
-                if StringReader.is_newline(self._reader.peek(1)):
-                    contentend = self._reader.skip_to_eof()
-                else:
-                    self._reader.advance(2)
-                    continue
+            elif char == EOF or char == '\n' and not multiline:
+                flags |= StringTokenFlags.UNTERMINATED
 
-            elif char == terminator:
-                contentend = self._reader.tell()
-                if self._reader.expect(terminator, termsize):
-                    terminated = True
-                else:
-                    self._reader.advance(1)
-                    continue
+            self.consume_char()
 
-            else:
-                self._reader.advance(1)
-                continue
+        content = self.source[start + terminator_size:]
+        return StringToken(start=start, end=self.position, content=content, flags=flags)
 
-            content.write(self._reader.source[contentstart:contentend])
+    def comment(self) -> typing.Optional[DirectiveToken]:
+        start = self.position
 
-            if flags & StringTokenFlags.UNTERMINATED or terminated:
-                break
+        char = self.consume_char()
+        assert char == '#'
 
-        endlineno = self._lineno()
-        endpos = self._reader.tell()
+        self.consume_while(lambda char: char != '\n')
+        comment = self.source[start + 1:self.position]
 
-        return self.factory.create_string(
-            TextRange(startpos, endpos, startlineno, endlineno), flags, content.getvalue()
-        )
+        directive_start = comment.find('[')
+        directive_end = comment.find(']')
 
-    def _scan_token(self) -> Optional[Token]:
-        if self._reader.expect('('):
-            self._parenstack_push(TokenType.OPENPAREN)
-            return self.factory.create_token(TokenType.OPENPAREN, 1)
+        if directive_start != 0 or directive_end == -1:
+            return None
 
-        elif self._reader.expect(')'):
-            if self._parenstack_back() is not TokenType.OPENPAREN:
-                return self.factory.create_token(TokenType.ERROR, 1)
+        content = comment[directive_start + 1:directive_end]
+        return DirectiveToken(start=start, end=self.position, content=content)
 
-            self._parenstack_pop()
-            return self.factory.create_token(TokenType.CLOSEPAREN, 1)
+    def token(self) -> TokenType:
+        char = self.consume_char()
 
-        elif self._reader.expect('['):
-            self._parenstack_push(TokenType.OPENBRACKET)
-            return self.factory.create_token(TokenType.OPENBRACKET, 1)
+        if char == '(':
+            self.parenstack.append(TokenType.OPENPAREN)
+            return TokenType.OPENPAREN
 
-        elif self._reader.expect(']'):
-            if self._parenstack_back() is not TokenType.OPENBRACKET:
-                return self.factory.create_token(TokenType.ERROR, 1)
+        elif char == ')':
+            if not self.parenstack or self.parenstack.pop() is not TokenType.OPENPAREN:
+                return TokenType.EUNMATCHED
 
-            self._parenstack_pop()
-            return self.factory.create_token(TokenType.CLOSEBRACKET, 1)
+            return TokenType.CLOSEPAREN
 
-        elif self._reader.expect('{'):
-            self._parenstack_push(TokenType.OPENBRACE)
-            return self.factory.create_token(TokenType.OPENBRACE, 1)
+        elif char == '[':
+            self.parenstack.append(TokenType.OPENBRACKET)
+            return TokenType.OPENBRACKET
 
-        elif self._reader.expect('}'):
-            if self._parenstack_back() is not TokenType.OPENBRACE:
-                return self.factory.create_token(TokenType.ERROR, 1)
+        elif char == ']':
+            if not self.parenstack or self.parenstack.pop() is not TokenType.OPENBRACKET:
+                return TokenType.EUNMATCHED
 
-            self._parenstack_pop()
-            return self.factory.create_token(TokenType.CLOSEBRACE, 1)
+            return TokenType.CLOSEBRACKET
 
-        elif self._reader.expect(':'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.COLONEQUAL, 2)
+        elif char == '{':
+            self.parenstack.append(TokenType.OPENBRACE)
+            return TokenType.OPENBRACE
 
-            return self.factory.create_token(TokenType.COLON, 1)
+        elif char == '}':
+            if not self.parenstack or self.parenstack.pop() is not TokenType.OPENBRACE:
+                return TokenType.EUNMATCHED
 
-        elif self._reader.expect(','):
-            return self.factory.create_token(TokenType.COMMA, 1)
+            return TokenType.CLOSEBRACE
 
-        elif self._reader.expect(';'):
-            return self.factory.create_token(TokenType.SEMICOLON, 1)
+        elif char == ':':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.COLONEQUAL
 
-        elif self._reader.expect('.'):
-            if self._reader.expect('.', 2):
-                return self.factory.create_token(TokenType.ELLIPSIS, 3)
+            return TokenType.COLON
 
-            return self.factory.create_token(TokenType.DOT, 1)
+        elif char == ',':
+            return TokenType.COMMA
 
-        elif self._reader.expect('+'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.PLUSEQUAL, 2)
+        elif char == ';':
+            return TokenType.SEMICOLON
 
-            return self.factory.create_token(TokenType.PLUS, 1)
+        elif char == '.':
+            if self.peek_char() == '.':
+                self.consume_char()
 
-        elif self._reader.expect('-'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.MINUSEQUAL, 2)
+                if self.peek_char() == '.':
+                    self.consume_char()
+                    return TokenType.ELLIPSIS
 
-            elif self._reader.expect('>'):
-                return self.factory.create_token(TokenType.RARROW, 2)
+            return TokenType.DOT
 
-            return self.factory.create_token(TokenType.MINUS, 1)
+        elif char == '+':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.PLUSEQUAL
 
-        elif self._reader.expect('*'):
-            if self._reader.expect('*'):
-                if self._reader.expect('='):
-                    return self.factory.create_token(TokenType.DOUBLESTAREQUAL, 3)
+            return TokenType.PLUS
 
-                return self.factory.create_token(TokenType.DOUBLESTAR, 2)
+        elif char == '-':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.MINUSEQUAL
 
-            elif self._reader.expect('='):
-                return self.factory.create_token(TokenType.STAREQUAL, 2)
+            elif self.peek_char() == '>':
+                self.consume_char()
+                return TokenType.RARROW
 
-            return self.factory.create_token(TokenType.STAR, 1)
+            return TokenType.MINUS
 
-        elif self._reader.expect('@'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.ATEQUAL, 2)
+        elif char == '*':
+            if self.peek_char() == '*':
+                self.consume_char()
 
-            return self.factory.create_token(TokenType.AT, 1)
+                if self.peek_char() == '=':
+                    self.consume_char()
+                    return TokenType.DOUBLESTAREQUAL
 
-        elif self._reader.expect('/'):
-            if self._reader.expect('/'):
-                if self._reader.expect('='):
-                    return self.factory.create_token(TokenType.DOUBLESLASHEQUAL, 3)
+                return TokenType.DOUBLESTAR
 
-                return self.factory.create_token(TokenType.DOUBLESLASH, 2)
+            elif self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.STAREQUAL
 
-            elif self._reader.expect('='):
-                return self.factory.create_token(TokenType.SLASHEQUAL, 2)
+            return TokenType.STAR
 
-            return self.factory.create_token(TokenType.SLASH, 1)
+        elif char == '@':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.ATEQUAL
 
-        elif self._reader.expect('|'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.VERTICALBAREQUAL, 1)
+            return TokenType.AT
 
-            return self.factory.create_token(TokenType.VERTICELBAR, 1)
+        elif char == '/':
+            if self.peek_char() == '/':
+                self.consume_char()
 
-        elif self._reader.expect('&'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.AMPERSANDEQUAL, 2)
+                if self.peek_char() == '=':
+                    self.consume_char()
+                    return TokenType.DOUBLESLASHEQUAL
 
-            return self.factory.create_token(TokenType.AMPERSAND, 1)
+                return TokenType.DOUBLESLASH
 
-        elif self._reader.expect('<'):
-            if self._reader.expect('<'):
-                if self._reader.expect('='):
-                    return self.factory.create_token(TokenType.DOUBLELTHANEQUAL, 3)
+            elif self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.SLASHEQUAL
 
-                return self.factory.create_token(TokenType.DOUBLELTHAN, 2)
+            return TokenType.SLASH
 
-            elif self._reader.expect('='):
-                return self.factory.create_token(TokenType.LTHANEQ, 2)
+        elif char == '|':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.VERTICALBAREQUAL
 
-            return self.factory.create_token(TokenType.LTHAN, 1)
+            return TokenType.VERTICALBAR
 
-        elif self._reader.expect('>'):
-            if self._reader.expect('>'):
-                if self._reader.expect('='):
-                    return self.factory.create_token(TokenType.DOUBLEGTHANEQUAL, 3)
+        elif char == '&':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.AMPERSANDEQUAL
 
-                return self.factory.create_token(TokenType.DOUBLEGTHAN, 2)
+            return TokenType.AMPERSAND
 
-            elif self._reader.expect('='):
-                return self.factory.create_token(TokenType.GTHANEQ, 1)
+        elif char == '<':
+            if self.peek_char() == '<':
+                self.consume_char()
 
-            return self.factory.create_token(TokenType.GTHAN, 1)
+                if self.peek_char() == '=':
+                    self.consume_char()
+                    return TokenType.DOUBLELTHANEQUAL
 
-        elif self._reader.expect('='):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.EQEQUAL, 2)
+                return TokenType.DOUBLELTHAN
 
-            return self.factory.create_token(TokenType.EQUAL, 1)
+            elif self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.LTHANEQ
 
-        elif self._reader.expect('!'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.NOTEQUAL, 2)
+            return TokenType.LTHAN
 
-        elif self._reader.expect('%'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.PERCENTEQUAL, 2)
+        elif char == '>':
+            if self.peek_char() == '>':
+                self.consume_char()
 
-            return self.factory.create_token(TokenType.PERCENT)
+                if self.consume_char() == '=':
+                    self.consume_char()
+                    return TokenType.DOUBLEGTHANEQUAL
 
-        elif self._reader.expect('~'):
-            return self.factory.create_token(TokenType.TILDE, 1)
+                return TokenType.DOUBLEGTHAN
 
-        elif self._reader.expect('^'):
-            if self._reader.expect('='):
-                return self.factory.create_token(TokenType.CIRCUMFLEXEQUAL, 2)
+            elif self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.GTHANEQ
 
-            return self.factory.create_token(TokenType.CIRCUMFLEX, 1)
+            return TokenType.GTHAN
+
+        elif char == '=':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.EQEQUAL
+
+            return TokenType.EQUAL
+
+        elif char == '!':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.NOTEQUAL
+
+        elif char == '%':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.PERCENTEQUAL
+
+            return TokenType.PERCENT
+
+        elif char == '~':
+            return TokenType.TILDE
+
+        elif char == '^':
+            if self.peek_char() == '=':
+                self.consume_char()
+                return TokenType.CIRCUMFLEXEQUAL
+
+            return TokenType.CIRCUMFLEX
+
+        return TokenType.EINVALID
 
     def scan(self) -> Token:
-        if self._reader is None:
-            self._reader = self._readline()
-
         while True:
-            if self._reader.at_eof():
-                if self._reader.tell() == 0:
-                    # Immediate EOF from reader -- we've reached the end of the file
-                    return self.factory.create_token(TokenType.EOF, 0)
+            if self.is_newline:
+                self.scan_indentation()
 
-                self._reader = self._readline()
-                if not self._scannedindents:
-                    self._scan_indents()
+            if self.indents:
+                return self.indents.pop(0)
 
-            if self._indents:
-                return self._indents.pop(0)
+            self.consume_while(is_whitespace)
 
-            self._reader.skip_whitespace()
-            if self._reader.at_eof():
-                continue
+            if self.is_eof():
+                return Token(type=TokenType.EOF, start=self.position, end=self.position)
 
-            if self._is_at_number():
-                return self._scan_number()
+            start = self.position
+            char = self.peek_char()
 
-            char = self._reader.peek()
-            if StringReader.is_identifier_start(char):
-                content = self._get_identifier()
+            if is_identifier_start(char):
+                return self.identifier_or_string()
 
-                if StringReader.is_terminator(self._reader.peek()):
-                    return self._scan_string(prefixes=content)
+            elif is_digit(char):
+                return self.number()
 
-                keyword = KEYWORDS.get(content)
-                if keyword is not None:
-                    return self.factory.create_token(keyword, len(content))
-                else:
-                    return self.factory.create_identifier(content)
+            elif char in '\'\"':
+                return self.string()
 
-            if StringReader.is_terminator(char):
-                return self._scan_string()
-
-            if StringReader.is_newline(char):
-                self._reader.advance()
-
-                if self._parenstack or self._newline:
+            elif char == '\n':
+                token = self.newline()
+                if token is None:
                     continue
 
-                self._newline = True
-                self._scannedindents = False
-                return self.factory.create_token(TokenType.NEWLINE, 1)
-
-            if StringReader.is_escape(char):
-                self._reader.advance()
-
-                if self._reader.at_eof():
-                    continue
-
-                startpos = self._reader.tell()
-                return self.factory.create_token(
-                    TokenType.ERROR, self._reader.skip_to_eof() - startpos
-                )
-
-            if StringReader.is_comment(char):
-                startpos, endpos = self._reader.tell(), self._reader.skip_to_eof()
-                self.factory.create_comment(self._reader.source[startpos:endpos])
-
-                continue
-
-            token = self._scan_token()
-            if token is not None:
                 return token
 
-            # If we reach this point then the character is not a valid token.
-            # We recover by skipping to a whitespace character and returning and ERROR token.
-            startpos = self._reader.tell()
-            while (
-                not self._reader.at_eof()
-                and not StringReader.is_whitespace(self._reader.peek())
-            ):
-                self._reader.advance()
+            elif char == '#':
+                token = self.comment()
+                if token is None:
+                    continue
 
-            endpos = self._reader.tell()
-            return self.factory.create_token(TokenType.ERROR, endpos - startpos)
+                return token
+
+            elif char == '.':
+                char = self.peek_char(1)
+                if is_digit(char):
+                    return self.number()
+
+            type = self.token()
+            if type is TokenType.EINVALID:
+                self.consume_while(lambda char: not is_whitespace(char))
+
+            return Token(type=type, start=start, end=self.position)

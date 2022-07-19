@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import enum
+import typing
 
-from ..textrange import TextRange
+import attr
 
 
 class TokenType(enum.IntEnum):
-    ERROR = enum.auto()
     EOF = enum.auto()
     NEWLINE = enum.auto()
     INDENT = enum.auto()
@@ -14,6 +14,7 @@ class TokenType(enum.IntEnum):
     IDENTIFIER = enum.auto()
     STRING = enum.auto()
     NUMBER = enum.auto()
+    DIRECTIVE = enum.auto()
 
     OPENPAREN = enum.auto()
     CLOSEPAREN = enum.auto()
@@ -101,6 +102,39 @@ class TokenType(enum.IntEnum):
     WITH = enum.auto()
     YIELD = enum.auto()
 
+    EUNMATCHED = enum.auto()
+    EINVALID = enum.auto()
+
+
+class NumberTokenFlags(enum.IntFlag):
+    NONE = 0
+
+    BINARY = enum.auto()
+    OCTAL = enum.auto()
+    HEXADECIMAL = enum.auto()
+
+    INTEGER = enum.auto()
+    FLOAT = enum.auto()
+
+    IMAGINARY = enum.auto()
+
+    EMPTY = enum.auto()
+    LEADING_ZERO = enum.auto()
+    CONSECUTIVE_UNDERSCORES = enum.auto()
+    TRAILING_UNDERSCORE = enum.auto()
+    INVALID_EXPONENT = enum.auto()
+
+
+class StringTokenFlags(enum.IntFlag):
+    NONE = 0
+
+    RAW = enum.auto()
+    BYTES = enum.auto()
+    FORMAT = enum.auto()
+
+    UNTERMINATED = enum.auto()
+    DUPLICATE_PREFIX = enum.auto()
+
 
 KEYWORDS = {
     'False': TokenType.FALSE,
@@ -141,121 +175,50 @@ KEYWORDS = {
 }
 
 
+@attr.s(kw_only=True, slots=True)
 class Token:
-    __slots__ = ('type', 'range')
-
-    def __init__(self, type: TokenType, range: TextRange) -> None:
-        self.type = type
-        self.range = range
-
-    def __repr__(self):
-        return f'<{self.__class__.__name__} type={self.type!r} {self.range!r}>'
-
-    def is_identifier(self) -> bool:
-        return self.type is TokenType.IDENTIFIER
-
-    def is_string(self) -> bool:
-        return self.type is TokenType.STRING
-
-    def is_number(self) -> bool:
-        return self.type is TokenType.NUMBER
-
-    def is_indent(self) -> bool:
-        return self.type is TokenType.INDENT
-
-    def is_dedent(self) -> bool:
-        return self.type is TokenType.DEDENT
+    type: TokenType = attr.ib()
+    start: int = attr.ib()
+    end: int = attr.ib()
 
 
+@attr.s(kw_only=True, slots=True)
 class IdentifierToken(Token):
-    __slots__ = ('content',)
+    type: typing.Literal[TokenType.IDENTIFIER] = attr.ib(init=False, default=TokenType.IDENTIFIER)
+    content: str = attr.ib()
 
-    def __init__(self, range: TextRange, content: str) -> None:
-        super().__init__(TokenType.IDENTIFIER, range)
-        self.content = content
-
-    def __repr__(self):
-        return f'<{self.__class__.__name__} {self.content!r} {self.range!r}>'
+    def get_keyword(self) -> typing.Optional[TokenType]:
+        return KEYWORDS.get(self.content)
 
 
-class NumberTokenFlags(enum.IntFlag):
-    NONE = 0
-
-    BINARY = enum.auto()
-    OCTAL = enum.auto()
-    HEXADECIMAL = enum.auto()
-
-    INTEGER = enum.auto()
-    FLOAT = enum.auto()
-
-    IMAGINARY = enum.auto()
-
-    # Exceptional
-    EMPTY = enum.auto()
-    LEADING_ZERO = enum.auto()
-    CONSECUTIVE_UNDERSCORES = enum.auto()
-    TRAILING_UNDERSCORE = enum.auto()
-    INVALID_EXPONENT = enum.auto()
-
-
+@attr.s(kw_only=True, slots=True)
 class NumberToken(Token):
-    __slots__ = ('flags', 'content')
-
-    def __init__(self, range: TextRange, flags: StringTokenFlags, content: str) -> None:
-        super().__init__(TokenType.NUMBER, range)
-        self.flags = flags
-        self.content = content
-
-    def __repr__(self):
-        return f'<{self.__class__.__name__} flags={self.flags!r} {self.content!r} {self.range!r}>'
+    type: typing.Literal[TokenType.NUMBER] = attr.ib(init=False, default=TokenType.NUMBER)
+    content: str = attr.ib()
+    flags: NumberTokenFlags = attr.ib()
 
 
-class StringTokenFlags(enum.IntFlag):
-    NONE = 0
-
-    RAW = enum.auto()
-    BYTES = enum.auto()
-    FORMAT = enum.auto()
-
-    # Exceptional
-    UNTERMINATED = enum.auto()
-    INVALID_PREFIX = enum.auto()
-    DUPLICATE_PREFIX = enum.auto()
-
-
+@attr.s(kw_only=True, slots=True)
 class StringToken(Token):
-    __slots__ = ('flags', 'content',)
-
-    def __init__(self, range: TextRange, flags: StringTokenFlags, content: str) -> None:
-        super().__init__(TokenType.STRING, range)
-        self.flags = flags
-        self.content = content
-
-    def __repr__(self):
-        return f'<{self.__class__.__name__} flags={self.flags!r} {self.content!r} {self.range!r}>'
+    type: typing.Literal[TokenType.STRING] = attr.ib(init=False, default=TokenType.STRING)
+    content: str = attr.ib()
+    flags: StringTokenFlags = attr.ib()
 
 
+@attr.s(kw_only=True, slots=True)
 class IndentToken(Token):
-    __slots__ = ('inconsistent',)
-
-    def __init__(self, range: TextRange, inconsistent: bool) -> None:
-        super().__init__(TokenType.INDENT, range)
-        self.inconsistent = inconsistent
-
-    def __repr__(self) -> str:
-        return f'<{self.__class__.__name__} inconsistent={self.inconsistent} {self.range!r}>'
+    type: typing.Literal[TokenType.INDENT] = attr.ib(init=False, default=TokenType.INDENT)
+    inconsistent: bool = attr.ib(default=False)
 
 
+@attr.s(kw_only=True, slots=True)
 class DedentToken(Token):
-    __slots__ = ('inconsistent', 'diverges')
+    type: typing.Literal[TokenType.DEDENT] = attr.ib(init=False, default=TokenType.DEDENT)
+    inconsistent: bool = attr.ib(default=False)
+    diverges: bool = attr.ib(default=False)
 
-    def __init__(self, range: TextRange, inconsistent: bool, diverges: bool) -> None:
-        super().__init__(TokenType.DEDENT, range)
-        self.inconsistent = inconsistent
-        self.diverges = diverges
 
-    def __repr__(self) -> str:
-        return (
-            f'<{self.__class__.__name__} inconsistent={self.inconsistent}'
-            f' diverges={self.diverges} {self.range!r}>'
-        )
+@attr.s(kw_only=True, slots=True)
+class DirectiveToken(Token):
+    type: typing.Literal[TokenType.DIRECTIVE] = attr.ib(init=False, default=TokenType.DIRECTIVE)
+    content: str = attr.ib()
