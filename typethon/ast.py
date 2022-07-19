@@ -71,6 +71,13 @@ class CmpOperator(enum.IntEnum):
     NOTIN = enum.auto()
 
 
+class StringFlags(enum.IntFlag):
+    NONE = 0
+    RAW = enum.auto()
+    BYTES = enum.auto()
+    FORMAT = enum.auto()
+
+
 @attr.s(kw_only=True, slots=True)
 class Node:
     startpos: int = attr.ib()
@@ -261,7 +268,7 @@ class IfExpNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class DictNode(Node):
-    elts: typing.List[ExpressionNode] = attr.ib()
+    elts: typing.List[DictElt] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -289,7 +296,7 @@ class DictCompNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class GeneratorExpNode(Node):
-    elt: DictElt = attr.ib()
+    elt: ExpressionNode = attr.ib()
     comprehensions: typing.List[ComprehensionNode] = attr.ib()
 
 
@@ -361,12 +368,7 @@ class ComplexNode(ConstantNode):
 class StringNode(ConstantNode):
     type: typing.Literal[ConstantType.STRING] = attr.ib(init=False, default=ConstantType.STRING)
     value: str = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class BytesNode(ConstantNode):
-    type: typing.Literal[ConstantType.BYTES] = attr.ib(init=False, default=ConstantType.BYTES)
-    value: bytes = attr.ib()
+    flags: StringFlags = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -451,7 +453,7 @@ class AliasNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class DictElt(Node):
-    key: ExpressionNode = attr.ib()
+    key: typing.Optional[ExpressionNode] = attr.ib()
     value: ExpressionNode = attr.ib()
 
 

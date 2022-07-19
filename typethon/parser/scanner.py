@@ -1,8 +1,8 @@
 import typing
 
 from ..tokens import (
-    DirectiveToken,
     Token,
+    DirectiveToken,
     TokenType,
     IndentToken,
     DedentToken,
@@ -300,7 +300,7 @@ class Scanner:
         char = self.consume_char()
         assert char == '\n'
 
-        if self.is_newline:
+        if self.is_newline or self.parenstack:
             return None
 
         self.is_newline = True
