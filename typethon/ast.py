@@ -125,7 +125,7 @@ class DeleteNode(Node):
 @attr.s(kw_only=True, slots=True)
 class AssignNode(Node):
     targets: typing.List[ExpressionNode] = attr.ib()
-    value: typing.List[ExpressionNode] = attr.ib()
+    value: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -405,9 +405,9 @@ class TupleNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class SliceNode(Node):
-    start: typing.Optional[int] = attr.ib()
-    stop: typing.Optional[int] = attr.ib()
-    step: typing.Optional[int] = attr.ib()
+    start: typing.Optional[ExpressionNode] = attr.ib()
+    stop: typing.Optional[ExpressionNode] = attr.ib()
+    step: typing.Optional[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
