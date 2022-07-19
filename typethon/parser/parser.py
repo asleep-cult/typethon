@@ -183,6 +183,27 @@ class Parser:
 
         return self.simple_statements()
 
+    def block(self) -> ast.StatementNode:
+        token = self.stream.peek_token()
+        if token.type is TokenType.NEWLINE:
+            self.stream.consume_token()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.INDENT:
+                assert False, '<Expected INDENT>'
+
+            self.stream.consume_token()
+            statements = self.statements()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.DEDENT:
+                assert False, '<Expected DEDENT>'
+
+            self.stream.consume_token()
+            return statements
+
+        return self.simple_statements()
+
     def async_statement(self) -> ast.StatementNode:
         assert False
 
@@ -1036,6 +1057,12 @@ class Parser:
                 self.stream.consume_token()
 
                 slice = self.slices()
+
+                token = self.stream.peek_token()
+                if token.type is not TokenType.CLOSEBRACKET:
+                    assert False, '<Expected CLOSEBRACKET>'
+
+                self.stream.consume_token()
                 expression = ast.SubscriptNode(
                     startpos=expression.startpos,
                     endpos=expression.endpos,
@@ -1227,16 +1254,11 @@ class Parser:
         startpos = token.start
         endpos = token.end
 
-        flags = ast.StringFlags.NONE
-
-        if token.flags & StringTokenFlags.RAW:
-            flags |= ast.StringFlags.RAW
-
-        if token.flags & StringTokenFlags.BYTES:
-            flags |= ast.StringFlags.BYTES
-
-        if token.flags & StringTokenFlags.FORMAT:
-            flags |= ast.StringFlags.FORMAT
+        flags = ast.StringFlags(
+            ast.StringFlags.RAW * token.flags & StringTokenFlags.RAW
+            | ast.StringFlags.BYTES * token.flags & StringTokenFlags.BYTES
+            | ast.StringFlags.FORMAT * token.flags & StringTokenFlags.FORMAT
+        )
 
         while True:
             token = self.stream.peek_token()
