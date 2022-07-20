@@ -19,7 +19,7 @@ from ..tokens import (
 ReturnT = typing.TypeVar('ReturnT')
 
 # TODO:
-# compound statements: classes, functions, try/except
+# compound statements: classes, functions
 # expressions: lambda, numbers
 
 
@@ -77,6 +77,11 @@ class TokenStreamView:
         return TokenStreamView(self.stream, self.position)
 
 
+class AlternativeRejectedError(Exception):
+    def __str__(self) -> str:
+        return 'The alternative was rejected.'
+
+
 @attr.s(slots=True)
 class Alternative:
     accepted: bool = attr.ib(init=False, default=False)
@@ -84,11 +89,6 @@ class Alternative:
 
     def reject(self) -> None:
         raise AlternativeRejectedError()
-
-
-class AlternativeRejectedError(Exception):
-    def __str__(self) -> str:
-        return 'The alternative was rejected.'
 
 
 class Parser:
@@ -191,7 +191,7 @@ class Parser:
 
         return self.simple_statements()
 
-    def block(self) -> ast.StatementList:
+    def block(self) -> typing.List[ast.StatementNode]:
         token = self.stream.peek_token()
         if token.type is TokenType.NEWLINE:
             self.stream.consume_token()
@@ -208,9 +208,10 @@ class Parser:
                 assert False, '<Expected DEDENT>'
 
             self.stream.consume_token()
-            return statements
+            return statements.statements
 
-        return self.simple_statements()
+        statements = self.simple_statements()
+        return statements.statements
 
     def async_statement(
         self,
@@ -280,11 +281,11 @@ class Parser:
 
         return ast.ForNode(
             startpos=startpos,
-            endpos=statements[-1].endpos if statements else body.statements[-1].endpos,
+            endpos=statements[-1].endpos if statements else body[-1].endpos,
             is_async=async_token is not None,
             target=expression,
             iterator=iterator,
-            body=body.statements,
+            body=body,
             else_body=statements,
         )
 
@@ -315,9 +316,9 @@ class Parser:
 
         return ast.IfNode(
             startpos=startpos,
-            endpos=else_body[-1].endpos if else_body else body.endpos,
+            endpos=else_body[-1].endpos if else_body else body[-1].endpos,
             condition=expression,
-            body=body.statements,
+            body=body,
             else_body=else_body,
         )
 
@@ -348,9 +349,9 @@ class Parser:
 
         return ast.IfNode(
             startpos=startpos,
-            endpos=statements[-1].endpos if statements else body.endpos,
+            endpos=statements[-1].endpos if statements else body[-1].endpos,
             condition=expression,
-            body=body.statements,
+            body=body,
             else_body=statements,
         )
 
@@ -362,9 +363,7 @@ class Parser:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
-
-        block = self.block()
-        return block.statements
+        return self.block()
 
     def try_statement(self) -> ast.TryNode:
         token = self.stream.consume_token()
@@ -400,7 +399,7 @@ class Parser:
             self.stream.consume_token()
 
             statements = self.block()
-            finally_body.extend(statements.statements)
+            finally_body.extend(statements)
 
         if not handlers and not finally_body:
             assert False, '<Must Have Except Or Finally>'
@@ -415,7 +414,7 @@ class Parser:
         return ast.TryNode(
             startpos=startpos,
             endpos=endpos,
-            body=block.statements,
+            body=block,
             handlers=handlers,
             else_body=else_body,
             final_body=finally_body,
@@ -459,14 +458,14 @@ class Parser:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
-        block = self.block()
+        statements = self.block()
 
         return ast.ExceptHandlerNode(
             startpos=startpos,
-            endpos=block.endpos,
+            endpos=statements[-1].endpos,
             type=expression,
             target=target,
-            body=block.statements,
+            body=statements,
         )
 
     def while_statement(self) -> ast.WhileNode:
@@ -492,9 +491,9 @@ class Parser:
 
         return ast.WhileNode(
             startpos=startpos,
-            endpos=statements[-1].endpos if statements else body.statements[-1].endpos,
+            endpos=statements[-1].endpos if statements else body[-1].endpos,
             condition=expression,
-            body=body.statements,
+            body=body,
             else_body=statements,
         )
 
@@ -531,14 +530,14 @@ class Parser:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
-        body = self.block()
+        statements = self.block()
 
         return ast.WithNode(
             startpos=startpos,
-            endpos=body.statements[-1].endpos,
+            endpos=statements[-1].endpos,
             is_async=async_token is not None,
             items=items,
-            body=body.statements,
+            body=statements,
         )
 
     def with_items(self) -> typing.List[ast.WithItemNode]:
@@ -886,14 +885,14 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.type is TokenType.IDENTIFIER:
-                self.stream.consume_token()
-                assert isinstance(token, IdentifierToken)
-
-                names.append(token.content)
-                endpos = token.end
-            else:
+            if token.type is not TokenType.IDENTIFIER:
                 assert False, '<Expected Identifier>'
+
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            names.append(token.content)
+            endpos = token.end
 
             token = self.stream.peek_token()
             if token.type is not TokenType.COMMA:
@@ -1117,14 +1116,14 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.type is TokenType.IDENTIFIER:
-                self.stream.consume_token()
-                assert isinstance(token, IdentifierToken)
-
-                names.append(token.content)
-                endpos = token.end
-            else:
+            if token.type is not TokenType.IDENTIFIER:
                 assert False, '<Expected Identifier>'
+
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            names.append(token.content)
+            endpos = token.end
 
             token = self.stream.peek_token()
             if token.type is not TokenType.COMMA:
