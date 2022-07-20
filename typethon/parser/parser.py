@@ -18,7 +18,7 @@ from ..tokens import (
 
 ReturnT = typing.TypeVar('ReturnT')
 
-# TODO: compound statements, del statements, import statements,
+# TODO: compound statements, import statements,
 # parameters, lambdas, calls, error handling
 
 
@@ -133,6 +133,16 @@ class Parser:
 
     def optional(self, function: typing.Callable[[], ReturnT]) -> typing.Optional[ReturnT]:
         with self.alternative():
+            return function()
+
+    def optional_lookahead(
+        self,
+        function: typing.Callable[[], ReturnT],
+        predicate: typing.Callable[[Token], bool],
+        *,
+        negative: bool = False,
+    ) -> typing.Optional[ReturnT]:
+        with self.lookahead(predicate, negative=negative):
             return function()
 
     def statements(self) -> ast.StatementNode:
@@ -469,7 +479,15 @@ class Parser:
         return ast.ContinueNode(startpos=token.start, endpos=token.end)
 
     def del_statement(self) -> ast.DeleteNode:
-        assert False
+        token = self.stream.consume_token()
+        assert token.type is TokenType.DEL
+
+        expressions = self.del_targets()
+        return ast.DeleteNode(
+            startpos=token.start,
+            endpos=expressions[-1].endpos,
+            targets=expressions,
+        )
 
     def yield_statement(self) -> ast.ExprNode:
         expression = self.yield_expression()
@@ -1868,10 +1886,7 @@ class Parser:
         return expression
 
     def target_primary(self) -> ast.ExpressionNode:
-        expression = None
-
-        with self.lookahead(self.target_lookahead):
-            expression = self.atom()
+        expression = self.optional_lookahead(self.atom, self.target_lookahead)
 
         if expression is None:
             assert False, '<Expected <atom> (DOT, OPENBRACKET, OPENPAREN)>'
@@ -1922,6 +1937,133 @@ class Parser:
                 return accepted_expression
 
             accepted_expression = expression
+
+    def del_targets(self) -> typing.List[ast.ExpressionNode]:
+        expressions: typing.List[ast.ExpressionNode] = []
+
+        expression = self.del_target()
+        expressions.append(expression)
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COMMA:
+            return expressions
+
+        self.stream.consume_token()
+
+        while True:
+            with self.alternative() as alternative:
+                expression = self.del_target()
+                expressions.append(expression)
+
+            token = self.stream.peek_token()
+            is_comma = token.type is TokenType.COMMA
+
+            if not alternative.accepted or not is_comma:
+                return expressions
+
+            self.stream.consume_token()
+
+    def del_target(self) -> ast.ExpressionNode:
+        with self.lookahead(self.target_lookahead, negative=True):
+            expression = self.target_primary()
+
+            token = self.stream.peek_token()
+            if token.type is TokenType.DOT:
+                self.stream.consume_token()
+
+                token = self.stream.peek_token()
+                if token.type is not TokenType.IDENTIFIER:
+                    assert False, '<Expected IDENTIFIER>'
+
+                self.stream.consume_token()
+                assert isinstance(token, IdentifierToken)
+
+                return ast.AttributeNode(
+                    startpos=expression.startpos,
+                    endpos=token.end,
+                    value=expression,
+                    attr=token.content,
+                )
+            elif token.type is TokenType.OPENBRACKET:
+                self.stream.consume_token()
+
+                slice = self.slices()
+
+                token = self.stream.peek_token()
+                if token.type is not TokenType.CLOSEBRACKET:
+                    assert False, '<Expected CLOSEBRACKET>'
+
+                self.stream.consume_token()
+                return ast.SubscriptNode(
+                    startpos=expression.startpos,
+                    endpos=expression.endpos,
+                    value=expression,
+                    slice=slice,
+                )
+
+            assert False, '<Expected (DOT, OPENBRACKET)>'
+
+        return self.del_target_atom()
+
+    def del_target_atom(self) -> ast.ExpressionNode:
+        token = self.stream.peek_token()
+        startpos = token.start
+
+        if token.type is TokenType.IDENTIFIER:
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            return ast.NameNode(
+                startpos=token.start,
+                endpos=token.end,
+                value=token.content,
+            )
+        elif token.type is TokenType.OPENPAREN:
+            self.stream.consume_token()
+
+            with self.alternative() as alternative:
+                expression = self.del_target()
+
+                token = self.stream.peek_token()
+                if token.type is not TokenType.CLOSEPAREN:
+                    alternative.reject()
+
+                self.stream.consume_token()
+                return expression
+
+            expressions = self.del_targets()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.CLOSEPAREN:
+                assert False, '<Expected CLOSEPAREN>'
+
+            self.stream.consume_token()
+            return ast.TupleNode(
+                startpos=startpos,
+                endpos=token.end,
+                elts=expressions,
+            )
+        elif token.type is TokenType.OPENBRACKET:
+            self.stream.consume_token()
+
+            expressions: typing.List[ast.ExpressionNode] = []
+
+            with self.alternative():
+                targets = self.del_targets()
+                expressions.extend(targets)
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.CLOSEBRACKET:
+                assert False, 'Expected CLOSEBRACKET'
+
+            self.stream.consume_token()
+            return ast.ListNode(
+                startpos=startpos,
+                endpos=token.end,
+                elts=expressions,
+            )
+
+        assert False, '<Unexpected Token>'
 
     def target_lookahead(self, token: Token) -> bool:
         return token.type in (TokenType.DOT, TokenType.OPENBRACKET, TokenType.OPENPAREN)
