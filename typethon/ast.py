@@ -160,9 +160,9 @@ class WhileNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class IfNode(Node):
-    condition: ExpressionNode
-    body: typing.List[StatementNode]
-    else_body: typing.List[StatementNode]
+    condition: ExpressionNode = attr.ib()
+    body: typing.List[StatementNode] = attr.ib()
+    else_body: typing.List[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -427,7 +427,7 @@ class KeywordArgumentNode(Node):
 @attr.s(kw_only=True, slots=True)
 class WithItemNode(Node):
     contextmanager: ExpressionNode = attr.ib()
-    targets: typing.List[ExpressionNode] = attr.ib()
+    target: typing.Optional[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -447,7 +447,7 @@ class ComprehensionNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class AliasNode(Node):
-    name: str = attr.ib()
+    name: typing.Optional[str] = attr.ib()
     asname: typing.Optional[str] = attr.ib()
 
 

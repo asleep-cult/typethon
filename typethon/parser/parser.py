@@ -18,8 +18,9 @@ from ..tokens import (
 
 ReturnT = typing.TypeVar('ReturnT')
 
-# TODO: compound statements, import statements,
-# parameters, lambdas, calls, error handling
+# TODO:
+# compound statements: classes, functions, try/except
+# expressions: calls, lambda, numbers
 
 
 class TokenStream:
@@ -145,7 +146,7 @@ class Parser:
         with self.lookahead(predicate, negative=negative):
             return function()
 
-    def statements(self) -> ast.StatementNode:
+    def statements(self) -> ast.StatementList:
         statements: typing.List[ast.StatementNode] = []
 
         statement = self.statement()
@@ -193,7 +194,7 @@ class Parser:
 
         return self.simple_statements()
 
-    def block(self) -> ast.StatementNode:
+    def block(self) -> ast.StatementList:
         token = self.stream.peek_token()
         if token.type is TokenType.NEWLINE:
             self.stream.consume_token()
@@ -214,34 +215,314 @@ class Parser:
 
         return self.simple_statements()
 
-    def async_statement(self) -> ast.StatementNode:
+    def async_statement(
+        self,
+        *,
+        decorators: typing.Optional[typing.List[ast.ExpressionNode]] = None,
+    ) -> ast.StatementNode:
+        async_token = self.stream.consume_token()
+        assert async_token.type is TokenType.ASYNC
+
+        token = self.stream.peek_token()
+
+        if decorators is not None:
+            if token.type is not TokenType.DEF:
+                assert False, '<Can Only Decorate Async Function>'
+
+        if token.type is TokenType.DEF:
+            return self.function_def(async_token=async_token)
+        elif token.type is TokenType.FOR:
+            return self.for_statement(async_token=async_token)
+        elif token.type is TokenType.WITH:
+            return self.with_statement(async_token=async_token)
+
+        assert False, '<Unexpected Token>'
+
+    def class_def(
+        self,
+        *,
+        decorators: typing.Optional[typing.List[ast.ExpressionNode]] = None,
+    ) -> ast.ClassDefNode:
         assert False
 
-    def class_def(self) -> ast.ClassDefNode:
+    def function_def(
+        self,
+        *,
+        decorators: typing.Optional[typing.List[ast.ExpressionNode]] = None,
+        async_token: typing.Optional[Token] = None,
+    ) -> ast.FunctionDefNode:
         assert False
 
-    def function_def(self) -> ast.FunctionDefNode:
-        assert False
+    def for_statement(self, *, async_token: typing.Optional[Token] = None) -> ast.ForNode:
+        token = self.stream.consume_token()
+        assert token.type is TokenType.FOR
 
-    def for_statement(self) -> ast.ForNode:
-        assert False
+        startpos = async_token.start if async_token is not None else token.start
+        expression = self.star_targets()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.IN:
+            assert False, '<Expected IN>'
+
+        self.stream.consume_token()
+        iterator = self.star_expressions()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
+
+        self.stream.consume_token()
+
+        body = self.block()
+        statements: typing.List[ast.StatementNode] = []
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.ELSE:
+            else_body = self.else_statement()
+            statements.extend(else_body)
+
+        return ast.ForNode(
+            startpos=startpos,
+            endpos=statements[-1].endpos if statements else body.statements[-1].endpos,
+            is_async=async_token is not None,
+            target=expression,
+            iterator=iterator,
+            body=body.statements,
+            else_body=statements,
+        )
 
     def if_statement(self) -> ast.IfNode:
-        assert False
+        token = self.stream.consume_token()
+        assert token.type is TokenType.IF
+
+        startpos = token.start
+        expression = self.expression()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
+
+        self.stream.consume_token()
+
+        body = self.block()
+        else_body: typing.List[ast.StatementNode] = []
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.ELIF:
+            statement = self.elif_statement()
+            else_body.append(statement)
+
+        elif token.type is TokenType.ELSE:
+            statements = self.else_statement()
+            else_body.extend(statements)
+
+        return ast.IfNode(
+            startpos=startpos,
+            endpos=else_body[-1].endpos if else_body else body.endpos,
+            condition=expression,
+            body=body.statements,
+            else_body=else_body,
+        )
+
+    def elif_statement(self) -> ast.IfNode:
+        token = self.stream.consume_token()
+        assert token.type is TokenType.ELIF
+
+        startpos = token.start
+        expression = self.expression()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
+
+        self.stream.consume_token()
+
+        body = self.block()
+        statements: typing.List[ast.StatementNode] = []
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.ELIF:
+            else_block = self.elif_statement()
+            statements.append(else_block)
+
+        elif token.type is TokenType.ELSE:
+            else_block = self.else_statement()
+            statements.extend(else_block)
+
+        return ast.IfNode(
+            startpos=startpos,
+            endpos=statements[-1].endpos if statements else body.endpos,
+            condition=expression,
+            body=body.statements,
+            else_body=statements,
+        )
+
+    def else_statement(self) -> typing.List[ast.StatementNode]:
+        self.stream.consume_token()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
+
+        self.stream.consume_token()
+
+        block = self.block()
+        return block.statements
 
     def try_statement(self) -> ast.TryNode:
         assert False
 
     def while_statement(self) -> ast.WhileNode:
-        assert False
+        token = self.stream.consume_token()
+        assert token.type is TokenType.WHILE
 
-    def with_statement(self) -> ast.WithNode:
-        assert False
+        startpos = token.start
+        expression = self.expression()
 
-    def decorated_statement(self) -> typing.Union[ast.ClassDefNode, ast.FunctionDefNode]:
-        assert False
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
 
-    def simple_statements(self) -> ast.StatementNode:
+        self.stream.consume_token()
+
+        body = self.block()
+        statements: typing.List[ast.StatementNode] = []
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.ELSE:
+            else_block = self.else_statement()
+            statements.extend(else_block)
+
+        return ast.WhileNode(
+            startpos=startpos,
+            endpos=statements[-1].endpos if statements else body.statements[-1].endpos,
+            condition=expression,
+            body=body.statements,
+            else_body=statements,
+        )
+
+    def with_statement(self, *, async_token: typing.Optional[Token] = None) -> ast.WithNode:
+        token = self.stream.consume_token()
+        assert token.type is TokenType.WITH
+
+        startpos = async_token.start if async_token is not None else token.start
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.OPENPAREN:
+            self.stream.consume_token()
+
+            items = self.with_items()
+
+            token = self.stream.peek_token()
+            if token.type is TokenType.COMMA:
+                self.stream.consume_token()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.CLOSEPAREN:
+                assert False, '<Expected CLOSEPAREN>'
+
+            self.stream.consume_token()
+        else:
+            items = self.with_items()
+
+            token = self.stream.peek_token()
+            if token.type is TokenType.COMMA:
+                assert False, '<Trailing Comma Not Premitted>'
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
+
+        self.stream.consume_token()
+        body = self.block()
+
+        return ast.WithNode(
+            startpos=startpos,
+            endpos=body.statements[-1].endpos,
+            is_async=async_token is not None,
+            items=items,
+            body=body.statements,
+        )
+
+    def with_items(self) -> typing.List[ast.WithItemNode]:
+        items: typing.List[ast.WithItemNode] = []
+
+        item = self.with_item()
+        items.append(item)
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COMMA:
+            return items
+
+        self.stream.consume_token()
+
+        while True:
+            with self.alternative() as alternative:
+                item = self.with_item()
+                items.append(item)
+
+            token = self.stream.peek_token()
+            is_comma = token.type is TokenType.COMMA
+
+            if not alternative.accepted or not is_comma:
+                return items
+
+            self.stream.consume_token()
+
+    def with_item(self) -> ast.WithItemNode:
+        expression = self.expression()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.AS:
+            return ast.WithItemNode(
+                startpos=expression.startpos,
+                endpos=expression.endpos,
+                contextmanager=expression,
+                target=None,
+            )
+
+        self.stream.consume_token()
+
+        target = self.star_target()
+        return ast.WithItemNode(
+            startpos=expression.startpos,
+            endpos=target.endpos,
+            contextmanager=expression,
+            target=target,
+        )
+
+    def decorated_statement(self) -> ast.StatementNode:
+        token = self.stream.consume_token()
+        assert token.type is TokenType.AT
+
+        expressions: typing.List[ast.ExpressionNode] = []
+
+        expression = self.expression()
+        expressions.append(expression)
+
+        while True:
+            token = self.stream.peek_token()
+            if token.type is not TokenType.NEWLINE:
+                assert False, '<Expected NEWLINE>'
+
+            self.stream.consume_token()
+            token = self.stream.peek_token()
+
+            if token.type is TokenType.AT:
+                self.stream.consume_token()
+
+                expression = self.expression()
+                expressions.append(expression)
+            elif token.type is TokenType.ASYNC:
+                return self.async_statement(decorators=expressions)
+            elif token.type is TokenType.DEF:
+                return self.function_def(decorators=expressions)
+            elif token.type is TokenType.CLASS:
+                return self.class_def(decorators=expressions)
+
+            assert False, '<Unexpected Token>'
+
+    def simple_statements(self) -> ast.StatementList:
         statements: typing.List[ast.StatementNode] = []
 
         while True:
@@ -254,13 +535,15 @@ class Parser:
 
             token = self.stream.peek_token()
             if token.type in (TokenType.NEWLINE, TokenType.EOF):
+                self.stream.consume_token()
+
                 return ast.StatementList(
                     startpos=statements[0].startpos,
                     endpos=statements[-1].endpos,
                     statements=statements,
                 )
-            else:
-                assert False, f'<Expected (NEWLINE, EOF): {token!r}>'
+
+            assert False, f'<Expected (NEWLINE, EOF): {token!r}>'
 
     def assignment(self) -> ast.StatementNode:
         token = self.stream.peek_token()
@@ -421,7 +704,7 @@ class Parser:
         elif token.type is TokenType.DEL:
             return self.del_statement()
         elif token.type is TokenType.FROM:
-            return self.from_statement()
+            return self.import_from_statement()
         elif token.type is TokenType.GLOBAL:
             return self.global_statement()
         elif token.type is TokenType.IMPORT:
@@ -497,9 +780,6 @@ class Parser:
             expr=expression,
         )
 
-    def from_statement(self) -> ast.ImportFromNode:
-        assert False
-
     def global_statement(self) -> ast.GlobalNode:
         token = self.stream.consume_token()
         assert token.type is TokenType.GLOBAL
@@ -526,8 +806,210 @@ class Parser:
 
             self.stream.consume_token()
 
+    def import_from_statement(self) -> ast.ImportFromNode:
+        token = self.stream.consume_token()
+        assert token.type is TokenType.FROM
+
+        startpos = token.start
+
+        level = self.import_from_level()
+        if level == 0:
+            name = self.dotted_name()
+        else:
+            name = self.optional(self.dotted_name)
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.IMPORT:
+            assert False, '<Expected IMPORT>'
+
+        self.stream.consume_token()
+        targets = self.import_from_targets()
+
+        return ast.ImportFromNode(
+            startpos=startpos,
+            endpos=targets[-1].endpos,
+            module=name,
+            names=targets,
+            level=level,
+        )
+
     def import_statement(self) -> ast.ImportNode:
-        assert False
+        token = self.stream.consume_token()
+        assert token.type is TokenType.IMPORT
+
+        names = self.dotted_as_names()
+        return ast.ImportNode(
+            startpos=token.start,
+            endpos=names[-1].endpos,
+            names=names,
+        )
+
+    def import_from_level(self) -> int:
+        level = 0
+
+        while True:
+            token = self.stream.peek_token()
+            if token.type is TokenType.DOT:
+                level += 1
+            elif token.type is TokenType.ELLIPSIS:
+                level += 3
+            else:
+                return level
+
+            self.stream.consume_token()
+
+    def import_from_targets(self) -> typing.List[ast.AliasNode]:
+        aliases: typing.List[ast.AliasNode] = []
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.OPENPAREN:
+            self.stream.consume_token()
+
+            names = self.import_from_as_names()
+            aliases.extend(names)
+
+            token = self.stream.peek_token()
+            if token.type is TokenType.COMMA:
+                self.stream.consume_token()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.CLOSEPAREN:
+                assert False, '<Expected CLOSEPAREN>'
+
+            self.stream.consume_token()
+        elif token.type is TokenType.STAR:
+            name = ast.AliasNode(
+                startpos=token.start,
+                endpos=token.end,
+                name=None,
+                asname=None,
+            )
+            aliases.append(name)
+        else:
+            names = self.import_from_as_names()
+            aliases.extend(names)
+
+            token = self.stream.peek_token()
+            if token.type is TokenType.COMMA:
+                assert False, '<Trailing Comma Not Permitted>'
+
+        return aliases
+
+    def import_from_as_names(self) -> typing.List[ast.AliasNode]:
+        aliases: typing.List[ast.AliasNode] = []
+
+        name = self.import_from_as_name()
+        aliases.append(name)
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COMMA:
+            return aliases
+
+        self.stream.consume_token()
+
+        while True:
+            with self.alternative() as alternative:
+                name = self.import_from_as_name()
+                aliases.append(name)
+
+            token = self.stream.peek_token()
+            is_comma = token.type is TokenType.COMMA
+
+            if not alternative.accepted or not is_comma:
+                return aliases
+
+            self.stream.consume_token()
+
+    def import_from_as_name(self) -> ast.AliasNode:
+        token = self.stream.peek_token()
+        if token.type is not TokenType.IDENTIFIER:
+            assert False, '<Expected IDENTIFIER>'
+
+        self.stream.consume_token()
+        assert isinstance(token, IdentifierToken)
+
+        startpos = token.start
+        content = token.content
+
+        asname = None
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.AS:
+            self.stream.consume_token()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.IDENTIFIER:
+                assert False, '<Expected IDENTIFIER>'
+
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            asname = token.content
+
+        return ast.AliasNode(startpos=startpos, endpos=-1, name=content, asname=asname)
+
+    def dotted_as_names(self) -> typing.List[ast.AliasNode]:
+        aliases: typing.List[ast.AliasNode] = []
+
+        while True:
+            name = self.dotted_as_name()
+            aliases.append(name)
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.COMMA:
+                return aliases
+
+            self.stream.consume_token()
+
+    def dotted_as_name(self) -> ast.AliasNode:
+        name = self.dotted_name()
+        asname = None
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.AS:
+            self.stream.consume_token()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.IDENTIFIER:
+                assert False, '<Expected IDENTIFIER>'
+
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            asname = token.content
+
+        return ast.AliasNode(startpos=-1, endpos=-1, name=name, asname=asname)
+
+    def dotted_name(self) -> str:
+        token = self.stream.consume_token()
+        assert isinstance(token, IdentifierToken)
+
+        content = token.content
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.DOT:
+            return content
+
+        names: typing.List[str] = []
+        names.append(content)
+
+        self.stream.consume_token()
+
+        while True:
+            token = self.stream.peek_token()
+            if token.type is not TokenType.IDENTIFIER:
+                assert False, '<Expected IDENTIFIER>'
+
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            names.append(token.content)
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.DOT:
+                return '.'.join(names)
+
+            self.stream.consume_token()
 
     def nonlocal_statement(self) -> ast.NonlocalNode:
         token = self.stream.consume_token()
@@ -826,6 +1308,7 @@ class Parser:
 
                 if token.type is TokenType.IN:
                     self.stream.consume_token()
+                    self.stream.consume_token()
                     operator = ast.CmpOperator.NOTIN
 
             elif token.type is TokenType.IS:
@@ -833,8 +1316,10 @@ class Parser:
 
                 if token.type is TokenType.NOT:
                     self.stream.consume_token()
+                    self.stream.consume_token()
                     operator = ast.CmpOperator.ISNOT
                 else:
+                    self.stream.consume_token()
                     operator = ast.CmpOperator.IS
 
             if operator is None:
