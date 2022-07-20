@@ -20,7 +20,7 @@ ReturnT = typing.TypeVar('ReturnT')
 
 # TODO:
 # compound statements: classes, functions, try/except
-# expressions: calls, lambda, numbers
+# expressions: lambda, numbers
 
 
 class TokenStream:
@@ -120,14 +120,12 @@ class Parser:
             self.stream = stream
 
     @contextlib.contextmanager
-    def lookahead(
-        self, predicate: typing.Callable[[Token], bool], *, negative: bool = False
-    ) -> typing.Iterator[Alternative]:
+    def lookahead(self, *types: TokenType, negative: bool = False) -> typing.Iterator[Alternative]:
         with self.alternative() as alternative:
             yield alternative
 
             token = self.stream.peek_token()
-            result = predicate(token)
+            result = token.type in types
 
             if result if negative else not result:
                 alternative.reject()
@@ -139,11 +137,10 @@ class Parser:
     def optional_lookahead(
         self,
         function: typing.Callable[[], ReturnT],
-        predicate: typing.Callable[[Token], bool],
-        *,
+        *types: TokenType,
         negative: bool = False,
     ) -> typing.Optional[ReturnT]:
-        with self.lookahead(predicate, negative=negative):
+        with self.lookahead(*types, negative=negative):
             return function()
 
     def statements(self) -> ast.StatementList:
@@ -370,7 +367,107 @@ class Parser:
         return block.statements
 
     def try_statement(self) -> ast.TryNode:
-        assert False
+        token = self.stream.consume_token()
+        assert token.type is TokenType.TRY
+
+        startpos = token.start
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
+
+        self.stream.consume_token()
+
+        block = self.block()
+        handlers = self.except_handlers()
+
+        else_body: typing.List[ast.StatementNode] = []
+        finally_body: typing.List[ast.StatementNode] = []
+
+        token = self.stream.peek_token()
+        if handlers and token.type is TokenType.ELSE:
+            statements = self.else_statement()
+            else_body.extend(statements)
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.FINALLY:
+            self.stream.consume_token()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.COLON:
+                assert False, '<Expected COLON>'
+
+            self.stream.consume_token()
+
+            statements = self.block()
+            finally_body.extend(statements.statements)
+
+        if not handlers and not finally_body:
+            assert False, '<Must Have Except Or Finally>'
+
+        if finally_body:
+            endpos = finally_body[-1].endpos
+        elif else_body:
+            endpos = else_body[-1].endpos
+        else:
+            endpos = handlers[-1].endpos
+
+        return ast.TryNode(
+            startpos=startpos,
+            endpos=endpos,
+            body=block.statements,
+            handlers=handlers,
+            else_body=else_body,
+            final_body=finally_body,
+        )
+
+    def except_handlers(self) -> typing.List[ast.ExceptHandlerNode]:
+        handlers: typing.List[ast.ExceptHandlerNode] = []
+
+        while True:
+            token = self.stream.peek_token()
+            if token.type is not TokenType.EXCEPT:
+                return handlers
+
+            handler = self.except_handler()
+            handlers.append(handler)
+
+    def except_handler(self) -> ast.ExceptHandlerNode:
+        token = self.stream.consume_token()
+        assert token.type is TokenType.EXCEPT
+
+        startpos = token.start
+
+        expression = self.optional(self.expression)
+        target = None
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.AS:
+            self.stream.consume_token()
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.IDENTIFIER:
+                assert False, '<Expected IDENTIFIER>'
+
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            target = token.content
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
+
+        self.stream.consume_token()
+        block = self.block()
+
+        return ast.ExceptHandlerNode(
+            startpos=startpos,
+            endpos=block.endpos,
+            type=expression,
+            target=target,
+            body=block.statements,
+        )
 
     def while_statement(self) -> ast.WhileNode:
         token = self.stream.consume_token()
@@ -588,9 +685,7 @@ class Parser:
             self.stream.consume_token()
 
             while True:
-                with self.lookahead(
-                    lambda token: token.type is TokenType.EQUAL
-                ) as alternative:
+                with self.lookahead(TokenType.EQUAL) as alternative:
                     expression = self.star_targets()
 
                 if alternative.accepted:
@@ -1555,7 +1650,40 @@ class Parser:
                     attr=token.content,
                 )
             elif token.type is TokenType.OPENPAREN:
-                assert False, '<Function Call>'
+                endpos = -1
+
+                expressions: typing.List[ast.ExpressionNode] = []
+                arguments: typing.List[ast.KeywordArgumentNode] = []
+
+                with self.alternative() as alternative:
+                    argument = self.genexp()
+                    endpos = argument.endpos
+
+                    expressions.append(argument)
+
+                if not alternative.accepted:
+                    self.stream.consume_token()
+
+                    args = self.arguments()
+                    expressions.extend(args)
+
+                    kwargs = self.keyword_args()
+                    arguments.extend(kwargs)
+
+                    token = self.stream.peek_token()
+                    if token.type is not TokenType.CLOSEPAREN:
+                        assert False, '<Expected CLOSEPAREN>'
+
+                    self.stream.consume_token()
+                    endpos = token.end
+
+                return ast.CallNode(
+                    startpos=expression.startpos,
+                    endpos=endpos,
+                    func=expression,
+                    args=expressions,
+                    kwargs=arguments,
+                )
             elif token.type is TokenType.OPENBRACKET:
                 self.stream.consume_token()
 
@@ -2066,6 +2194,74 @@ class Parser:
             comprehensions=comprehensions,
         )
 
+    def arguments(self) -> typing.List[ast.ExpressionNode]:
+        expressions: typing.List[ast.ExpressionNode] = []
+
+        while True:
+            with self.lookahead(TokenType.EQUAL, negative=True) as alternative:
+                expression = self.star_expression()
+                expressions.append(expression)
+
+            token = self.stream.peek_token()
+            is_comma = token.type is TokenType.COMMA
+
+            if not alternative.accepted or not is_comma:
+                return expressions
+
+            self.stream.consume_token()
+
+    def keyword_args(self) -> typing.List[ast.KeywordArgumentNode]:
+        arguments: typing.List[ast.KeywordArgumentNode] = []
+
+        while True:
+            with self.alternative() as alternative:
+                argument = self.keyword_arg()
+                arguments.append(argument)
+
+            token = self.stream.peek_token()
+            is_comma = token.type is TokenType.COMMA
+
+            if not alternative.accepted or not is_comma:
+                return arguments
+
+            self.stream.consume_token()
+
+    def keyword_arg(self) -> ast.KeywordArgumentNode:
+        token = self.stream.peek_token()
+        startpos = token.start
+
+        if token.type is TokenType.DOUBLESTAR:
+            self.stream.consume_token()
+
+            expression = self.expression()
+            return ast.KeywordArgumentNode(
+                startpos=startpos,
+                endpos=token.end,
+                name=None,
+                value=expression,
+            )
+        elif token.type is TokenType.IDENTIFIER:
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            content = token.content
+
+            token = self.stream.peek_token()
+            if token.type is not TokenType.EQUAL:
+                assert False, '<Expected EQUAL>'
+
+            self.stream.consume_token()
+
+            expression = self.expression()
+            return ast.KeywordArgumentNode(
+                startpos=startpos,
+                endpos=expression.endpos,
+                name=content,
+                value=expression,
+            )
+
+        assert False, '<Unexpected Token>'
+
     def star_targets(self) -> ast.ExpressionNode:
         expression = self.star_target()
         startpos = expression.startpos
@@ -2204,7 +2400,9 @@ class Parser:
             endpos = token.end
 
     def target_with_star_atom(self) -> ast.ExpressionNode:
-        with self.lookahead(self.target_lookahead, negative=True):
+        with self.lookahead(
+            TokenType.DOT, TokenType.OPENBRACKET, TokenType.OPENPAREN, negative=True
+        ):
             expression = self.target_primary()
 
             token = self.stream.peek_token()
@@ -2335,9 +2533,11 @@ class Parser:
     def single_subscript_attribute_target(self) -> ast.ExpressionNode:
         expression = self.target_primary()
 
-        token = self.stream.peek_token()
+        with self.lookahead(
+            TokenType.DOT, TokenType.OPENBRACKET, TokenType.OPENPAREN, negative=True
+        ) as alternative:
+            token = self.stream.peek_token()
 
-        with self.lookahead(self.target_lookahead, negative=True) as alternative:
             if token.type is TokenType.IDENTIFIER:
                 self.stream.consume_token()
                 assert isinstance(token, IdentifierToken)
@@ -2371,7 +2571,9 @@ class Parser:
         return expression
 
     def target_primary(self) -> ast.ExpressionNode:
-        expression = self.optional_lookahead(self.atom, self.target_lookahead)
+        expression = self.optional_lookahead(
+            self.atom, TokenType.DOT, TokenType.OPENBRACKET, TokenType.OPENPAREN
+        )
 
         if expression is None:
             assert False, '<Expected <atom> (DOT, OPENBRACKET, OPENPAREN)>'
@@ -2380,7 +2582,9 @@ class Parser:
             accepted_expression = expression
             token = self.stream.peek_token()
 
-            with self.lookahead(self.target_lookahead) as alternative:
+            with self.lookahead(
+                TokenType.DOT, TokenType.OPENBRACKET, TokenType.OPENPAREN
+            ) as alternative:
                 if token.type is TokenType.DOT:
                     self.stream.consume_token()
 
@@ -2414,7 +2618,40 @@ class Parser:
                         slice=slice,
                     )
                 elif token.type is TokenType.OPENPAREN:
-                    assert False
+                    endpos = -1
+
+                    expressions: typing.List[ast.ExpressionNode] = []
+                    arguments: typing.List[ast.KeywordArgumentNode] = []
+
+                    with self.alternative() as alternative:
+                        argument = self.genexp()
+                        endpos = argument.endpos
+
+                        expressions.append(argument)
+
+                    if not alternative.accepted:
+                        self.stream.consume_token()
+
+                        args = self.arguments()
+                        expressions.extend(args)
+
+                        kwargs = self.keyword_args()
+                        arguments.extend(kwargs)
+
+                        token = self.stream.peek_token()
+                        if token.type is not TokenType.CLOSEPAREN:
+                            assert False, '<Expected CLOSEPAREN>'
+
+                        self.stream.consume_token()
+                        endpos = token.end
+
+                    return ast.CallNode(
+                        startpos=expression.startpos,
+                        endpos=endpos,
+                        func=expression,
+                        args=expressions,
+                        kwargs=arguments,
+                    )
                 else:
                     assert False, '<Unreachable??>'
 
@@ -2449,7 +2686,9 @@ class Parser:
             self.stream.consume_token()
 
     def del_target(self) -> ast.ExpressionNode:
-        with self.lookahead(self.target_lookahead, negative=True):
+        with self.lookahead(
+            TokenType.DOT, TokenType.OPENBRACKET, TokenType.OPENPAREN, negative=True
+        ):
             expression = self.target_primary()
 
             token = self.stream.peek_token()
@@ -2549,6 +2788,3 @@ class Parser:
             )
 
         assert False, '<Unexpected Token>'
-
-    def target_lookahead(self, token: Token) -> bool:
-        return token.type in (TokenType.DOT, TokenType.OPENBRACKET, TokenType.OPENPAREN)
