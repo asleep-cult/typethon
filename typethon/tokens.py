@@ -177,15 +177,15 @@ KEYWORDS = {
 
 @attr.s(kw_only=True, slots=True)
 class Token:
-    type: TokenType = attr.ib()
-    start: int = attr.ib()
-    end: int = attr.ib()
+    type: TokenType = attr.ib(eq=True)
+    start: int = attr.ib(eq=False)
+    end: int = attr.ib(eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class IdentifierToken(Token):
     type: typing.Literal[TokenType.IDENTIFIER] = attr.ib(init=False, default=TokenType.IDENTIFIER)
-    content: str = attr.ib()
+    content: str = attr.ib(eq=True)
 
     def get_keyword(self) -> typing.Optional[TokenType]:
         return KEYWORDS.get(self.content)
@@ -194,31 +194,31 @@ class IdentifierToken(Token):
 @attr.s(kw_only=True, slots=True)
 class NumberToken(Token):
     type: typing.Literal[TokenType.NUMBER] = attr.ib(init=False, default=TokenType.NUMBER)
-    content: str = attr.ib()
-    flags: NumberTokenFlags = attr.ib()
+    content: str = attr.ib(eq=True)
+    flags: NumberTokenFlags = attr.ib(eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class StringToken(Token):
     type: typing.Literal[TokenType.STRING] = attr.ib(init=False, default=TokenType.STRING)
-    content: str = attr.ib()
-    flags: StringTokenFlags = attr.ib()
+    content: str = attr.ib(eq=True)
+    flags: StringTokenFlags = attr.ib(eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class IndentToken(Token):
     type: typing.Literal[TokenType.INDENT] = attr.ib(init=False, default=TokenType.INDENT)
-    inconsistent: bool = attr.ib(default=False)
+    inconsistent: bool = attr.ib(default=False, eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class DedentToken(Token):
     type: typing.Literal[TokenType.DEDENT] = attr.ib(init=False, default=TokenType.DEDENT)
-    inconsistent: bool = attr.ib(default=False)
-    diverges: bool = attr.ib(default=False)
+    inconsistent: bool = attr.ib(default=False, eq=False)
+    diverges: bool = attr.ib(default=False, eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class DirectiveToken(Token):
     type: typing.Literal[TokenType.DIRECTIVE] = attr.ib(init=False, default=TokenType.DIRECTIVE)
-    content: str = attr.ib()
+    content: str = attr.ib(eq=False)

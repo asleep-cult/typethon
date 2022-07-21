@@ -22,6 +22,8 @@ class ParameterType(enum.IntEnum):
     ARG = enum.auto()
     VARARG = enum.auto()
     VARKWARG = enum.auto()
+    POSONLY = enum.auto()
+    KWONLY = enum.auto()
 
 
 class ExprContext(enum.IntEnum):
@@ -109,6 +111,7 @@ class ClassDefNode(Node):
     name: str = attr.ib()
     bases: typing.List[ExpressionNode] = attr.ib()
     kwargs: typing.List[KeywordArgumentNode] = attr.ib()
+    body: typing.List[StatementNode] = attr.ib()
     decorators: typing.List[ExpressionNode] = attr.ib()
 
 
