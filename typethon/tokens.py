@@ -6,7 +6,7 @@ import typing
 import attr
 
 
-class TokenType(enum.IntEnum):
+class TokenType(enum.Enum):
     EOF = enum.auto()
     NEWLINE = enum.auto()
     INDENT = enum.auto()

@@ -18,7 +18,7 @@ class ConstantType(enum.Enum):
     BYTES = enum.auto()
 
 
-class ParameterType(enum.IntEnum):
+class ParameterKind(enum.IntEnum):
     ARG = enum.auto()
     VARARG = enum.auto()
     VARKWARG = enum.auto()
@@ -416,7 +416,7 @@ class SliceNode(Node):
 @attr.s(kw_only=True, slots=True)
 class ParameterNode(Node):
     name: str = attr.ib()
-    type: ParameterType = attr.ib()
+    kind: ParameterKind = attr.ib()
     annotation: typing.Optional[ExpressionNode] = attr.ib()
     default: typing.Optional[ExpressionNode] = attr.ib()
 

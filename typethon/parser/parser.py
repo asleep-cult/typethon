@@ -390,7 +390,7 @@ class Parser:
                 encountered_posonly = True
 
                 for parameter in parameters:
-                    parameter.type = ast.ParameterType.POSONLY
+                    parameter.kind = ast.ParameterKind.POSONLY
 
                 token = self.stream.peek_token()
                 if token.type is not TokenType.COMMA:
@@ -412,12 +412,12 @@ class Parser:
             with self.alternative() as alternative:
                 parameter = self.parameter()
 
-                if parameter.type is ast.ParameterType.VARARG:
+                if parameter.kind is ast.ParameterKind.VARARG:
                     encountered_vararg = True
-                elif parameter.type is ast.ParameterType.VARKWARG:
+                elif parameter.kind is ast.ParameterKind.VARKWARG:
                     encountered_varkwarg = True
                 elif encountered_vararg or encountered_kwonly or encountered_varkwarg:
-                    parameter.type = ast.ParameterType.KWONLY
+                    parameter.kind = ast.ParameterKind.KWONLY
                     encountered_kwarg = True
                 else:
                     if parameter.default is not None:
@@ -449,7 +449,7 @@ class Parser:
             self.stream.consume_token()
             assert isinstance(token, IdentifierToken)
 
-            type = ast.ParameterType.ARG
+            kind = ast.ParameterKind.ARG
             content = token.content
         elif token.type is TokenType.STAR:
             self.stream.consume_token()
@@ -461,7 +461,7 @@ class Parser:
             self.stream.consume_token()
             assert isinstance(token, IdentifierToken)
 
-            type = ast.ParameterType.VARARG
+            kind = ast.ParameterKind.VARARG
             content = token.content
         elif token.type is TokenType.DOUBLESTAR:
             self.stream.consume_token()
@@ -473,7 +473,7 @@ class Parser:
             self.stream.consume_token()
             assert isinstance(token, IdentifierToken)
 
-            type = ast.ParameterType.VARKWARG
+            kind = ast.ParameterKind.VARKWARG
             content = token.content
         else:
             assert False, '<Unexpected Token>'
@@ -500,7 +500,7 @@ class Parser:
             startpos=startpos,
             endpos=endpos,
             name=content,
-            type=type,
+            kind=kind,
             annotation=expression,
             default=default,
         )
@@ -1772,7 +1772,7 @@ class Parser:
             self.stream.consume_token()
 
             operand = self.sum()
-            return ast.BinaryOpNode(
+            expression = ast.BinaryOpNode(
                 startpos=expression.startpos,
                 endpos=operand.endpos,
                 left=expression,
@@ -1796,10 +1796,10 @@ class Parser:
             self.stream.consume_token()
 
             operand = self.term()
-            return ast.BinaryOpNode(
+            expression = ast.BinaryOpNode(
                 startpos=expression.startpos,
                 endpos=operand.endpos,
-                left=operand,
+                left=expression,
                 op=operator,
                 right=operand,
             )
@@ -1825,7 +1825,7 @@ class Parser:
 
             self.stream.consume_token()
 
-            operand = self.term()
+            operand = self.factor()
             expression = ast.BinaryOpNode(
                 startpos=expression.startpos,
                 endpos=operand.endpos,
@@ -2287,16 +2287,18 @@ class Parser:
     def star_kvpairs(self) -> typing.List[ast.DictElt]:
         elts: typing.List[ast.DictElt] = []
 
-        elt = self.kvpair()
+        elt = self.star_kvpair()
         elts.append(elt)
 
         token = self.stream.peek_token()
         if token.type is not TokenType.COMMA:
             return elts
 
+        self.stream.consume_token()
+
         while True:
             with self.alternative() as alternative:
-                elt = self.kvpair()
+                elt = self.star_kvpair()
                 elts.append(elt)
 
             token = self.stream.peek_token()
