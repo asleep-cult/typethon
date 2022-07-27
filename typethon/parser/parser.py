@@ -18,6 +18,8 @@ from ..tokens import (
     NumberTokenFlags,
 )
 
+__all__ = ('Parser',)
+
 ReturnT = typing.TypeVar('ReturnT')
 
 # TODO: error handling, lambda (decide on syntax)
@@ -98,6 +100,29 @@ class Parser:
         self.root_stream = TokenStream(scanner)
         self.stream: typing.Union[TokenStream, TokenStreamView] = self.root_stream
 
+    @classmethod
+    def from_source(cls, source: str) -> Parser:
+        scanner = Scanner(source)
+        return cls(scanner)
+
+    @classmethod
+    def parse_module(cls, source: str) -> ast.ModuleNode:
+        return cls.from_source(source).module()
+
+    @classmethod
+    def parse_expressions(cls, source: str) -> ast.ExpressionNode:
+        parser = cls.from_source(source)
+        expressions = parser.expressions()
+
+        while True:
+            token = parser.stream.peek_token()
+            if token.type is TokenType.NEWLINE:
+                parser.stream.consume_token()
+            elif token.type is TokenType.EOF:
+                return expressions
+            else:
+                assert False, '<Expected (NEWLINE, EOF)>'
+
     @contextlib.contextmanager
     def alternative(self) -> typing.Iterator[Alternative]:
         stream = self.stream
@@ -149,37 +174,45 @@ class Parser:
         if alternative.accepted:
             return result
 
-    def statements(self) -> ast.StatementList:
+    def module(self) -> ast.ModuleNode:
+        statements: typing.List[ast.StatementNode] = []
+
+        with self.alternative():
+            body = self.statements()
+            statements.extend(body)
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.EOF:
+            assert False, '<Expected EOF>'
+
+        self.stream.consume_token()
+        return ast.ModuleNode(
+            startpos=statements[0].startpos if statements else 0,
+            endpos=statements[-1].endpos if statements else 0,
+            body=statements,
+        )
+
+    def statements(self) -> typing.List[ast.StatementNode]:
         statements: typing.List[ast.StatementNode] = []
 
         statement = self.statement()
-        if isinstance(statement, ast.StatementList):
-            statements.extend(statement.statements)
+        if isinstance(statement, list):
+            statements.extend(statement)
         else:
             statements.append(statement)
 
         while True:
             with self.alternative() as alternative:
                 statement = self.statement()
-                if isinstance(statement, ast.StatementList):
-                    statements.extend(statement.statements)
+                if isinstance(statement, list):
+                    statements.extend(statement)
                 else:
                     statements.append(statement)
 
-            # import traceback
-
-            # traceback.print_exception(alternative.exception)
-            # print(self.stream.peek_token())
-            # print(statements[-1])
-
             if not alternative.accepted:
-                return ast.StatementList(
-                    startpos=statements[0].startpos,
-                    endpos=statements[-1].endpos,
-                    statements=statements,
-                )
+                return statements
 
-    def statement(self) -> ast.StatementNode:
+    def statement(self) -> typing.Union[ast.StatementNode, typing.List[ast.StatementNode]]:
         token = self.stream.peek_token()
 
         if token.type is TokenType.ASYNC:
@@ -220,10 +253,9 @@ class Parser:
                 assert False, '<Expected DEDENT>'
 
             self.stream.consume_token()
-            return statements.statements
+            return statements
 
-        statements = self.simple_statements()
-        return statements.statements
+        return self.simple_statements()
 
     def async_statement(
         self,
@@ -270,6 +302,12 @@ class Parser:
         assert isinstance(token, IdentifierToken)
 
         content = token.content
+        expression = None
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.FROM:
+            self.stream.consume_token()
+            expression = self.expression()
 
         expressions: typing.List[ast.ExpressionNode] = []
         arguments: typing.List[ast.KeywordArgumentNode] = []
@@ -303,6 +341,7 @@ class Parser:
             name=content,
             bases=expressions,
             kwargs=arguments,
+            meta=expression,
             body=statements,
             decorators=decorators,
         )
@@ -345,6 +384,7 @@ class Parser:
             assert False, '<Expected CLOSEPAREN>'
 
         self.stream.consume_token()
+        endpos = token.end
 
         token = self.stream.peek_token()
         if token.type is TokenType.RARROW:
@@ -353,7 +393,16 @@ class Parser:
 
         token = self.stream.peek_token()
         if token.type is not TokenType.COLON:
-            assert False, '<Expected COLON>'
+            return ast.FunctionDefNode(
+                startpos=startpos,
+                endpos=expression.endpos if expression is not None else endpos,
+                is_async=async_token is not None,
+                name=content,
+                parameters=parameters,
+                body=None,
+                decorators=decorators,
+                returns=expression,
+            )
 
         self.stream.consume_token()
 
@@ -369,8 +418,8 @@ class Parser:
             returns=expression,
         )
 
-    def parameters(self) -> typing.List[ast.ParameterNode]:
-        parameters: typing.List[ast.ParameterNode] = []
+    def parameters(self) -> typing.List[ast.FunctionParameterNode]:
+        parameters: typing.List[ast.FunctionParameterNode] = []
 
         encountered_default = False
         encountered_posonly = False
@@ -440,7 +489,7 @@ class Parser:
 
             self.stream.consume_token()
 
-    def parameter(self) -> ast.ParameterNode:
+    def parameter(self) -> ast.FunctionParameterNode:
         token = self.stream.peek_token()
         startpos = token.start
         endpos = token.end
@@ -496,7 +545,7 @@ class Parser:
         elif expression is not None:
             endpos = expression.endpos
 
-        return ast.ParameterNode(
+        return ast.FunctionParameterNode(
             startpos=startpos,
             endpos=endpos,
             name=content,
@@ -872,7 +921,7 @@ class Parser:
 
             assert False, '<Unexpected Token>'
 
-    def simple_statements(self) -> ast.StatementList:
+    def simple_statements(self) -> typing.List[ast.StatementNode]:
         statements: typing.List[ast.StatementNode] = []
 
         while True:
@@ -886,12 +935,7 @@ class Parser:
             token = self.stream.peek_token()
             if token.type in (TokenType.NEWLINE, TokenType.EOF):
                 self.stream.consume_token()
-
-                return ast.StatementList(
-                    startpos=statements[0].startpos,
-                    endpos=statements[-1].endpos,
-                    statements=statements,
-                )
+                return statements
 
             assert False, f'<Expected (NEWLINE, EOF): {token!r}>'
 

@@ -100,8 +100,8 @@ class ModuleNode(Node):
 class FunctionDefNode(Node):
     is_async: bool = attr.ib()
     name: str = attr.ib()
-    parameters: typing.List[ParameterNode] = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    parameters: typing.List[FunctionParameterNode] = attr.ib()
+    body: typing.Optional[typing.List[StatementNode]] = attr.ib()
     decorators: typing.List[ExpressionNode] = attr.ib()
     returns: typing.Optional[ExpressionNode] = attr.ib()
 
@@ -111,6 +111,7 @@ class ClassDefNode(Node):
     name: str = attr.ib()
     bases: typing.List[ExpressionNode] = attr.ib()
     kwargs: typing.List[KeywordArgumentNode] = attr.ib()
+    meta: typing.Optional[ExpressionNode] = attr.ib()
     body: typing.List[StatementNode] = attr.ib()
     decorators: typing.List[ExpressionNode] = attr.ib()
 
@@ -258,7 +259,7 @@ class UnaryOpNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class LambdaNode(Node):
-    parameters: typing.List[ParameterNode] = attr.ib()
+    parameters: typing.List[FunctionParameterNode] = attr.ib()
     body: typing.List[StatementNode] = attr.ib()
 
 
@@ -414,7 +415,14 @@ class SliceNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class ParameterNode(Node):
+class TypeParameterNode(Node):
+    name: str = attr.ib()
+    type: ExpressionNode = attr.ib()
+    default: typing.Optional[ExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class FunctionParameterNode(Node):
     name: str = attr.ib()
     kind: ParameterKind = attr.ib()
     annotation: typing.Optional[ExpressionNode] = attr.ib()

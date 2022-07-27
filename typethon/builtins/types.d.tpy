@@ -1,0 +1,14 @@
+class Intable from interface:
+    def __int__(self) -> int
+
+
+class Floatable from interface:
+    def __float__(self) -> float
+
+
+class Indexable from interface:
+    def __index__(self) -> int
+
+
+class Truncable from interface:
+    def __trunc__(self) -> int

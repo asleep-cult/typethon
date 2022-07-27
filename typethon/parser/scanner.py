@@ -13,6 +13,8 @@ from ..tokens import (
     NumberTokenFlags,
 )
 
+__all__ = ('Scanner',)
+
 EOF = '\0'
 TABSIZE = 8
 ALTTABSIZE = 1

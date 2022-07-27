@@ -6,11 +6,12 @@ import enum
 
 import attr
 
-from .errors import ErrorCategory
 from .. import ast
 
 if typing.TYPE_CHECKING:
     from typing_extensions import TypeGuard
+
+    from .scope import Scope
 
 
 class TypeKind(enum.Enum):
@@ -31,27 +32,33 @@ class TypeKind(enum.Enum):
 
     SLICE = enum.auto()
 
-    FUNCTION = enum.auto()
+    MODULE = enum.auto()
     CLASS = enum.auto()
+    FUNCTION = enum.auto()
 
     UNION = enum.auto()
     UNKNOWN = enum.auto()
-    ERROR = enum.auto()
+
+
+class TypeFlags(enum.IntFlag):
+    NONE = 0
+    TYPE = enum.auto()
+    IMPLICIT = enum.auto()
 
 
 @attr.s(kw_only=True, slots=True)
 class Type:
     kind: TypeKind = attr.ib()
+    flags: TypeFlags = attr.ib(default=TypeFlags.NONE)
 
-    def compatible_with(self, other: Type) -> bool:
-        return self.kind is other.kind
+    def is_instance(self) -> bool:
+        return self.flags & TypeFlags.TYPE == 0
 
 
 @attr.s(kw_only=True, slots=True)
 class BoolType(Type):
     kind: typing.Literal[TypeKind.BOOL] = attr.ib(init=False, default=TypeKind.BOOL)
     value: typing.Optional[bool] = attr.ib(default=None)
-    implicit: bool = attr.ib(default=False)
 
     @classmethod
     def with_value(cls, value: bool) -> BoolType:
@@ -61,7 +68,7 @@ class BoolType(Type):
         if self.value is None:
             return 'bool'
 
-        return str(self.value)
+        return f'bool({self.value})'
 
 
 @attr.s(kw_only=True, slots=True)
@@ -86,7 +93,6 @@ class EllipsisType(Type):
 class StringType(Type):
     kind: typing.Literal[TypeKind.STRING] = attr.ib(init=False, default=TypeKind.STRING)
     value: typing.Optional[str] = attr.ib(default=None)
-    implicit: bool = attr.ib(default=False)
 
     @classmethod
     def with_value(cls, value: str) -> StringType:
@@ -96,14 +102,13 @@ class StringType(Type):
         if self.value is None:
             return 'str'
 
-        return repr(self.value)
+        return f'str({self.value!r})'
 
 
 @attr.s(kw_only=True, slots=True)
 class IntegerType(Type):
     kind: typing.Literal[TypeKind.INTEGER] = attr.ib(init=False, default=TypeKind.INTEGER)
     value: typing.Optional[int] = attr.ib(default=None)
-    implicit: bool = attr.ib(default=False)
 
     @classmethod
     def with_value(cls, value: int) -> IntegerType:
@@ -113,14 +118,13 @@ class IntegerType(Type):
         if self.value is None:
             return 'int'
 
-        return str(self.value)
+        return f'int({self.value})'
 
 
 @attr.s(kw_only=True, slots=True)
 class FloatType(Type):
     kind: typing.Literal[TypeKind.FLOAT] = attr.ib(init=False, default=TypeKind.FLOAT)
     value: typing.Optional[float] = attr.ib(default=None)
-    implicit: bool = attr.ib(default=False)
 
     @classmethod
     def with_value(cls, value: float) -> FloatType:
@@ -130,14 +134,13 @@ class FloatType(Type):
         if self.value is None:
             return 'float'
 
-        return str(self.value)
+        return f'float({self.value})'
 
 
 @attr.s(kw_only=True, slots=True)
 class ComplexType(Type):
     kind: typing.Literal[TypeKind.COMPLEX] = attr.ib(init=False, default=TypeKind.COMPLEX)
     value: typing.Optional[complex] = attr.ib(default=None)
-    implicit: bool = attr.ib(default=False)
 
     @classmethod
     def with_value(cls, value: complex) -> ComplexType:
@@ -147,7 +150,7 @@ class ComplexType(Type):
         if self.value is None:
             return 'complex'
 
-        return str(self.value)
+        return f'complex({self.value.real}, {self.value.imag})'
 
 
 @attr.s(kw_only=True, slots=True)
@@ -202,6 +205,19 @@ class SliceType(Type):
 
 
 @attr.s(kw_only=True, slots=True)
+class ModuleType(Type):
+    kind: typing.Literal[TypeKind.MODULE] = attr.ib(init=False, default=TypeKind.MODULE)
+    scope: Scope = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ClassType(Type):
+    kind: typing.Literal[TypeKind.CLASS] = attr.ib(init=False, default=TypeKind.CLASS)
+    bases: typing.List[Type] = attr.ib()
+    scope: Scope = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class FunctionParameter:
     name: str = attr.ib()
     type: Type = attr.ib()
@@ -217,9 +233,8 @@ class FunctionType(Type):
 
 
 @attr.s(kw_only=True, slots=True)
-class ClassType(Type):
-    kind: typing.Literal[TypeKind.CLASS] = attr.ib(init=False, default=TypeKind.CLASS)
-    bases: typing.List[Type] = attr.ib()
+class BuiltinFunctionType(FunctionType):
+    function: typing.Callable[..., Type] = attr.ib()
 
 
 @attr.s(slots=True)
@@ -237,17 +252,6 @@ class UnknownType(Type):
 
     def __str__(self) -> str:
         return 'unknown'
-
-
-@attr.s(kw_only=True, slots=True)
-class ErrorType(Type):
-    kind: typing.Literal[TypeKind.ERROR] = attr.ib(init=False, default=TypeKind.ERROR)
-    category: ErrorCategory = attr.ib()
-    message: str = attr.ib()
-    node: typing.Optional[ast.Node] = attr.ib(default=None)
-
-    def set_node(self, node: ast.Node) -> ErrorType:
-        return ErrorType(category=self.category, message=self.message, node=node)
 
 
 ConstantType = typing.Union[
@@ -269,26 +273,23 @@ LiteralType = typing.Union[
 ]
 
 
-def union(types: typing.Iterable[Type]) -> UnionType:
+def union(types: typing.Iterable[Type]) -> Type:
     flattened: typing.List[Type] = []
 
     for type in types:
         if isinstance(type, UnionType):
-            flattened.extend(type for type in type.types if type not in flattened)
+            for type in type.types:
+                if type not in flattened:
+                    flattened.append(type)
         else:
             if type not in flattened:
                 flattened.append(type)
 
+    if len(flattened) == 1:
+        return flattened[0]
+
     return UnionType(types=flattened)
-
-
-def is_valid(type: Type) -> bool:
-    return not is_unknown(type) and not is_error(type)
 
 
 def is_unknown(type: Type) -> TypeGuard[UnknownType]:
     return type.kind is TypeKind.UNKNOWN
-
-
-def is_error(type: Type) -> TypeGuard[ErrorType]:
-    return type.kind is TypeKind.ERROR

@@ -3,6 +3,8 @@ import typing
 
 from .. import ast
 
+__all__ = ('NodeVisitor',)
+
 VisitT = typing.TypeVar('VisitT')
 
 
@@ -14,25 +16,23 @@ class NodeVisitor(typing.Generic[VisitT]):
         typing.Type[ast.StatementNode], typing.Callable[[ast.StatementNode], None]
     ]
 
-    def initialize_visitors(self) -> None:
-        self.expression_visitors = {}
-        self.statement_visitors = {}
+    def __init_subclass__(cls) -> None:
+        cls.expression_visitors = {}
+        cls.statement_visitors = {}
 
-        for member in inspect.getmembers(self, inspect.ismethod):
-            function = member[1]
-
-            if function.__name__ in ('visit_expression', 'visit_statement'):
+        for name, function in inspect.getmembers(cls, inspect.ismethod):
+            if name in ('visit_expression', 'visit_statement'):
                 continue
 
             annotations = inspect.get_annotations(function)
 
             expression = annotations.get('expression')
             if expression is not None:
-                self.expression_visitors[expression] = function
+                cls.expression_visitors[expression] = function
 
             statement = annotations.get('statement')
             if statement is not None:
-                self.statement_visitors[statement] = function
+                cls.statement_visitors[statement] = function
 
     def visit_functiondef_node(self, statement: ast.FunctionDefNode) -> VisitT:
         raise NotImplementedError

@@ -16,8 +16,6 @@ class ScopeType(enum.Enum):
 
 
 class Scope:
-    symbols: typing.Dict[str, Symbol]
-
     def __init__(
         self,
         type: ScopeType,
@@ -25,7 +23,7 @@ class Scope:
         parent: typing.Optional[Scope] = None,
         function: typing.Optional[FunctionType] = None,
     ) -> None:
-        self.symbols = {}
+        self.symbols: typing.Dict[str, Symbol] = {}
         self.type = type
         self.parent = parent
         self.function = function
@@ -44,6 +42,9 @@ class Scope:
             raise TypeError('the scope has no function')
 
         return self.function
+
+    def add_symbol(self, symbol: Symbol) -> None:
+        self.symbols[symbol.name] = symbol
 
     def get_symbol(self, name: str) -> typing.Optional[Symbol]:
         symbol = self.symbols.get(name)
