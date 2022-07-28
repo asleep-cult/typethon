@@ -3,8 +3,8 @@ from __future__ import annotations
 import typing
 import enum
 
-from . import builtins
 from . import types
+from . import plugins
 from .. import ast
 from .scope import Scope, ScopeType
 from .symbol import Symbol
@@ -49,10 +49,11 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         if definitions:
             self.ctx = EvaluatorContext.DEFINITIONS
         else:
-            self.ctx = EvaluatorContext.TYPE
+            self.ctx = EvaluatorContext.CODE
 
         self.errors: typing.List[AnalyzationError] = []
 
+        self.type = types.TypeInstance(flags=types.TypeFlags.TYPE)
         self.bool_type = types.BoolType(flags=types.TypeFlags.TYPE)
         self.none_type = types.NoneType(flags=types.TypeFlags.TYPE)
         self.ellipsis_type = types.EllipsisType(flags=types.TypeFlags.TYPE)
@@ -65,6 +66,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         self.none = types.NoneType()
         self.ellipsis = types.EllipsisType()
 
+        self.scope.add_symbol(Symbol('type', self.type))
         self.scope.add_symbol(Symbol('bool', self.bool_type))
         self.scope.add_symbol(Symbol('None', self.none))
         self.scope.add_symbol(Symbol('Ellipsis', self.ellipsis))
@@ -73,7 +75,8 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         self.scope.add_symbol(Symbol('float', self.float_type))
         self.scope.add_symbol(Symbol('complex', self.complex_type))
 
-        self.int_defs = builtins.IntegerDefs()
+        self.function_plugin = plugins.FunctionPlugin()
+        self.int_plugin = plugins.IntegerPlugin()
 
     @classmethod
     def evaluate_module(
@@ -127,8 +130,25 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         return self.unknown_type
 
     def getattribute(self, type: types.Type, name: str) -> types.Type:
-        if isinstance(type, types.IntegerType):
-            return self.int_defs.getattribute(self, name)
+        attribute = None
+
+        if isinstance(type, types.FunctionType):
+            attribute = self.function_plugin.getattribute(name)
+        elif isinstance(type, types.IntegerType):
+            attribute = self.int_plugin.getattribute(name)
+
+        if attribute is not None:
+            instance = types.ObjectType(value=type)
+            owner = types.TypeInstance(value=type.to_type())
+
+            if isinstance(attribute, types.FunctionType):
+                return self.function_plugin.get(attribute, instance, owner)
+
+            getter = self.getattribute(attribute, '__get__')
+            if not types.is_unknown(getter):
+                return self.call(getter, type, type.to_type())
+
+            return attribute
 
         return self.unknown_type
 
@@ -145,6 +165,13 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         *arguments: types.Type,
         keywords: typing.Optional[typing.Dict[typing.Optional[str], types.Type]] = None,
     ) -> types.Type:
+        if isinstance(type, types.MethodType):
+            fields = type.get_fields()
+            return self.call(fields.function, fields.instance, *arguments)
+
+        if isinstance(type, types.BuiltinFunctionType):
+            return type.function(*arguments)
+
         return self.unknown_type
 
     def truthness(self, type: types.Type) -> typing.Optional[bool]:
@@ -159,7 +186,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         ):
             return bool(type.value) if type.value is not None else None
         elif isinstance(type, types.TupleType):
-            return len(type.values) > 0
+            return type.values is not None and len(type.values) > 0
         elif isinstance(type, types.ListType):
             return type.size > 0 if type.size is not None else None
 
@@ -173,8 +200,10 @@ class TypeEvaluator(NodeVisitor[types.Type]):
             return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=statement)
 
         function = self.scope.get_function()
-        if not self.types_compatible(function.returns, value):
-            msg = f'declared return type {function.returns} is incompatible with {value}'
+        fields = function.get_fields()
+
+        if not self.types_compatible(fields.returns, value):
+            msg = f'declared return type {fields.returns} is incompatible with {value}'
             return self.error(ErrorCategory.TYPE_ERROR, msg, node=statement)
 
         return self.unknown_type
@@ -211,14 +240,11 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         operators = OPERATORS[expression.op]
 
         func = self.getattribute(left, operators[0])
-        result = self.unknown_type
-
-        if types.is_unknown(func):
-            result = self.call(func, left, right)
+        result = self.call(func, right)
 
         if types.is_unknown(result):
             func = self.getattribute(right, operators[1])
-            result = self.call(func, left, right)
+            result = self.call(func, left)
 
         if types.is_unknown(result):
             return self.error(
@@ -289,16 +315,16 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
         for elt in expression.elts:
             if elt.key is None:
-                value = self.visit_expression(elt.value)
+                value = self.visit_expression(elt.value).to_instance()
 
                 if value.kind is not types.TypeKind.DICT:
                     msg = f'cannot unpack {value} into dictionary'
                     return self.error(ErrorCategory.TYPE_ERROR, msg, node=expression)
 
-                unpacked.append(self.visit_expression(elt.value))
+                unpacked.append(value)
             else:
-                keys.append(self.visit_expression(elt.key))
-                values.append(self.visit_expression(elt.value))
+                keys.append(self.visit_expression(elt.key).to_instance())
+                values.append(self.visit_expression(elt.value).to_instance())
 
         if self.is_evaluating_type():
             if len(keys) != 1 and len(values) != 1:
@@ -309,7 +335,8 @@ class TypeEvaluator(NodeVisitor[types.Type]):
                 msg = 'cannot unpack into dict type'
                 return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-            return types.DictType(key=keys[0], value=values[0], flags=types.TypeFlags.TYPE)
+            fields = types.DictFields(key=keys[0], value=values[0])
+            return types.DictType(fields=fields, flags=types.TypeFlags.TYPE)
 
         if not self.is_evaluating_code():
             msg = 'dictionary is not valid in this context'
@@ -321,17 +348,19 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
             unpack_keys = self.call(get_keys)
             unpack_values = self.call(get_values)
-            assert types.is_unknown(unpack_keys) and types.is_unknown(unpack_values)
+            assert not types.is_unknown(unpack_keys) and not types.is_unknown(unpack_values)
 
             keys.append(unpack_keys)
             keys.append(unpack_values)
 
         key = self.remove_implicit_values(types.union(keys))
         value = self.remove_implicit_values(types.union(values))
-        return types.DictType(key=key, value=value)
+
+        fields = types.DictFields(key=key, value=value)
+        return types.DictType(fields=fields)
 
     def visit_set_node(self, expression: ast.SetNode) -> types.Type:
-        elts = [self.visit_expression(elt) for elt in expression.elts]
+        elts = [self.visit_expression(elt).to_instance() for elt in expression.elts]
 
         if self.is_evaluating_type():
             if len(elts) != 1:
@@ -363,7 +392,9 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         flags = types.TypeFlags.NONE
 
         if self.is_evaluating_type():
-            flags |= types.TypeFlags.IMPLICIT | types.TypeFlags.TYPE
+            flags |= types.TypeFlags.IMPLICIT
+        else:
+            flags |= types.TypeFlags.TYPE
 
         if expression.type is ast.ConstantType.TRUE:
             return types.BoolType(value=True, flags=flags)
@@ -423,7 +454,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         return symbol.type
 
     def visit_list_node(self, expression: ast.ListNode) -> types.Type:
-        elts = [self.visit_expression(elt) for elt in expression.elts]
+        elts = [self.visit_expression(elt).to_instance() for elt in expression.elts]
 
         if self.is_evaluating_type():
             if not 0 < len(elts) <= 2:
@@ -445,7 +476,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         return types.ListType(value=value)
 
     def visit_tuple_node(self, expression: ast.TupleNode) -> types.Type:
-        elts = [self.visit_expression(elt) for elt in expression.elts]
+        elts = [self.visit_expression(elt).to_instance() for elt in expression.elts]
 
         if not self.is_evaluating_type() and not self.is_evaluating_code():
             msg = 'tuple is not valid in this context'

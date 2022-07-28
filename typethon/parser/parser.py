@@ -2275,12 +2275,26 @@ class Parser:
         startpos = token.start
         expressions: typing.List[ast.ExpressionNode] = []
 
-        with self.alternative():
+        with self.alternative() as alternative:
             expression = self.star_expressions()
             if isinstance(expression, ast.TupleNode):
                 expressions.extend(expression.elts)
             else:
                 expressions.append(expression)
+
+        if alternative.accepted:
+            token = self.stream.peek_token()
+            if token.type is not TokenType.COMMA:
+                assert False, '<Expected COMMA>'
+
+            self.stream.consume_token()
+
+            with self.alternative():
+                expression = self.star_expressions()
+                if isinstance(expression, ast.TupleNode):
+                    expressions.extend(expression.elts)
+                else:
+                    expressions.append(expression)
 
         token = self.stream.peek_token()
         if token.type is not TokenType.CLOSEPAREN:

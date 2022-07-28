@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import typing
 
@@ -10,29 +12,31 @@ VisitT = typing.TypeVar('VisitT')
 
 class NodeVisitor(typing.Generic[VisitT]):
     expression_visitors: typing.Dict[
-        typing.Type[ast.ExpressionNode], typing.Callable[[ast.ExpressionNode], VisitT]
+        str,
+        typing.Callable[[NodeVisitor[VisitT], ast.ExpressionNode], VisitT]
     ]
     statement_visitors: typing.Dict[
-        typing.Type[ast.StatementNode], typing.Callable[[ast.StatementNode], None]
+        str,
+        typing.Callable[[NodeVisitor[VisitT], ast.StatementNode], None]
     ]
 
     def __init_subclass__(cls) -> None:
         cls.expression_visitors = {}
         cls.statement_visitors = {}
 
-        for name, function in inspect.getmembers(cls, inspect.ismethod):
+        for name, function in inspect.getmembers(cls, inspect.isfunction):
             if name in ('visit_expression', 'visit_statement'):
                 continue
 
             annotations = inspect.get_annotations(function)
 
-            expression = annotations.get('expression')
+            expression: typing.Optional[str] = annotations.get('expression')
             if expression is not None:
-                cls.expression_visitors[expression] = function
+                cls.expression_visitors[expression.split('.')[-1]] = function
 
-            statement = annotations.get('statement')
+            statement: typing.Optional[str] = annotations.get('statement')
             if statement is not None:
-                cls.statement_visitors[statement] = function
+                cls.statement_visitors[statement.split('.')[-1]] = function
 
     def visit_functiondef_node(self, statement: ast.FunctionDefNode) -> VisitT:
         raise NotImplementedError
@@ -176,16 +180,16 @@ class NodeVisitor(typing.Generic[VisitT]):
         if isinstance(expression, ast.ConstantNode):
             return self.visit_constant_node(expression)
         else:
-            visitor = self.expression_visitors.get(type(expression))
+            visitor = self.expression_visitors.get(expression.__class__.__name__)
 
-        if visitor is not None:
-            return visitor(expression)
+            if visitor is not None:
+                return visitor(self, expression)
 
         raise TypeError(f'No visitor implemented for {expression.__class__.__name__!r}')
 
     def visit_statement(self, statement: ast.StatementNode) -> None:
-        visitor = self.statement_visitors.get(type(statement))
+        visitor = self.statement_visitors.get(statement.__class__.__name__)
         if visitor is not None:
-            return visitor(statement)
+            return visitor(self, statement)
 
         raise TypeError(f'No visitor implemented for {statement.__class__.__name__!r}')
