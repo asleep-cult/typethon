@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import typing
 import enum
+import typing
 
-from . import types
-from . import plugins
-from .. import ast
-from .scope import Scope, ScopeType
-from .symbol import Symbol
+from . import atoms
+from . import implementations
 from .errors import AnalyzationError, ErrorCategory
+from .scope import Scope, ScopeType
+from .. import ast
 from ..parser.visitor import NodeVisitor
 
 
@@ -37,79 +36,33 @@ UNARY_OPERATORS = {
 
 
 class EvaluatorContext(enum.Enum):
-    DEFINITIONS = enum.auto()
     CODE = enum.auto()
     TYPE = enum.auto()
 
 
-class TypeEvaluator(NodeVisitor[types.Type]):
-    def __init__(self, *, definitions: bool = False) -> None:
+class AtomEvaluator(NodeVisitor[atoms.Atom]):
+    def __init__(self) -> None:
         self.scope = Scope(ScopeType.GLOBAL)
 
-        if definitions:
-            self.ctx = EvaluatorContext.DEFINITIONS
-        else:
-            self.ctx = EvaluatorContext.CODE
-
+        self.ctx = EvaluatorContext.CODE
         self.errors: typing.List[AnalyzationError] = []
 
-        self.type = types.TypeInstance()
-        self.bool_type = types.BoolType(flags=types.TypeFlags.TYPE)
-        self.none_type = types.NoneType(flags=types.TypeFlags.TYPE)
-        self.ellipsis_type = types.EllipsisType(flags=types.TypeFlags.TYPE)
-        self.string_type = types.StringType(flags=types.TypeFlags.TYPE)
-        self.integer_type = types.IntegerType(flags=types.TypeFlags.TYPE)
-        self.float_type = types.FloatType(flags=types.TypeFlags.TYPE)
-        self.complex_type = types.ComplexType(flags=types.TypeFlags.TYPE)
-        self.unknown_type = types.UnknownType(flags=types.TypeFlags.TYPE)
+        self.none = atoms.NoneAtom()
+        self.ellipsis = atoms.EllipsisAtom()
+        self.unknown = atoms.UnknownAtom()
 
-        self.none = types.NoneType()
-        self.ellipsis = types.EllipsisType()
+        self.scope.add_symbol('None', self.none)
+        self.scope.add_symbol('Ellipsis', self.ellipsis)
+        self.scope.add_symbol('type', atoms.get_type(atoms.TypeAtom))
+        self.scope.add_symbol('bool', atoms.get_type(atoms.BoolAtom))
+        self.scope.add_symbol('str', atoms.get_type(atoms.StringAtom))
+        self.scope.add_symbol('int', atoms.get_type(atoms.IntegerAtom))
+        self.scope.add_symbol('float', atoms.get_type(atoms.FloatAtom))
+        self.scope.add_symbol('complex', atoms.get_type(atoms.ComplexAtom))
 
-        self.scope.add_symbol(Symbol('type', self.type))
-        self.scope.add_symbol(Symbol('bool', self.bool_type))
-        self.scope.add_symbol(Symbol('None', self.none))
-        self.scope.add_symbol(Symbol('Ellipsis', self.ellipsis))
-        self.scope.add_symbol(Symbol('str', self.string_type))
-        self.scope.add_symbol(Symbol('int', self.integer_type))
-        self.scope.add_symbol(Symbol('float', self.float_type))
-        self.scope.add_symbol(Symbol('complex', self.complex_type))
-
-        self.type_plugin = plugins.TypeInstancePlugin()
-        self.int_plugin = plugins.IntegerPlugin()
-        self.function_plugin = plugins.FunctionPlugin()
-
-    @classmethod
-    def evaluate_module(
-        cls, module: ast.ModuleNode, *, definitions: bool = False
-    ) -> types.ModuleType:
-        return cls(definitions=definitions).module(module)
-
-    def module(self, module: ast.ModuleNode) -> types.ModuleType:
-        for statement in module.body:
-            self.visit_statement(statement)
-
-        return types.ModuleType(scope=self.scope)
-
-    def remove_implicit_values(self, type: types.Type) -> types.Type:
-        if isinstance(type, types.LiteralType):
-            if not type.flags & types.TypeFlags.IMPLICIT:
-                return type
-            elif type.kind is types.TypeKind.BOOL:
-                return self.bool_type
-            elif type.kind is types.TypeKind.STRING:
-                return self.string_type
-            elif type.kind is types.TypeKind.INTEGER:
-                return self.integer_type
-            elif type.kind is types.TypeKind.FLOAT:
-                return self.float_type
-            elif type.kind is types.TypeKind.COMPLEX:
-                return self.complex_type
-
-        elif isinstance(type, types.UnionType) and type.types is not None:
-            return types.union(self.remove_implicit_values(type) for type in type.types)
-
-        return type
+        self.type_impl = implementations.TypeImplementation()
+        self.int_impl = implementations.IntegerImplementation()
+        self.function_impl = implementations.FunctionImplementation()
 
     def is_evaluating_code(self) -> bool:
         return self.ctx is EvaluatorContext.CODE
@@ -117,114 +70,106 @@ class TypeEvaluator(NodeVisitor[types.Type]):
     def is_evaluating_type(self) -> bool:
         return self.ctx is EvaluatorContext.TYPE
 
-    def get_metatype(self, type: types.Type) -> types.Type:
-        if type.is_instance():
-            return type.to_type()
-
-        return types.TypeInstance(value=type)
-
-    def types_compatible(self, first: types.Type, second: types.Type) -> bool:
-        return first.kind is second.kind
-
     def error(
         self,
         category: ErrorCategory,
         message: str,
         *,
         node: typing.Optional[ast.Node] = None,
-    ) -> types.UnknownType:
+    ) -> atoms.UnknownAtom:
         self.errors.append(AnalyzationError(category=category, message=message, node=node))
-        return self.unknown_type
+        return self.unknown
 
-    def getattribute(self, type: types.Type, name: str) -> types.Type:
-        attribute = None
+    def downgrade_constant(self, atom: atoms.Atom) -> atoms.Atom:
+        if isinstance(atom, atoms.LiteralAtom):
+            if atom.flags & atoms.AtomFlags.IMPLICIT:
+                atom = atom.copy()
+                atom.value = None
 
-        if isinstance(type, types.TypeInstance):
-            attribute = self.type_plugin.getattribute(name)
-        elif isinstance(type, types.IntegerType):
-            attribute = self.int_plugin.getattribute(name)
-        elif isinstance(type, types.FunctionType):
-            attribute = self.function_plugin.getattribute(name)
+        elif atom.kind is atoms.AtomKind.UNION:
+            if atom.values is not None:
+                atom = atoms.union(self.downgrade_constant(atom) for atom in atom.values)
 
-        if attribute is not None:
-            if not type.is_instance():
-                instance = self.none
-            else:
-                instance = types.ObjectType(value=type)
+        return atom
 
-            owner = types.TypeInstance(value=type.to_type())
+    def get_type(self, atom: atoms.Atom) -> atoms.Atom:
+        if atom.is_type():
+            return atoms.TypeAtom(atom)
 
-            if isinstance(attribute, types.FunctionType):
-                return self.function_plugin.get(attribute, instance, owner)
+        return atom.uninstantiate()
 
-            getter = self.getattribute(attribute, '__get__')
-            if not types.is_unknown(getter):
-                return self.call(getter, type, type.to_type())
+    def get_attribute(self, atom: atoms.Atom, name: str) -> atoms.Atom:
+        if atom.kind is atoms.AtomKind.TYPE:
+            attribute = self.type_impl.get_attribute(name)
+        elif atom.kind is atoms.AtomKind.INTEGER:
+            attribute = self.int_impl.get_attribute(name)
+        elif atom.kind is atoms.AtomKind.FUNCTION:
+            attribute = self.function_impl.get_attribute(name)
+        else:
+            attribute = None
 
-            return attribute
+        if attribute is None:
+            return self.unknown
 
-        return self.unknown_type
+        if atom.is_type():
+            instance = self.none
+        else:
+            instance = atoms.ObjectAtom(atom)
 
-    def getitem(self, type: types.Type, slice: types.Type) -> types.Type:
-        metatype = self.get_metatype(type)
-        func = self.getattribute(metatype, '__getitem__')
+        owner = atoms.TypeAtom(atom.uninstantiate())
 
-        if types.is_unknown(func):
-            return self.unknown_type
+        if attribute.kind is atoms.AtomKind.FUNCTION:
+            return self.function_impl.get(attribute, instance, owner)
 
-        return self.call(func, type, slice)
+        type = self.get_type(attribute)
+        getter = self.get_attribute(type, '__get__')
+
+        if getter.kind is not atoms.AtomKind.UNKNOWN:
+            return self.call(getter, (attribute, instance, owner))
+
+        return attribute
+
+    def get_item(self, atom: atoms.Atom, slice: atoms.Atom) -> atoms.Atom:
+        return self.unknown
 
     def call(
         self,
-        type: types.Type,
-        *arguments: types.Type,
-        keywords: typing.Optional[typing.Dict[typing.Optional[str], types.Type]] = None,
-    ) -> types.Type:
-        if isinstance(type, types.MethodType):
-            fields = type.get_fields()
-            return self.call(fields.function, fields.instance, *arguments)
+        atom: atoms.Atom,
+        arguments: typing.Optional[typing.Sequence[atoms.Atom]] = None,
+        keywords: typing.Optional[typing.Mapping[str, atoms.Atom]] = None,
+        unpack: typing.Optional[typing.Sequence[atoms.Atom]] = None,
+    ) -> atoms.Atom:
+        # TODO: validation. any parameter specified as an object
+        # should receive an ObjectAtom rather then the atom itself
 
-        if isinstance(type, types.BuiltinFunctionType):
-            return type.function(*arguments)
+        if isinstance(atom, atoms.MethodAtom):
+            fields = atom.get_fields()
 
-        return self.unknown_type
+            if arguments is not None:
+                return self.call(fields.function, (fields.instance, *arguments))
 
-    def truthness(self, type: types.Type) -> typing.Optional[bool]:
-        if isinstance(type, types.BoolType):
-            return type.value
-        elif isinstance(type, types.NoneType):
-            return False
-        elif isinstance(type, types.EllipsisType):
-            return True
-        elif isinstance(
-            type, (types.StringType, types.IntegerType, types.FloatType, types.ComplexType)
-        ):
-            return bool(type.value) if type.value is not None else None
-        elif isinstance(type, types.TupleType):
-            return type.values is not None and len(type.values) > 0
-        elif isinstance(type, types.ListType):
-            return type.size > 0 if type.size is not None else None
+            return self.call(fields.function, (fields.instance,))
 
-        return True
+        if isinstance(atom, atoms.BuiltinFunctionAtom):
+            if arguments is not None:
+                return atom.function(*arguments)
 
-    def visit_return_node(self, statement: ast.ReturnNode) -> types.Type:
-        value = self.visit_expression(statement.value)
+            return atom.function()
 
-        if not self.scope.is_function_scope():
-            msg = 'return statementment not allowed outside of function scope'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=statement)
+        return self.unknown
 
-        function = self.scope.get_function()
-        fields = function.get_fields()
+    def truthness(self, atom: atoms.Atom) -> atoms.MaybeUnknown[atoms.BoolAtom]:
+        type = self.get_type(atom)
+        function = self.get_attribute(type, '__bool__')
 
-        if not self.types_compatible(fields.returns, value):
-            msg = f'declared return type {fields.returns} is incompatible with {value}'
-            return self.error(ErrorCategory.TYPE_ERROR, msg, node=statement)
+        if function.kind is not atoms.AtomKind.UNKNOWN:
+            result = self.call(function, (atom,))
+            return result.unwrap_as(atoms.BoolAtom)
 
-        return self.unknown_type
+        return atoms.BoolAtom(True)
 
-    def visit_boolop_node(self, expression: ast.BoolOpNode) -> types.Type:
-        values = [self.visit_expression(value).to_value() for value in expression.values]
+    def visit_boolop_node(self, expression: ast.BoolOpNode) -> atoms.Atom:
+        values = [self.visit_expression(value).synthesize() for value in expression.values]
 
         if not self.is_evaluating_code():
             msg = 'boolean operation is not valid in this context'
@@ -232,7 +177,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
         unknown = any(self.truthness(value) is None for value in values)
         if unknown:
-            return types.union(values)
+            return atoms.union(values)
 
         for value in values:
             truthness = self.truthness(value)
@@ -245,27 +190,27 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
         return values[-1]
 
-    def visit_binop_node(self, expression: ast.BinaryOpNode) -> types.Type:
-        left = self.visit_expression(expression.left).to_value()
-        right = self.visit_expression(expression.right).to_value()
+    def visit_binop_node(self, expression: ast.BinaryOpNode) -> atoms.Atom:
+        left = self.visit_expression(expression.left).synthesize()
+        right = self.visit_expression(expression.right).synthesize()
 
-        if types.is_unknown(left) or types.is_unknown(right):
-            return types.union((left, right))
+        if left.kind is atoms.AtomKind.UNKNOWN or right.kind is atoms.AtomKind.UNKNOWN:
+            return atoms.union((left, right))
 
         operators = OPERATORS[expression.op]
 
-        metatype = self.get_metatype(left)
-        func = self.getattribute(metatype, operators[0])
+        type = self.get_type(left)
+        function = self.get_attribute(type, operators[0])
 
-        result = self.call(func, left, right)
+        result = self.call(function, (left, right))
 
-        if types.is_unknown(result):
-            metatype = self.get_metatype(right)
-            func = self.getattribute(right, operators[1])
+        if result.kind is atoms.AtomKind.UNKNOWN:
+            type = self.get_type(right)
+            function = self.get_attribute(type, operators[1])
 
-            result = self.call(func, right, left)
+            result = self.call(function, (right, left))
 
-        if types.is_unknown(result):
+        if result.kind is atoms.AtomKind.UNKNOWN:
             return self.error(
                 ErrorCategory.TYPE_ERROR,
                 f'operator {operators[2]!r} not supported'
@@ -275,25 +220,27 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
         return result
 
-    def visit_unaryop_node(self, expression: ast.UnaryOpNode) -> types.Type:
-        operand = self.visit_expression(expression.operand).to_value()
+    def visit_unaryop_node(self, expression: ast.UnaryOpNode) -> atoms.Atom:
+        operand = self.visit_expression(expression.operand).synthesize()
 
-        if types.is_unknown(operand):
-            return self.unknown_type
+        if operand.kind is atoms.AtomKind.UNKNOWN:
+            return self.unknown
 
         if expression.op is ast.UnaryOperator.NOT:
             truthness = self.truthness(operand)
             if truthness is None:
-                result = self.bool_type
+                result = atoms.get_type(atoms.BoolAtom)
             else:
-                result = types.BoolType(value=not truthness)
+                result = atoms.BoolAtom(not truthness)
         else:
             operator = UNARY_OPERATORS[expression.op]
 
-            func = self.getattribute(operand, operator[0])
-            result = self.call(func)
+            type = self.get_type(operand)
+            function = self.get_attribute(type, operator[0])
 
-            if types.is_unknown(result):
+            result = self.call(function, (operand,))
+
+            if result.kind is atoms.AtomKind.UNKNOWN:
                 msg = f'operator {operator[1]!r} not supported for {operand}'
                 return self.error(ErrorCategory.TYPE_ERROR, msg, node=expression)
 
@@ -303,10 +250,10 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
         return result
 
-    def visit_ifexp_node(self, expression: ast.IfExpNode) -> types.Type:
-        condition = self.visit_expression(expression.condition).to_value()
-        body = self.visit_expression(expression.body).to_value()
-        else_body = self.visit_expression(expression.else_body).to_value()
+    def visit_ifexp_node(self, expression: ast.IfExpNode) -> atoms.Atom:
+        condition = self.visit_expression(expression.condition).synthesize()
+        body = self.visit_expression(expression.body).synthesize()
+        else_body = self.visit_expression(expression.else_body).synthesize()
 
         if not self.is_evaluating_code():
             msg = 'if expressions are not valid in thie context'
@@ -318,25 +265,25 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         elif truthness is False:
             return else_body
 
-        return types.union((body, else_body))
+        return atoms.union((body, else_body))
 
-    def visit_dict_node(self, expression: ast.DictNode) -> types.Type:
-        keys: typing.List[types.Type] = []
-        values: typing.List[types.Type] = []
-        unpacked: typing.List[types.Type] = []
+    def visit_dict_node(self, expression: ast.DictNode) -> atoms.Atom:
+        keys: typing.List[atoms.Atom] = []
+        values: typing.List[atoms.Atom] = []
+        unpacked: typing.List[atoms.Atom] = []
 
         for elt in expression.elts:
             if elt.key is None:
-                value = self.visit_expression(elt.value).to_instance()
+                value = self.visit_expression(elt.value).instantiate()
 
-                if value.kind is not types.TypeKind.DICT:
+                if value.kind is not atoms.AtomKind.DICT:
                     msg = f'cannot unpack {value} into dictionary'
                     return self.error(ErrorCategory.TYPE_ERROR, msg, node=expression)
 
                 unpacked.append(value)
             else:
-                keys.append(self.visit_expression(elt.key).to_instance())
-                values.append(self.visit_expression(elt.value).to_instance())
+                keys.append(self.visit_expression(elt.key).instantiate())
+                values.append(self.visit_expression(elt.value).instantiate())
 
         if self.is_evaluating_type():
             if len(keys) != 1 and len(values) != 1:
@@ -347,108 +294,106 @@ class TypeEvaluator(NodeVisitor[types.Type]):
                 msg = 'cannot unpack into dict type'
                 return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-            fields = types.DictFields(key=keys[0], value=values[0])
-            return types.DictType(fields=fields, flags=types.TypeFlags.TYPE)
+            fields = atoms.DictFields(key=keys[0], value=values[0])
+            return atoms.DictAtom(fields, flags=atoms.AtomFlags.TYPE)
 
         if not self.is_evaluating_code():
             msg = 'dictionary is not valid in this context'
             return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-        for unpack in unpacked:
-            get_keys = self.getattribute(unpack, 'keys')
-            get_values = self.getattribute(unpack, 'values')
+        key = self.downgrade_constant(atoms.union(keys))
+        value = self.downgrade_constant(atoms.union(values))
 
-            unpack_keys = self.call(get_keys)
-            unpack_values = self.call(get_values)
-            assert not types.is_unknown(unpack_keys) and not types.is_unknown(unpack_values)
+        fields = atoms.DictFields(key=key, value=value)
+        return atoms.DictAtom(fields)
 
-            keys.append(unpack_keys)
-            keys.append(unpack_values)
-
-        key = self.remove_implicit_values(types.union(keys))
-        value = self.remove_implicit_values(types.union(values))
-
-        fields = types.DictFields(key=key, value=value)
-        return types.DictType(fields=fields)
-
-    def visit_set_node(self, expression: ast.SetNode) -> types.Type:
-        elts = [self.visit_expression(elt).to_instance() for elt in expression.elts]
+    def visit_set_node(self, expression: ast.SetNode) -> atoms.Atom:
+        elts = [self.visit_expression(elt).synthesize() for elt in expression.elts]
 
         if self.is_evaluating_type():
             if len(elts) != 1:
                 msg = 'set type should only have one entry'
                 return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-            return types.SetType(value=elts[0], flags=types.TypeFlags.TYPE)
+            return atoms.SetAtom(elts[0], flags=atoms.AtomFlags.TYPE)
 
         if not self.is_evaluating_code():
             msg = 'set is not valid in this context'
             return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-        value = self.remove_implicit_values(types.union(elts))
-        return types.SetType(value=value)
+        value = self.downgrade_constant(atoms.union(elts))
+        return atoms.SetAtom(value)
 
-    def visit_call_node(self, expression: ast.CallNode) -> types.Type:
-        func = self.visit_expression(expression.func)
+    def visit_call_node(self, expression: ast.CallNode) -> atoms.Atom:
+        func = self.visit_expression(expression.func).synthesize()
 
-        args = [self.visit_expression(arg) for arg in expression.args]
-        kwargs = {kwarg.name: self.visit_expression(kwarg.value) for kwarg in expression.kwargs}
+        args = [self.visit_expression(arg).synthesize() for arg in expression.args]
+        kwargs: typing.Dict[str, atoms.Atom] = {}
+        unpack: typing.List[atoms.Atom] = []
 
-        return self.call(func, *args, keywords=kwargs)
+        for kwarg in expression.kwargs:
+            value = self.visit_expression(kwarg.value).synthesize()
 
-    def visit_constant_node(self, expression: ast.ConstantNode) -> types.Type:
+            if kwarg.name is not None:
+                kwargs[kwarg.name] = value
+            else:
+                unpack.append(value)
+
+        return self.call(func, args, kwargs, unpack)
+
+    def visit_constant_node(self, expression: ast.ConstantNode) -> atoms.Atom:
         if not self.is_evaluating_type() and not self.is_evaluating_code():
             msg = 'constant is not valid in this context'
             return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-        flags = types.TypeFlags.NONE
+        flags = atoms.AtomFlags.NONE
 
         if self.is_evaluating_type():
-            flags |= types.TypeFlags.TYPE
+            flags |= atoms.AtomFlags.TYPE
         else:
-            flags |= types.TypeFlags.IMPLICIT
+            flags |= atoms.AtomFlags.IMPLICIT
 
         if expression.type is ast.ConstantType.TRUE:
-            return types.BoolType(value=True, flags=flags)
+            return atoms.BoolAtom(True, flags=flags)
 
         elif expression.type is ast.ConstantType.FALSE:
-            return types.BoolType(value=False, flags=flags)
+            return atoms.BoolAtom(False, flags=flags)
 
         elif expression.type is ast.ConstantType.NONE:
             if self.is_evaluating_type():
-                return self.none_type
+                return atoms.get_type(atoms.NoneAtom)
 
             return self.none
 
         elif expression.type is ast.ConstantType.ELLIPSIS:
             if self.is_evaluating_type():
-                return self.ellipsis_type
+                return atoms.get_type(atoms.EllipsisAtom)
 
             return self.ellipsis
 
         elif isinstance(expression, ast.StringNode):
-            return types.StringType(value=expression.value, flags=flags)
+            return atoms.StringAtom(expression.value, flags=flags)
 
         elif isinstance(expression, ast.IntegerNode):
-            return types.IntegerType(value=expression.value, flags=flags)
+            return atoms.IntegerAtom(expression.value, flags=flags)
 
         elif isinstance(expression, ast.FloatNode):
-            return types.FloatType(value=expression.value, flags=flags)
+            return atoms.FloatAtom(expression.value, flags=flags)
 
         elif isinstance(expression, ast.ComplexNode):
-            return types.ComplexType(value=expression.value, flags=flags)
+            return atoms.ComplexAtom(expression.value, flags=flags)
 
         return self.error(ErrorCategory.SYNTAX_ERROR, 'invalid constant', node=expression)
 
-    def visit_attribute_node(self, expression: ast.AttributeNode) -> types.Type:
+    def visit_attribute_node(self, expression: ast.AttributeNode) -> atoms.Atom:
         value = self.visit_expression(expression.value)
-        return self.getattribute(value, expression.attr)
+        return self.get_attribute(value, expression.attr)
 
-    def visit_subscript_node(self, expression: ast.SubscriptNode) -> types.Type:
+    def visit_subscript_node(self, expression: ast.SubscriptNode) -> atoms.Atom:
         value = self.visit_expression(expression.value)
         slice = self.visit_expression(expression.slice)
 
-        result = self.getitem(value, slice)
+        result = self.get_item(value, slice)
 
         if not self.is_evaluating_code():
             msg = 'subscript is not valid in this context'
@@ -456,17 +401,17 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
         return result
 
-    def visit_name_node(self, expression: ast.NameNode) -> types.Type:
+    def visit_name_node(self, expression: ast.NameNode) -> atoms.Atom:
         symbol = self.scope.get_symbol(expression.value)
 
         if symbol is None:
             msg = f'{expression.value!r} is not defined'
             return self.error(ErrorCategory.TYPE_ERROR, msg, node=expression)
 
-        return symbol.type
+        return symbol.atom
 
-    def visit_list_node(self, expression: ast.ListNode) -> types.Type:
-        elts = [self.visit_expression(elt).to_instance() for elt in expression.elts]
+    def visit_list_node(self, expression: ast.ListNode) -> atoms.Atom:
+        elts = [self.visit_expression(elt).instantiate() for elt in expression.elts]
 
         if self.is_evaluating_type():
             if not 0 < len(elts) <= 2:
@@ -476,33 +421,34 @@ class TypeEvaluator(NodeVisitor[types.Type]):
             size: typing.Optional[int] = None
 
             if len(elts) == 2:
-                if not isinstance(elts[1], types.IntegerType):
+                elt = elts[1]
+                if elt.kind is not atoms.AtomKind.INTEGER:
                     msg = 'second element of list type should be an integer'
                     return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-                size = elts[1].value
+                size = elt.value
 
-            return types.ListType(value=elts[0], size=size, flags=types.TypeFlags.TYPE)
+            return atoms.ListAtom(elts[0], size, flags=atoms.AtomFlags.TYPE)
 
-        value = self.remove_implicit_values(types.union(elts))
-        return types.ListType(value=value)
+        value = self.downgrade_constant(atoms.union(elts))
+        return atoms.ListAtom(value)
 
-    def visit_tuple_node(self, expression: ast.TupleNode) -> types.Type:
-        elts = [self.visit_expression(elt).to_instance() for elt in expression.elts]
+    def visit_tuple_node(self, expression: ast.TupleNode) -> atoms.Atom:
+        elts = [self.visit_expression(elt).instantiate() for elt in expression.elts]
 
         if not self.is_evaluating_type() and not self.is_evaluating_code():
             msg = 'tuple is not valid in this context'
             return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-        flags = types.TypeFlags.NONE
+        flags = atoms.AtomFlags.NONE
 
         if self.is_evaluating_type():
-            flags |= types.TypeFlags.TYPE
+            flags |= atoms.AtomFlags.TYPE
 
-        return types.TupleType(values=elts, flags=flags)
+        return atoms.TupleAtom(elts, flags=flags)
 
-    def visit_expression(self, expression: typing.Optional[ast.ExpressionNode]) -> types.Type:
+    def visit_expression(self, expression: typing.Optional[ast.ExpressionNode]) -> atoms.Atom:
         if expression is None:
-            return self.none_type
+            return atoms.get_type(atoms.NoneAtom)
 
         return super().visit_expression(expression)

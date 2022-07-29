@@ -1980,7 +1980,7 @@ class Parser:
                 else:
                     endpos = expressions[-1].endpos
 
-                return ast.CallNode(
+                expression = ast.CallNode(
                     startpos=expression.startpos,
                     endpos=endpos,
                     func=expression,
