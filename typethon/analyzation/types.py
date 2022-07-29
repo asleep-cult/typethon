@@ -70,16 +70,23 @@ class Type:
     def to_instance(self) -> Self:
         type = copy.copy(self)
         type.flags &= ~TypeFlags.TYPE
-        return self
+        return type
 
     def to_type(self) -> Self:
         type = copy.copy(self)
         type.flags |= TypeFlags.TYPE
-        return self
+        return type
+
+    def to_value(self) -> typing.Union[Self, TypeInstance]:
+        if not self.is_instance():
+            return TypeInstance(value=self)
+
+        return copy.copy(self)
 
 
 @attr.s(kw_only=True, slots=True)
 class TypeInstance(Type):
+    flags: TypeFlags = attr.ib(init=False, default=TypeFlags.TYPE)
     kind: typing.Literal[TypeKind.TYPE] = attr.ib(init=False, default=TypeKind.TYPE)
     value: typing.Optional[Type] = attr.ib(default=None)
 
@@ -87,7 +94,22 @@ class TypeInstance(Type):
         if self.value is None:
             return 'type'
 
-        return f'type{{{self.value}}}'
+        return f'{self.value}'
+
+    def to_instance(self) -> Self:
+        return copy.copy(self)
+
+    def to_type(self) -> Self:
+        return copy.copy(self)
+
+    def to_value(self) -> Self:
+        return copy.copy(self)
+
+    def get_value(self) -> Type:
+        if self.value is None:
+            raise RuntimeError('type is misssing value')
+
+        return self.value
 
 
 @attr.s(kw_only=True, slots=True)
@@ -95,24 +117,20 @@ class ObjectType(Type):
     kind: typing.Literal[TypeKind.OBJECT] = attr.ib(init=False, default=TypeKind.OBJECT)
     value: typing.Optional[Type] = attr.ib(default=None)
 
+    def to_string(self) -> str:
+        return 'object'
+
     def get_value(self) -> Type:
         if self.value is None:
             raise RuntimeError('object is missing value')
 
         return self.value
 
-    def to_string(self) -> str:
-        return 'object'
-
 
 @attr.s(kw_only=True, slots=True)
 class BoolType(Type):
     kind: typing.Literal[TypeKind.BOOL] = attr.ib(init=False, default=TypeKind.BOOL)
     value: typing.Optional[bool] = attr.ib(default=None)
-
-    @classmethod
-    def with_value(cls, value: bool) -> BoolType:
-        return cls(value=value)
 
     def to_string(self) -> str:
         if self.value is None:
@@ -144,10 +162,6 @@ class StringType(Type):
     kind: typing.Literal[TypeKind.STRING] = attr.ib(init=False, default=TypeKind.STRING)
     value: typing.Optional[str] = attr.ib(default=None)
 
-    @classmethod
-    def with_value(cls, value: str) -> StringType:
-        return cls(value=value)
-
     def to_string(self):
         if self.value is None:
             return 'str'
@@ -159,10 +173,6 @@ class StringType(Type):
 class IntegerType(Type):
     kind: typing.Literal[TypeKind.INTEGER] = attr.ib(init=False, default=TypeKind.INTEGER)
     value: typing.Optional[int] = attr.ib(default=None)
-
-    @classmethod
-    def with_value(cls, value: int) -> IntegerType:
-        return cls(value=value)
 
     def to_string(self) -> str:
         if self.value is None:
@@ -176,10 +186,6 @@ class FloatType(Type):
     kind: typing.Literal[TypeKind.FLOAT] = attr.ib(init=False, default=TypeKind.FLOAT)
     value: typing.Optional[float] = attr.ib(default=None)
 
-    @classmethod
-    def with_value(cls, value: float) -> FloatType:
-        return cls(value=value)
-
     def to_string(self) -> str:
         if self.value is None:
             return 'float'
@@ -191,10 +197,6 @@ class FloatType(Type):
 class ComplexType(Type):
     kind: typing.Literal[TypeKind.COMPLEX] = attr.ib(init=False, default=TypeKind.COMPLEX)
     value: typing.Optional[complex] = attr.ib(default=None)
-
-    @classmethod
-    def with_value(cls, value: complex) -> ComplexType:
-        return cls(value=value)
 
     def to_string(self) -> str:
         if self.value is None:
@@ -214,17 +216,17 @@ class DictType(Type):
     kind: typing.Literal[TypeKind.DICT] = attr.ib(init=False, default=TypeKind.DICT)
     fields: typing.Optional[DictFields] = attr.ib(default=None)
 
-    def get_fields(self) -> DictFields:
-        if self.fields is None:
-            raise RuntimeError('dict is missing fields')
-
-        return self.fields
-
     def to_string(self) -> str:
         if self.fields is None:
             return 'dict'
 
         return f'{{{self.fields.key}: {self.fields.value}}}'
+
+    def get_fields(self) -> DictFields:
+        if self.fields is None:
+            raise RuntimeError('dict is missing fields')
+
+        return self.fields
 
 
 @attr.s(kw_only=True, slots=True)
@@ -351,9 +353,12 @@ class MethodType(Type):
 @attr.s(slots=True)
 class UnionType(Type):
     kind: typing.Literal[TypeKind.UNION] = attr.ib(init=False, default=TypeKind.UNION)
-    types: typing.List[Type] = attr.ib()
+    types: typing.Optional[typing.List[Type]] = attr.ib(default=None)
 
     def to_string(self) -> str:
+        if self.types is None:
+            return 'union'
+
         return ' | '.join(str(type) for type in self.types)
 
 
@@ -389,6 +394,9 @@ def union(types: typing.Iterable[Type]) -> Type:
 
     for type in types:
         if isinstance(type, UnionType):
+            if type.types is None:
+                continue
+
             for type in type.types:
                 if type not in flattened:
                     flattened.append(type)

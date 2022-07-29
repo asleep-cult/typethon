@@ -53,7 +53,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
         self.errors: typing.List[AnalyzationError] = []
 
-        self.type = types.TypeInstance(flags=types.TypeFlags.TYPE)
+        self.type = types.TypeInstance()
         self.bool_type = types.BoolType(flags=types.TypeFlags.TYPE)
         self.none_type = types.NoneType(flags=types.TypeFlags.TYPE)
         self.ellipsis_type = types.EllipsisType(flags=types.TypeFlags.TYPE)
@@ -75,8 +75,9 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         self.scope.add_symbol(Symbol('float', self.float_type))
         self.scope.add_symbol(Symbol('complex', self.complex_type))
 
-        self.function_plugin = plugins.FunctionPlugin()
+        self.type_plugin = plugins.TypeInstancePlugin()
         self.int_plugin = plugins.IntegerPlugin()
+        self.function_plugin = plugins.FunctionPlugin()
 
     @classmethod
     def evaluate_module(
@@ -105,7 +106,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
             elif type.kind is types.TypeKind.COMPLEX:
                 return self.complex_type
 
-        elif isinstance(type, types.UnionType):
+        elif isinstance(type, types.UnionType) and type.types is not None:
             return types.union(self.remove_implicit_values(type) for type in type.types)
 
         return type
@@ -115,6 +116,12 @@ class TypeEvaluator(NodeVisitor[types.Type]):
 
     def is_evaluating_type(self) -> bool:
         return self.ctx is EvaluatorContext.TYPE
+
+    def get_metatype(self, type: types.Type) -> types.Type:
+        if type.is_instance():
+            return type.to_type()
+
+        return types.TypeInstance(value=type)
 
     def types_compatible(self, first: types.Type, second: types.Type) -> bool:
         return first.kind is second.kind
@@ -132,13 +139,19 @@ class TypeEvaluator(NodeVisitor[types.Type]):
     def getattribute(self, type: types.Type, name: str) -> types.Type:
         attribute = None
 
-        if isinstance(type, types.FunctionType):
-            attribute = self.function_plugin.getattribute(name)
+        if isinstance(type, types.TypeInstance):
+            attribute = self.type_plugin.getattribute(name)
         elif isinstance(type, types.IntegerType):
             attribute = self.int_plugin.getattribute(name)
+        elif isinstance(type, types.FunctionType):
+            attribute = self.function_plugin.getattribute(name)
 
         if attribute is not None:
-            instance = types.ObjectType(value=type)
+            if not type.is_instance():
+                instance = self.none
+            else:
+                instance = types.ObjectType(value=type)
+
             owner = types.TypeInstance(value=type.to_type())
 
             if isinstance(attribute, types.FunctionType):
@@ -153,11 +166,13 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         return self.unknown_type
 
     def getitem(self, type: types.Type, slice: types.Type) -> types.Type:
-        func = self.getattribute(type, '__getitem__')
+        metatype = self.get_metatype(type)
+        func = self.getattribute(metatype, '__getitem__')
+
         if types.is_unknown(func):
             return self.unknown_type
 
-        return self.call(func, slice)
+        return self.call(func, type, slice)
 
     def call(
         self,
@@ -209,7 +224,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         return self.unknown_type
 
     def visit_boolop_node(self, expression: ast.BoolOpNode) -> types.Type:
-        values = [self.visit_expression(value) for value in expression.values]
+        values = [self.visit_expression(value).to_value() for value in expression.values]
 
         if not self.is_evaluating_code():
             msg = 'boolean operation is not valid in this context'
@@ -231,20 +246,24 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         return values[-1]
 
     def visit_binop_node(self, expression: ast.BinaryOpNode) -> types.Type:
-        left = self.visit_expression(expression.left)
-        right = self.visit_expression(expression.right)
+        left = self.visit_expression(expression.left).to_value()
+        right = self.visit_expression(expression.right).to_value()
 
         if types.is_unknown(left) or types.is_unknown(right):
             return types.union((left, right))
 
         operators = OPERATORS[expression.op]
 
-        func = self.getattribute(left, operators[0])
-        result = self.call(func, right)
+        metatype = self.get_metatype(left)
+        func = self.getattribute(metatype, operators[0])
+
+        result = self.call(func, left, right)
 
         if types.is_unknown(result):
+            metatype = self.get_metatype(right)
             func = self.getattribute(right, operators[1])
-            result = self.call(func, left)
+
+            result = self.call(func, right, left)
 
         if types.is_unknown(result):
             return self.error(
@@ -254,17 +273,10 @@ class TypeEvaluator(NodeVisitor[types.Type]):
                 node=expression,
             )
 
-        if self.is_evaluating_type() and expression.op is not ast.Operator.BITOR:
-            msg = 'only the \'|\' operator is valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
-        elif not self.is_evaluating_code():
-            msg = 'binary operations are not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
-
         return result
 
     def visit_unaryop_node(self, expression: ast.UnaryOpNode) -> types.Type:
-        operand = self.visit_expression(expression.operand)
+        operand = self.visit_expression(expression.operand).to_value()
 
         if types.is_unknown(operand):
             return self.unknown_type
@@ -274,7 +286,7 @@ class TypeEvaluator(NodeVisitor[types.Type]):
             if truthness is None:
                 result = self.bool_type
             else:
-                result = self.bool_type.with_value(not truthness)
+                result = types.BoolType(value=not truthness)
         else:
             operator = UNARY_OPERATORS[expression.op]
 
@@ -292,9 +304,9 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         return result
 
     def visit_ifexp_node(self, expression: ast.IfExpNode) -> types.Type:
-        condition = self.visit_expression(expression.condition)
-        body = self.visit_expression(expression.body)
-        else_body = self.visit_expression(expression.else_body)
+        condition = self.visit_expression(expression.condition).to_value()
+        body = self.visit_expression(expression.body).to_value()
+        else_body = self.visit_expression(expression.else_body).to_value()
 
         if not self.is_evaluating_code():
             msg = 'if expressions are not valid in thie context'
@@ -392,9 +404,9 @@ class TypeEvaluator(NodeVisitor[types.Type]):
         flags = types.TypeFlags.NONE
 
         if self.is_evaluating_type():
-            flags |= types.TypeFlags.IMPLICIT
-        else:
             flags |= types.TypeFlags.TYPE
+        else:
+            flags |= types.TypeFlags.IMPLICIT
 
         if expression.type is ast.ConstantType.TRUE:
             return types.BoolType(value=True, flags=flags)

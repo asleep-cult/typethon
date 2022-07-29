@@ -12,12 +12,10 @@ VisitT = typing.TypeVar('VisitT')
 
 class NodeVisitor(typing.Generic[VisitT]):
     expression_visitors: typing.Dict[
-        str,
-        typing.Callable[[NodeVisitor[VisitT], ast.ExpressionNode], VisitT]
+        str, typing.Callable[[NodeVisitor[VisitT], ast.ExpressionNode], VisitT]
     ]
     statement_visitors: typing.Dict[
-        str,
-        typing.Callable[[NodeVisitor[VisitT], ast.StatementNode], None]
+        str, typing.Callable[[NodeVisitor[VisitT], ast.StatementNode], None]
     ]
 
     def __init_subclass__(cls) -> None:

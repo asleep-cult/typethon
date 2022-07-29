@@ -11,7 +11,7 @@ LiteralT = typing.Union[
 ]
 
 TYPE_INSTANCES: typing.Dict[typing.Type[types.Type], types.Type] = {
-    types.TypeInstance: types.TypeInstance(flags=types.TypeFlags.TYPE),
+    types.TypeInstance: types.TypeInstance(),
     types.ObjectType: types.ObjectType(flags=types.TypeFlags.TYPE),
     types.BoolType: types.BoolType(flags=types.TypeFlags.TYPE),
     types.NoneType: types.NoneType(flags=types.TypeFlags.TYPE),
@@ -27,6 +27,7 @@ TYPE_INSTANCES: typing.Dict[typing.Type[types.Type], types.Type] = {
     types.SetType: types.SetType(flags=types.TypeFlags.TYPE),
     types.TupleType: types.TupleType(flags=types.TypeFlags.TYPE),
     types.ListType: types.ListType(flags=types.TypeFlags.TYPE),
+    types.UnionType: types.UnionType(flags=types.TypeFlags.TYPE),
 }
 
 TYPES: typing.Dict[typing.Any, types.Type] = {

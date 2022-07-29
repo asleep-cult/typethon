@@ -11,7 +11,6 @@ ParamsT = typing.ParamSpec('ParamsT')
 def define(
     name: str, *, method: bool = True
 ) -> typing.Callable[[typing.Callable[ParamsT, types.Type]], typing.Callable[ParamsT, types.Type]]:
-
     def wrapped(
         function: typing.Callable[ParamsT, types.Type]
     ) -> typing.Callable[ParamsT, types.Type]:
@@ -24,7 +23,7 @@ def define(
         )
 
         builtin = types.BuiltinFunctionType(
-            flags=bridged.flags, fields=builtin_fields, function=function,
+            flags=bridged.flags, fields=builtin_fields, function=function
         )
         setattr(function, '__plugin_function__', builtin)
 
@@ -60,16 +59,16 @@ class TypePlugin:
         return definition
 
 
-class FunctionPlugin(TypePlugin):
-    @define('__get__')
-    def get(
-        self,
-        function: types.FunctionType,
-        instance: types.ObjectType,
-        owner: types.TypeInstance,
-    ) -> types.MethodType:
-        fields = types.MethodFields(instance=instance.get_value(), function=function)
-        return types.MethodType(fields=fields)
+class TypeInstancePlugin(TypePlugin):
+    @define('__or__')
+    def bitor(
+        self, left: types.TypeInstance, right: types.TypeInstance
+    ) -> types.TypeInstance:
+        left_instance = left.get_value().to_instance()
+        right_instance = right.get_value().to_instance()
+
+        union = types.union((left_instance, right_instance))
+        return types.TypeInstance(value=union)
 
 
 class IntegerPlugin(TypePlugin):
@@ -162,7 +161,7 @@ class IntegerPlugin(TypePlugin):
         if left.value is None or right.value is None:
             return right
 
-        return bridge_literal(left.value ** right.value)
+        return bridge_literal(left.value**right.value)
 
     @define('__or__')
     def bitor(self, left: types.IntegerType, right: types.IntegerType) -> types.IntegerType:
@@ -219,3 +218,18 @@ class IntegerPlugin(TypePlugin):
             return types.TupleType(values=[types.IntegerType(), types.IntegerType(value=1)])
 
         return bridge_literal(number.value.as_integer_ratio())
+
+
+class FunctionPlugin(TypePlugin):
+    @define('__get__')
+    def get(
+        self,
+        function: types.FunctionType,
+        instance: typing.Union[types.ObjectType, types.NoneType],
+        owner: types.TypeInstance,
+    ) -> typing.Union[types.MethodType, types.FunctionType]:
+        if isinstance(instance, types.NoneType):
+            return function
+
+        fields = types.MethodFields(instance=instance.get_value(), function=function)
+        return types.MethodType(fields=fields)

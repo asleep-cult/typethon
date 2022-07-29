@@ -73,7 +73,7 @@ class TokenStreamView:
         return token
 
     def accept(self) -> None:
-        del self.stream.cache[:self.position]
+        del self.stream.cache[: self.position]
 
     def view(self) -> TokenStreamView:
         return TokenStreamView(self.stream, self.position)
@@ -212,7 +212,9 @@ class Parser:
             if not alternative.accepted:
                 return statements
 
-    def statement(self) -> typing.Union[ast.StatementNode, typing.List[ast.StatementNode]]:
+    def statement(
+        self,
+    ) -> typing.Union[ast.StatementNode, typing.List[ast.StatementNode]]:
         token = self.stream.peek_token()
 
         if token.type is TokenType.ASYNC:
@@ -948,9 +950,7 @@ class Parser:
                 assert isinstance(token, IdentifierToken)
 
                 expression = ast.NameNode(
-                    startpos=token.start,
-                    endpos=token.end,
-                    value=token.content
+                    startpos=token.start, endpos=token.end, value=token.content
                 )
 
                 return self.annassign(expression)
@@ -1913,7 +1913,7 @@ class Parser:
                 endpos=operand.endpos,
                 left=expression,
                 op=ast.Operator.POW,
-                right=operand
+                right=operand,
             )
 
         return expression

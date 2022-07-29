@@ -33,12 +33,7 @@ def is_blank(char: str) -> bool:
 
 
 def is_identifier_start(char: str) -> bool:
-    return (
-        'a' <= char <= 'z'
-        or 'A' <= char <= 'Z'
-        or char == '_'
-        or char >= '\x80'
-    )
+    return 'a' <= char <= 'z' or 'A' <= char <= 'Z' or char == '_' or char >= '\x80'
 
 
 def is_identifier(char: str) -> bool:
@@ -56,11 +51,7 @@ def is_digit(char: str) -> bool:
 
 
 def is_hexadecimal(char: str) -> bool:
-    return (
-        'a' <= char <= 'f'
-        or 'A' <= char <= 'F'
-        or '0' <= char <= '9'
-    )
+    return 'a' <= char <= 'f' or 'A' <= char <= 'F' or '0' <= char <= '9'
 
 
 def is_octal(char: str) -> bool:
@@ -153,14 +144,10 @@ class Scanner:
 
         if indent == last_indent:
             if altindent != last_altindent:
-                self.indents.append(
-                    IndentToken(start=start, end=self.position, inconsistent=True)
-                )
+                self.indents.append(IndentToken(start=start, end=self.position, inconsistent=True))
         elif indent > last_indent:
             if altindent <= last_altindent:
-                self.indents.append(
-                    IndentToken(start=start, end=self.position, inconsistent=True)
-                )
+                self.indents.append(IndentToken(start=start, end=self.position, inconsistent=True))
             else:
                 self.indents.append(IndentToken(start=start, end=self.position))
 
@@ -184,7 +171,10 @@ class Scanner:
                 inconsistent = indent == last_indent and altindent != last_altindent
                 self.indents.append(
                     DedentToken(
-                        start=start, end=self.position, inconsistent=inconsistent, diverges=True
+                        start=start,
+                        end=self.position,
+                        inconsistent=inconsistent,
+                        diverges=True,
                     )
                 )
 
