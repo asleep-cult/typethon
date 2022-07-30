@@ -30,7 +30,7 @@ def define(
     return wrapped
 
 
-class AtomImplementation:
+class AtomImpl:
     definitions: typing.ClassVar[typing.Dict[str, atoms.Atom]]
 
     def __init_subclass__(cls) -> None:
@@ -57,7 +57,7 @@ class AtomImplementation:
         return definition
 
 
-class TypeImplementation(AtomImplementation):
+class TypeImpl(AtomImpl):
     @define('__or__')
     def bitor(
         self, left: atoms.TypeAtom, right: atoms.TypeAtom
@@ -69,7 +69,7 @@ class TypeImplementation(AtomImplementation):
         return atoms.TypeAtom(union)
 
 
-class IntegerImplementation(AtomImplementation):
+class IntegerImpl(AtomImpl):
     @define('__pos__')
     def pos(self, number: atoms.IntegerAtom) -> atoms.IntegerAtom:
         if number.value is None:
@@ -230,7 +230,7 @@ class IntegerImplementation(AtomImplementation):
         return bridge_literal(number.value.as_integer_ratio()).unwrap_as(atoms.TupleAtom)
 
 
-class FunctionImplementation(TypeImplementation):
+class FunctionImpl(TypeImpl):
     @define('__get__')
     def get(
         self,

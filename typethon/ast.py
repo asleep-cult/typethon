@@ -87,11 +87,6 @@ class Node:
 
 
 @attr.s(kw_only=True, slots=True)
-class StatementList(Node):
-    statements: typing.List[StatementNode] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class ModuleNode(Node):
     body: typing.List[StatementNode] = attr.ib()
 
@@ -469,7 +464,6 @@ class DictElt(Node):
 
 
 StatementNode = typing.Union[
-    StatementList,
     FunctionDefNode,
     ClassDefNode,
     ReturnNode,

@@ -4,11 +4,13 @@ import enum
 import typing
 
 from . import atoms
-from . import implementations
+from . import impls
 from .errors import AnalyzationError, ErrorCategory
 from .scope import Scope, ScopeType
 from .. import ast
 from ..parser.visitor import NodeVisitor
+
+__all__ = ('AtomEvaluator',)
 
 
 OPERATORS = {
@@ -60,9 +62,9 @@ class AtomEvaluator(NodeVisitor[atoms.Atom]):
         self.scope.add_symbol('float', atoms.get_type(atoms.FloatAtom))
         self.scope.add_symbol('complex', atoms.get_type(atoms.ComplexAtom))
 
-        self.type_impl = implementations.TypeImplementation()
-        self.int_impl = implementations.IntegerImplementation()
-        self.function_impl = implementations.FunctionImplementation()
+        self.type_impl = impls.TypeImpl()
+        self.int_impl = impls.IntegerImpl()
+        self.function_impl = impls.FunctionImpl()
 
     def is_evaluating_code(self) -> bool:
         return self.ctx is EvaluatorContext.CODE
@@ -190,7 +192,7 @@ class AtomEvaluator(NodeVisitor[atoms.Atom]):
 
         return values[-1]
 
-    def visit_binop_node(self, expression: ast.BinaryOpNode) -> atoms.Atom:
+    def visit_binaryop_node(self, expression: ast.BinaryOpNode) -> atoms.Atom:
         left = self.visit_expression(expression.left).synthesize()
         right = self.visit_expression(expression.right).synthesize()
 

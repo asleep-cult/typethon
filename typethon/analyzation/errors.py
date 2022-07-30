@@ -8,6 +8,8 @@ import attr
 if typing.TYPE_CHECKING:
     from .. import ast
 
+__all__ = ('ErrorCategory', 'AnalyzationError')
+
 
 class ErrorCategory(enum.IntEnum):
     SYNTAX_ERROR = enum.auto()

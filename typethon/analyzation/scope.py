@@ -9,16 +9,16 @@ import attr
 from . import atoms
 
 
-class ScopeType(enum.Enum):
-    GLOBAL = enum.auto()
-    CLASS = enum.auto()
-    FUNCTION = enum.auto()
-
-
 @attr.s(slots=True)
 class Symbol:
     name: str = attr.ib()
     atom: atoms.Atom = attr.ib()
+
+
+class ScopeType(enum.Enum):
+    GLOBAL = enum.auto()
+    CLASS = enum.auto()
+    FUNCTION = enum.auto()
 
 
 class Scope:

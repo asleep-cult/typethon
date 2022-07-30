@@ -102,7 +102,7 @@ class NodeVisitor(typing.Generic[VisitT]):
     def visit_boolop_node(self, expression: ast.BoolOpNode) -> VisitT:
         raise NotImplementedError
 
-    def visit_binop_node(self, expression: ast.BinaryOpNode) -> VisitT:
+    def visit_binaryop_node(self, expression: ast.BinaryOpNode) -> VisitT:
         raise NotImplementedError
 
     def visit_unaryop_node(self, expression: ast.UnaryOpNode) -> VisitT:

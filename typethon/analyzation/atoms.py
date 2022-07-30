@@ -134,8 +134,8 @@ class UnknownAtom(AtomBase[typing.Literal[AtomKind.UNKNOWN]]):
 
 
 @attr.s(slots=True)
-class ObjectAtom(AtomBase[typing.Literal[AtomKind.TYPE]]):
-    kind: typing.Literal[AtomKind.TYPE] = attr.ib(init=False, default=AtomKind.TYPE)
+class ObjectAtom(AtomBase[typing.Literal[AtomKind.OBJECT]]):
+    kind: typing.Literal[AtomKind.OBJECT] = attr.ib(init=False, default=AtomKind.OBJECT)
     value: typing.Optional[Atom] = attr.ib(default=None)
 
     def stringify(self) -> str:
