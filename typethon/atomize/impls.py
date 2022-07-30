@@ -1,6 +1,6 @@
 import inspect
+import types
 import typing
-from types import FunctionType, MethodType
 
 from . import atoms
 from .bridge import bridge_function, bridge_literal
@@ -14,7 +14,7 @@ def define(
     def wrapped(
         function: typing.Callable[ParamsT, atoms.Atom]
     ) -> typing.Callable[ParamsT, atoms.Atom]:
-        assert isinstance(function, FunctionType)
+        assert isinstance(function, types.FunctionType)
         bridged = bridge_function(function, method=method)
 
         fields = bridged.get_fields()
@@ -51,7 +51,7 @@ class AtomImpl:
         if isinstance(definition, atoms.BuiltinFunctionAtom):
             return atoms.BuiltinFunctionAtom(
                 definition.fields,
-                function=MethodType(definition.function, self),
+                function=types.MethodType(definition.function, self),
             )
 
         return definition

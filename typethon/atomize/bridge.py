@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import inspect
-import typing
 import types
+import typing
 
-from . import atoms
 from .. import ast
+from . import atoms
 
 __all__ = ('bridge_type', 'bridge_function', 'bridge_literal')
 

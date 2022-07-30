@@ -3,14 +3,13 @@ from __future__ import annotations
 import enum
 import typing
 
-from . import atoms
-from . import impls
+from .. import ast
+from ..parse.visitor import NodeVisitor
+from . import atoms, impls
 from .errors import AnalyzationError, ErrorCategory
 from .scope import Scope, ScopeType
-from .. import ast
-from ..parser.visitor import NodeVisitor
 
-__all__ = ('AtomEvaluator',)
+__all__ = ('Atomizer',)
 
 
 OPERATORS = {
@@ -37,16 +36,16 @@ UNARY_OPERATORS = {
 }
 
 
-class EvaluatorContext(enum.Enum):
+class AtomizerContext(enum.Enum):
     CODE = enum.auto()
     TYPE = enum.auto()
 
 
-class AtomEvaluator(NodeVisitor[atoms.Atom]):
+class Atomizer(NodeVisitor[atoms.Atom]):
     def __init__(self) -> None:
         self.scope = Scope(ScopeType.GLOBAL)
 
-        self.ctx = EvaluatorContext.CODE
+        self.ctx = AtomizerContext.CODE
         self.errors: typing.List[AnalyzationError] = []
 
         self.none = atoms.NoneAtom()
@@ -67,10 +66,10 @@ class AtomEvaluator(NodeVisitor[atoms.Atom]):
         self.function_impl = impls.FunctionImpl()
 
     def is_evaluating_code(self) -> bool:
-        return self.ctx is EvaluatorContext.CODE
+        return self.ctx is AtomizerContext.CODE
 
     def is_evaluating_type(self) -> bool:
-        return self.ctx is EvaluatorContext.TYPE
+        return self.ctx is AtomizerContext.TYPE
 
     def error(
         self,
@@ -160,7 +159,10 @@ class AtomEvaluator(NodeVisitor[atoms.Atom]):
 
         return self.unknown
 
-    def truthness(self, atom: atoms.Atom) -> atoms.MaybeUnknown[atoms.BoolAtom]:
+    def truthness(self, atom: atoms.Atom) -> atoms.BoolAtom:
+        if atom.kind is atoms.AtomKind.BOOL and not atom.is_type():
+            return atom
+
         type = self.get_type(atom)
         function = self.get_attribute(type, '__bool__')
 
@@ -177,12 +179,12 @@ class AtomEvaluator(NodeVisitor[atoms.Atom]):
             msg = 'boolean operation is not valid in this context'
             return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
-        unknown = any(self.truthness(value) is None for value in values)
+        unknown = any(self.truthness(value).value is None for value in values)
         if unknown:
             return atoms.union(values)
 
         for value in values:
-            truthness = self.truthness(value)
+            truthness = self.truthness(value).value
             assert truthness is not None
 
             if expression.op is ast.BoolOperator.AND and not truthness:
@@ -258,13 +260,13 @@ class AtomEvaluator(NodeVisitor[atoms.Atom]):
         else_body = self.visit_expression(expression.else_body).synthesize()
 
         if not self.is_evaluating_code():
-            msg = 'if expressions are not valid in thie context'
+            msg = 'if expressions are not valid in this context'
             return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
 
         truthness = self.truthness(condition)
-        if truthness is True:
+        if truthness.value is True:
             return body
-        elif truthness is False:
+        elif truthness.value is False:
             return else_body
 
         return atoms.union((body, else_body))

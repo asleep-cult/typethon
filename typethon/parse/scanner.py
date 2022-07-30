@@ -1,16 +1,16 @@
 import typing
 
 from ..tokens import (
-    Token,
-    DirectiveToken,
-    TokenType,
-    IndentToken,
     DedentToken,
+    DirectiveToken,
     IdentifierToken,
-    StringToken,
-    StringTokenFlags,
+    IndentToken,
     NumberToken,
     NumberTokenFlags,
+    StringToken,
+    StringTokenFlags,
+    Token,
+    TokenType,
 )
 
 __all__ = ('Scanner',)

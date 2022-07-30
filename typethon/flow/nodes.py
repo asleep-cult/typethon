@@ -3,7 +3,7 @@ import typing
 import attr
 
 from .. import ast
-from ..analyzation import atoms
+from ..atomize import atoms
 
 
 @attr.s(kw_only=True, slots=True)
@@ -41,7 +41,7 @@ class IfExpFlow(AtomFlow):
 
 @attr.s(kw_only=True, slots=True)
 class DictElt:
-    key: AtomFlow = attr.ib()
+    key: typing.Optional[AtomFlow] = attr.ib()
     value: AtomFlow = attr.ib()
 
 

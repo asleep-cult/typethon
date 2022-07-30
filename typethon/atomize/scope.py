@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import typing
 import enum
+import typing
 
 import attr
-
 
 from . import atoms
 

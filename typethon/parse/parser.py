@@ -7,16 +7,16 @@ import typing
 import attr
 
 from .. import ast
-from .scanner import Scanner
 from ..tokens import (
-    Token,
-    TokenType,
     IdentifierToken,
-    StringToken,
-    StringTokenFlags,
     NumberToken,
     NumberTokenFlags,
+    StringToken,
+    StringTokenFlags,
+    Token,
+    TokenType,
 )
+from .scanner import Scanner
 
 __all__ = ('Parser',)
 
