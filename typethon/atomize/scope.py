@@ -26,12 +26,10 @@ class Scope:
         type: ScopeType,
         *,
         parent: typing.Optional[Scope] = None,
-        function: typing.Optional[atoms.FunctionAtom] = None,
     ) -> None:
         self.symbols: typing.Dict[str, Symbol] = {}
         self.type = type
         self.parent = parent
-        self.function = function
 
     def is_global_scope(self) -> bool:
         return self.type is ScopeType.GLOBAL
@@ -41,12 +39,6 @@ class Scope:
 
     def is_function_scope(self) -> bool:
         return self.type is ScopeType.FUNCTION
-
-    def get_function(self) -> atoms.FunctionAtom:
-        if self.function is None:
-            raise TypeError('the scope has no function')
-
-        return self.function
 
     def add_symbol(self, name: str, atom: atoms.Atom) -> None:
         self.symbols[name] = Symbol(name, atom)

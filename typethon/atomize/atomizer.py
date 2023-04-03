@@ -6,7 +6,6 @@ import typing
 from .. import ast
 from ..parse.visitor import NodeVisitor
 from . import atoms, impls
-from .errors import AnalyzationError, ErrorCategory
 from .scope import Scope, ScopeType
 
 __all__ = ('Atomizer',)
@@ -43,55 +42,38 @@ class AtomizerContext(enum.Enum):
 
 class Atomizer(NodeVisitor[atoms.Atom]):
     def __init__(self) -> None:
-        self.scope = Scope(ScopeType.GLOBAL)
-
         self.ctx = AtomizerContext.CODE
-        self.errors: typing.List[AnalyzationError] = []
 
         self.none = atoms.NoneAtom()
         self.ellipsis = atoms.EllipsisAtom()
         self.unknown = atoms.UnknownAtom()
 
-        self.scope.add_symbol('None', self.none)
-        self.scope.add_symbol('Ellipsis', self.ellipsis)
-        self.scope.add_symbol('type', atoms.get_type(atoms.TypeAtom))
-        self.scope.add_symbol('bool', atoms.get_type(atoms.BoolAtom))
-        self.scope.add_symbol('str', atoms.get_type(atoms.StringAtom))
-        self.scope.add_symbol('int', atoms.get_type(atoms.IntegerAtom))
-        self.scope.add_symbol('float', atoms.get_type(atoms.FloatAtom))
-        self.scope.add_symbol('complex', atoms.get_type(atoms.ComplexAtom))
+        self.type_impl = impls.TypeImpl(self)
+        self.int_impl = impls.IntegerImpl(self)
+        self.function_impl = impls.FunctionImpl(self)
+        self.method_impl = impls.MethodImpl(self)
 
-        self.type_impl = impls.TypeImpl()
-        self.int_impl = impls.IntegerImpl()
-        self.function_impl = impls.FunctionImpl()
+        self.scope = self.create_global_scope()
+
+    def create_global_scope(self) -> Scope:
+        scope = Scope(ScopeType.GLOBAL)
+
+        scope.add_symbol('None', self.none)
+        scope.add_symbol('Ellipsis', self.ellipsis)
+        scope.add_symbol('type', atoms.get_type(atoms.TypeAtom))
+        scope.add_symbol('bool', atoms.get_type(atoms.BoolAtom))
+        scope.add_symbol('str', atoms.get_type(atoms.StringAtom))
+        scope.add_symbol('int', atoms.get_type(atoms.IntegerAtom))
+        scope.add_symbol('float', atoms.get_type(atoms.FloatAtom))
+        scope.add_symbol('complex', atoms.get_type(atoms.ComplexAtom))
+
+        return scope
 
     def is_evaluating_code(self) -> bool:
         return self.ctx is AtomizerContext.CODE
 
     def is_evaluating_type(self) -> bool:
         return self.ctx is AtomizerContext.TYPE
-
-    def error(
-        self,
-        category: ErrorCategory,
-        message: str,
-        *,
-        node: typing.Optional[ast.Node] = None,
-    ) -> atoms.UnknownAtom:
-        self.errors.append(AnalyzationError(category=category, message=message, node=node))
-        return self.unknown
-
-    def downgrade_constant(self, atom: atoms.Atom) -> atoms.Atom:
-        if isinstance(atom, atoms.LiteralAtom):
-            if atom.flags & atoms.AtomFlags.IMPLICIT:
-                atom = atom.copy()
-                atom.value = None
-
-        elif atom.kind is atoms.AtomKind.UNION:
-            if atom.values is not None:
-                atom = atoms.union(self.downgrade_constant(atom) for atom in atom.values)
-
-        return atom
 
     def get_type(self, atom: atoms.Atom) -> atoms.Atom:
         if atom.is_type():
@@ -106,10 +88,9 @@ class Atomizer(NodeVisitor[atoms.Atom]):
             attribute = self.int_impl.get_attribute(name)
         elif atom.kind is atoms.AtomKind.FUNCTION:
             attribute = self.function_impl.get_attribute(name)
+        elif atom.kind is atoms.AtomKind.METHOD:
+            attribute = self.method_impl.get_attribute(name)
         else:
-            attribute = None
-
-        if attribute is None:
             return self.unknown
 
         if atom.is_type():
@@ -136,28 +117,24 @@ class Atomizer(NodeVisitor[atoms.Atom]):
     def call(
         self,
         atom: atoms.Atom,
-        arguments: typing.Optional[typing.Sequence[atoms.Atom]] = None,
+        arguments: typing.Sequence[atoms.Atom] = (),
         keywords: typing.Optional[typing.Mapping[str, atoms.Atom]] = None,
-        unpack: typing.Optional[typing.Sequence[atoms.Atom]] = None,
+        unpack: typing.Sequence[atoms.Atom] = (),
     ) -> atoms.Atom:
-        # TODO: validation. any parameter specified as an object
-        # should receive an ObjectAtom rather then the atom itself
+        if isinstance(atom, atoms.FunctionAtom):
+            if keywords is not None:
+                return self.function_impl.call(atom, *arguments, **keywords)
 
-        if isinstance(atom, atoms.MethodAtom):
-            fields = atom.get_fields()
+            return self.function_impl.call(atom, *arguments)
 
-            if arguments is not None:
-                return self.call(fields.function, (fields.instance, *arguments))
+        type = self.get_type(atom)
+        function = self.get_attribute(type, '__call__')
 
-            return self.call(fields.function, (fields.instance,))
+        if function.kind is atoms.AtomKind.UNKNOWN:
+            return atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, f'{atom} is not callable')
 
-        if isinstance(atom, atoms.BuiltinFunctionAtom):
-            if arguments is not None:
-                return atom.function(*arguments)
-
-            return atom.function()
-
-        return self.unknown
+        arguments = (atom, *arguments)
+        return self.call(function, arguments, keywords, unpack)
 
     def truthness(self, atom: atoms.Atom) -> atoms.BoolAtom:
         if atom.kind is atoms.AtomKind.BOOL and not atom.is_type():
@@ -172,12 +149,15 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         return atoms.BoolAtom(True)
 
+    def visit_expr_node(self, statement: ast.ExprNode) -> atoms.Atom:
+        return self.visit_expression(statement.expr)
+
     def visit_boolop_node(self, expression: ast.BoolOpNode) -> atoms.Atom:
         values = [self.visit_expression(value).synthesize() for value in expression.values]
 
         if not self.is_evaluating_code():
             msg = 'boolean operation is not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
         unknown = any(self.truthness(value).value is None for value in values)
         if unknown:
@@ -214,24 +194,20 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
             result = self.call(function, (right, left))
 
-        if result.kind is atoms.AtomKind.UNKNOWN:
-            return self.error(
-                ErrorCategory.TYPE_ERROR,
-                f'operator {operators[2]!r} not supported'
-                f' between instances of {left} and {right}',
-                node=expression,
-            )
-
         return result
 
     def visit_unaryop_node(self, expression: ast.UnaryOpNode) -> atoms.Atom:
+        if not self.is_evaluating_code():
+            msg = 'unary operations are not valid in this context'
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
+
         operand = self.visit_expression(expression.operand).synthesize()
 
         if operand.kind is atoms.AtomKind.UNKNOWN:
             return self.unknown
 
         if expression.op is ast.UnaryOperator.NOT:
-            truthness = self.truthness(operand)
+            truthness = self.truthness(operand).value
             if truthness is None:
                 result = atoms.get_type(atoms.BoolAtom)
             else:
@@ -244,14 +220,6 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
             result = self.call(function, (operand,))
 
-            if result.kind is atoms.AtomKind.UNKNOWN:
-                msg = f'operator {operator[1]!r} not supported for {operand}'
-                return self.error(ErrorCategory.TYPE_ERROR, msg, node=expression)
-
-        if not self.is_evaluating_code():
-            msg = 'unary operations are not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
-
         return result
 
     def visit_ifexp_node(self, expression: ast.IfExpNode) -> atoms.Atom:
@@ -261,7 +229,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         if not self.is_evaluating_code():
             msg = 'if expressions are not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
         truthness = self.truthness(condition)
         if truthness.value is True:
@@ -282,7 +250,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
                 if value.kind is not atoms.AtomKind.DICT:
                     msg = f'cannot unpack {value} into dictionary'
-                    return self.error(ErrorCategory.TYPE_ERROR, msg, node=expression)
+                    return atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, msg)
 
                 unpacked.append(value)
             else:
@@ -292,18 +260,18 @@ class Atomizer(NodeVisitor[atoms.Atom]):
         if self.is_evaluating_type():
             if len(keys) != 1 and len(values) != 1:
                 msg = 'dict type should only have one entry'
-                return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+                return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
             if unpacked:
                 msg = 'cannot unpack into dict type'
-                return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+                return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
             fields = atoms.DictFields(key=keys[0], value=values[0])
             return atoms.DictAtom(fields, flags=atoms.AtomFlags.TYPE)
 
         if not self.is_evaluating_code():
             msg = 'dictionary is not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
         key = self.downgrade_constant(atoms.union(keys))
         value = self.downgrade_constant(atoms.union(values))
@@ -317,13 +285,13 @@ class Atomizer(NodeVisitor[atoms.Atom]):
         if self.is_evaluating_type():
             if len(elts) != 1:
                 msg = 'set type should only have one entry'
-                return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+                return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
             return atoms.SetAtom(elts[0], flags=atoms.AtomFlags.TYPE)
 
         if not self.is_evaluating_code():
             msg = 'set is not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
         value = self.downgrade_constant(atoms.union(elts))
         return atoms.SetAtom(value)
@@ -345,10 +313,22 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         return self.call(func, args, kwargs, unpack)
 
+    def downgrade_constant(self, atom: atoms.Atom) -> atoms.Atom:
+        if isinstance(atom, atoms.LiteralAtom):
+            if atom.flags & atoms.AtomFlags.IMPLICIT:
+                atom = atom.copy()
+                atom.value = None
+
+        elif atom.kind is atoms.AtomKind.UNION:
+            if atom.values is not None:
+                atom = atoms.union(self.downgrade_constant(atom) for atom in atom.values)
+
+        return atom
+
     def visit_constant_node(self, expression: ast.ConstantNode) -> atoms.Atom:
         if not self.is_evaluating_type() and not self.is_evaluating_code():
             msg = 'constant is not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
         flags = atoms.AtomFlags.NONE
 
@@ -387,7 +367,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
         elif isinstance(expression, ast.ComplexNode):
             return atoms.ComplexAtom(expression.value, flags=flags)
 
-        return self.error(ErrorCategory.SYNTAX_ERROR, 'invalid constant', node=expression)
+        return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, 'invalid constant')
 
     def visit_attribute_node(self, expression: ast.AttributeNode) -> atoms.Atom:
         value = self.visit_expression(expression.value)
@@ -401,7 +381,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         if not self.is_evaluating_code():
             msg = 'subscript is not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
         return result
 
@@ -410,7 +390,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         if symbol is None:
             msg = f'{expression.value!r} is not defined'
-            return self.error(ErrorCategory.TYPE_ERROR, msg, node=expression)
+            return atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, msg)
 
         return symbol.atom
 
@@ -420,7 +400,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
         if self.is_evaluating_type():
             if not 0 < len(elts) <= 2:
                 msg = 'list type should have between one and two elements'
-                return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+                return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
             size: typing.Optional[int] = None
 
@@ -428,7 +408,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
                 elt = elts[1]
                 if elt.kind is not atoms.AtomKind.INTEGER:
                     msg = 'second element of list type should be an integer'
-                    return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+                    return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
                 size = elt.value
 
@@ -442,7 +422,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         if not self.is_evaluating_type() and not self.is_evaluating_code():
             msg = 'tuple is not valid in this context'
-            return self.error(ErrorCategory.SYNTAX_ERROR, msg, node=expression)
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
         flags = atoms.AtomFlags.NONE
 
@@ -451,8 +431,11 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         return atoms.TupleAtom(elts, flags=flags)
 
-    def visit_expression(self, expression: typing.Optional[ast.ExpressionNode]) -> atoms.Atom:
-        if expression is None:
-            return atoms.get_type(atoms.NoneAtom)
+    def visit_type_expression(self, expression: ast.ExpressionNode) -> atoms.Atom:
+        context = self.ctx
+        self.ctx = AtomizerContext.TYPE
 
-        return super().visit_expression(expression)
+        result = self.visit_expression(expression)
+        self.ctx = context
+
+        return result

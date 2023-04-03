@@ -1,9 +1,15 @@
 import inspect
+import itertools
 import types
 import typing
 
 from . import atoms
 from .bridge import bridge_function, bridge_literal
+
+if typing.TYPE_CHECKING:
+    from .atomizer import Atomizer
+else:
+    Atomizer = typing.NewType('Atomizer', typing.Any)
 
 ParamsT = typing.ParamSpec('ParamsT')
 
@@ -33,6 +39,9 @@ def define(
 class AtomImpl:
     definitions: typing.ClassVar[typing.Dict[str, atoms.Atom]]
 
+    def __init__(self, atomizer: Atomizer) -> None:
+        self.atomizer = atomizer
+
     def __init_subclass__(cls) -> None:
         cls.definitions = {}
 
@@ -45,8 +54,8 @@ class AtomImpl:
                 fields = function.get_fields()
                 cls.definitions[fields.name] = function
 
-    def get_attribute(self, name: str) -> typing.Optional[atoms.Atom]:
-        definition = self.definitions.get(name)
+    def get_attribute(self, name: str) -> atoms.Atom:
+        definition = self.definitions.get(name, atoms.UnknownAtom())
 
         if isinstance(definition, atoms.BuiltinFunctionAtom):
             return atoms.BuiltinFunctionAtom(
@@ -246,3 +255,101 @@ class FunctionImpl(TypeImpl):
 
         fields = atoms.MethodFields(instance=instance.value, function=function)
         return atoms.MethodAtom(fields)
+
+    @define('__call__')
+    def call(
+        self,
+        function: atoms.FunctionAtom,
+        *arguments: atoms.Atom,
+        **keywords: atoms.Atom,
+    ) -> atoms.Atom:
+        errors: typing.List[atoms.ErrorAtom] = []
+
+        final_arguments: typing.List[atoms.Atom] = []
+        final_keywords: typing.Dict[str, atoms.Atom] = {}
+
+        fields = function.get_fields()
+        parameters = fields.parameters.copy()
+
+        varpositional_parameter = None
+        varkeyword_parameter = None
+
+        for parameter in fields.parameters:
+            if parameter.kind is atoms.ParameterKind.VARARG:
+                varpositional_parameter = parameter
+                parameters.remove(parameter)
+
+            elif parameter.kind is atoms.ParameterKind.VARKWARG:
+                varkeyword_parameter = parameter
+                parameters.remove(parameter)
+
+        positional_parameters = [
+            parameter for parameter in parameters
+            if parameter.kind in (atoms.ParameterKind.POSONLY, atoms.ParameterKind.ARG)
+        ]
+
+        for index, argument in enumerate(arguments):
+            if parameters:
+                parameter = positional_parameters.pop(0)
+                parameters.remove(parameter)
+            else:
+                parameter = varpositional_parameter
+
+            if parameter is not None:
+                if parameter.kind is atoms.AtomKind.OBJECT:
+                    argument = atoms.ObjectAtom(argument)
+
+                final_arguments.append(argument)
+            else:
+                msg = f'argument {index} has no matching parameter'
+                errors.append(atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, msg))
+
+        keyword_parameters = {
+            parameter.name: parameter for parameter in parameters
+            if parameter.kind in (atoms.ParameterKind.ARG, atoms.ParameterKind.KWONLY)
+        }
+
+        for name, argument in keywords.items():
+            if name in keyword_parameters:
+                parameter = keyword_parameters.pop(name)
+                parameters.remove(parameter)
+            else:
+                parameter = varkeyword_parameter
+
+            if parameter is not None:
+                if parameter.kind is atoms.AtomKind.OBJECT:
+                    argument = atoms.ObjectAtom(argument)
+
+                final_keywords[name] = argument
+            else:
+                msg = f'argument {name!r} has no matching parameter'
+                errors.append(atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, msg))
+
+        iterator = (parameter for parameter in parameters if parameter.default is not None)
+        for parameter in iterator:
+            msg = f'missing argument for parameter {parameter.name!r}'
+            errors.append(atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, msg))
+
+        iterator = itertools.chain(final_arguments, final_keywords.values())
+        invalid = errors or any(atoms.is_unknown(atom) for atom in iterator)
+
+        if not invalid and isinstance(function, atoms.BuiltinFunctionAtom):
+            result = function.function(*final_arguments, **final_keywords)
+        else:
+            result = fields.returns if fields.returns is not None else atoms.UnknownAtom()
+
+        return atoms.union((result, *errors))
+
+
+class MethodImpl(TypeImpl):
+    @define('__call__')
+    def call(
+        self,
+        method: atoms.MethodAtom,
+        *arguments: atoms.Atom,
+        **keywords: atoms.Atom,
+    ) -> atoms.Atom:
+        fields = method.get_fields()
+
+        arguments = (fields.instance, *arguments)
+        return self.atomizer.call(fields.function, arguments, keywords)

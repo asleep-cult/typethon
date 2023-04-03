@@ -91,7 +91,7 @@ def bridge_function(function: types.FunctionType, *, method: bool = True) -> ato
         else:
             default = None
 
-        parameter = atoms.FunctionParameter(name=name, type=type, kind=kind, default=default)
+        parameter = atoms.FunctionParameter(name=name, annotation=type, kind=kind, default=default)
         parameters.append(parameter)
 
     fields = atoms.FunctionFields(

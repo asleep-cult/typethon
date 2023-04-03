@@ -10,18 +10,16 @@ import attr
 from ..ast import ParameterKind
 
 if typing.TYPE_CHECKING:
-    from typing_extensions import Self
+    from typing_extensions import Self, TypeGuard
 
 TypeT = typing.TypeVar('TypeT', bound='Atom')
 KindT = typing.TypeVar('KindT', bound='AtomKind')
 
-MaybeUnknown = typing.Union[TypeT, 'UnknownAtom']
-
 
 class AtomKind(enum.Enum):
+    UNKNOWN = enum.auto()
     TYPE = enum.auto()
     UNION = enum.auto()
-    UNKNOWN = enum.auto()
     OBJECT = enum.auto()
     BOOL = enum.auto()
     NONE = enum.auto()
@@ -103,6 +101,25 @@ class AtomBase(typing.Generic[KindT]):
 
 
 @attr.s(slots=True)
+class UnknownAtom(AtomBase[typing.Literal[AtomKind.UNKNOWN]]):
+    kind: typing.Literal[AtomKind.UNKNOWN] = attr.ib(init=False, default=AtomKind.UNKNOWN)
+
+    def stringify(self) -> str:
+        return 'unknown'
+
+
+class ErrorCategory(enum.IntEnum):
+    SYNTAX_ERROR = enum.auto()
+    TYPE_ERROR = enum.auto()
+
+
+@attr.s(slots=True)
+class ErrorAtom(UnknownAtom):
+    category: ErrorCategory = attr.ib()
+    message: str = attr.ib()
+
+
+@attr.s(slots=True)
 class TypeAtom(AtomBase[typing.Literal[AtomKind.TYPE]]):
     """Represents a reflected version of a type."""
 
@@ -116,21 +133,13 @@ class TypeAtom(AtomBase[typing.Literal[AtomKind.TYPE]]):
 @attr.s(slots=True)
 class UnionAtom(AtomBase[typing.Literal[AtomKind.UNION]]):
     kind: typing.Literal[AtomKind.UNION] = attr.ib(init=False, default=AtomKind.UNION)
-    values: typing.Optional[typing.List[Atom]] = attr.ib(default=None)
+    values: typing.Optional[typing.List[Atom]] = attr.ib(default=None, repr=False)
 
     def stringify(self) -> str:
         if self.values is None:
             return 'union'
 
         return ' | '.join(str(value) for value in self.values)
-
-
-@attr.s(slots=True)
-class UnknownAtom(AtomBase[typing.Literal[AtomKind.UNKNOWN]]):
-    kind: typing.Literal[AtomKind.UNKNOWN] = attr.ib(init=False, default=AtomKind.UNKNOWN)
-
-    def stringify(self) -> str:
-        return 'unknown'
 
 
 @attr.s(slots=True)
@@ -281,7 +290,7 @@ class SliceAtom(AtomBase[typing.Literal[AtomKind.SLICE]]):
 @attr.s(kw_only=True, slots=True)
 class FunctionParameter:
     name: str = attr.ib()
-    type: Atom = attr.ib()
+    annotation: typing.Optional[Atom] = attr.ib()
     kind: ParameterKind = attr.ib()
     default: typing.Optional[Atom] = attr.ib()
 
@@ -290,7 +299,7 @@ class FunctionParameter:
 class FunctionFields:
     name: str = attr.ib()
     parameters: typing.List[FunctionParameter] = attr.ib()
-    returns: Atom = attr.ib()
+    returns: typing.Optional[Atom] = attr.ib()
 
 
 @attr.s(slots=True)
@@ -342,6 +351,13 @@ class MethodAtom(AtomBase[typing.Literal[AtomKind.METHOD]]):
             raise RuntimeError('method atom is missing fields')
 
         return self.fields
+
+
+def is_unknown(atom: Atom) -> TypeGuard[UnknownAtom]:
+    if atom.kind is AtomKind.UNION:
+        return atom.values is None or any(is_unknown(atom) for atom in atom.values)
+
+    return atom.kind is AtomKind.UNKNOWN
 
 
 def union(atoms: typing.Iterable[Atom]) -> Atom:

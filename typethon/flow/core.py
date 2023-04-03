@@ -23,14 +23,10 @@ class FlowCore(NodeVisitor[nodes.AtomFlow]):
             if atom.values is not None:
                 return any(self.requires_flow(value) for value in atom.values)
 
-        return not atom.is_type()
+        return atom.kind is atoms.AtomKind.UNKNOWN or not atom.is_type()
 
-    def bind_atom(self, expression: ast.ExpressionNode, atom: atoms.Atom) -> nodes.AtomFlow:
-        return nodes.AtomFlow(
-            startpos=expression.startpos,
-            endpos=expression.endpos,
-            atom=atom,
-        )
+    def bind_atom(self, node: ast.Node, atom: atoms.Atom) -> nodes.AtomFlow:
+        return nodes.AtomFlow(startpos=node.startpos, endpos=node.endpos, atom=atom)
 
     def visit_boolop_node(self, expression: ast.BoolOpNode) -> nodes.AtomFlow:
         atom = self.atomizer.visit_boolop_node(expression)
@@ -171,4 +167,16 @@ class FlowCore(NodeVisitor[nodes.AtomFlow]):
             atom=atom,
             value=value,
             attribute=expression.attr,
+        )
+
+    def visit_name_node(self, expression: ast.NameNode) -> nodes.AtomFlow:
+        atom = self.atomizer.visit_name_node(expression)
+        if not self.requires_flow(atom):
+            return self.bind_atom(expression, atom)
+
+        return nodes.NameFlow(
+            startpos=expression.startpos,
+            endpos=expression.endpos,
+            atom=atom,
+            name=expression.value,
         )
