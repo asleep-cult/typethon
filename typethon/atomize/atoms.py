@@ -7,6 +7,7 @@ import typing
 
 import attr
 
+from .scope import Scope
 from ..ast import ParameterKind
 
 if typing.TYPE_CHECKING:
@@ -121,7 +122,7 @@ class ErrorAtom(UnknownAtom):
 
 @attr.s(slots=True)
 class TypeAtom(AtomBase[typing.Literal[AtomKind.TYPE]]):
-    """Represents a reflected version of a type."""
+    """Represents a reflected version of a Ftype."""
 
     kind: typing.Literal[AtomKind.TYPE] = attr.ib(init=False, default=AtomKind.TYPE)
     value: typing.Optional[Atom] = attr.ib(default=None)
@@ -133,7 +134,7 @@ class TypeAtom(AtomBase[typing.Literal[AtomKind.TYPE]]):
 @attr.s(slots=True)
 class UnionAtom(AtomBase[typing.Literal[AtomKind.UNION]]):
     kind: typing.Literal[AtomKind.UNION] = attr.ib(init=False, default=AtomKind.UNION)
-    values: typing.Optional[typing.List[Atom]] = attr.ib(default=None, repr=False)
+    values: typing.Optional[typing.List[Atom]] = attr.ib(default=None)
 
     def stringify(self) -> str:
         if self.values is None:
@@ -300,6 +301,7 @@ class FunctionFields:
     name: str = attr.ib()
     parameters: typing.List[FunctionParameter] = attr.ib()
     returns: typing.Optional[Atom] = attr.ib()
+    scope: typing.Optional[Scope] = attr.ib(default=None)
 
 
 @attr.s(slots=True)
@@ -410,11 +412,25 @@ LiteralAtom = typing.Union[
     ComplexAtom,
 ]
 
-TYPE_REGISTRY: typing.Dict[typing.Type[Atom], Atom] = {}
+TYPE = TypeAtom()
+UNION = UnionAtom()
+UNKNOWN = UnknownAtom()
+OBJECT = ObjectAtom()
+BOOL = BoolAtom()
+NONE = NoneAtom()
+ELLIPSIS = EllipsisAtom()
+STRING = StringAtom()
+INTEGER = IntegerAtom()
+FLOAT = FloatAtom()
+COMPLEX = ComplexAtom()
+DICT = DictAtom()
+SET = SetAtom()
+TUPLE = TupleAtom()
+LIST = ListAtom()
+SLICE = SliceAtom()
+FUNCTION = FunctionAtom()
+METHOD = MethodAtom()
 
-for atom in typing.get_args(Atom):
-    TYPE_REGISTRY[atom] = atom(flags=AtomFlags.TYPE)
 
-
-def get_type(atom: typing.Type[TypeT]) -> TypeT:
-    return TYPE_REGISTRY[atom].unwrap_as(atom)
+def get_type(atom: TypeT) -> TypeT:
+    return atom.uninstantiate()

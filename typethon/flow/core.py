@@ -28,6 +28,65 @@ class FlowCore(NodeVisitor[nodes.AtomFlow]):
     def bind_atom(self, node: ast.Node, atom: atoms.Atom) -> nodes.AtomFlow:
         return nodes.AtomFlow(startpos=node.startpos, endpos=node.endpos, atom=atom)
 
+    def visit_functiondef_node(self, statement: ast.FunctionDefNode) -> nodes.AtomFlow:
+        atom = self.atomizer.visit_functiondef_node(statement)
+        assert isinstance(atom, atoms.FunctionAtom)
+
+        decorators: typing.List[nodes.AtomFlow] = []
+        for decorator in reversed(statement.decorators):
+            decorators.append(self.visit_expression(decorator))
+
+        fields = atom.get_fields()
+        assert fields.scope is not None
+
+        body: typing.List[nodes.AtomFlow] = []
+
+        if statement.body is not None:
+            with self.atomizer.enter_scope(fields.scope):
+                for stmt in statement.body:
+                    body.append(self.visit_statement(stmt))
+
+        return nodes.FunctionFlow(
+            startpos=statement.startpos,
+            endpos=statement.endpos,
+            atom=atom,
+            decorators=decorators,
+            body=body,
+        )
+
+    def visit_return_node(self, statement: ast.ReturnNode) -> nodes.AtomFlow:
+        atom = self.atomizer.visit_return_node(statement)
+
+        if statement.value is not None:
+            value = self.visit_expression(statement.value)
+        else:
+            value = nodes.AtomFlow(
+                startpos=statement.endpos,
+                endpos=statement.endpos,
+                atom=atoms.NONE,
+            )
+
+        return nodes.ReturnFlow(
+            startpos=statement.startpos,
+            endpos=statement.endpos,
+            atom=atom,
+            value=value,
+        )
+
+    def visit_expr_node(self, statement: ast.ExprNode) -> nodes.AtomFlow:
+        atom = self.atomizer.visit_expr_node(statement)
+        if not self.requires_flow(atom):
+            return self.bind_atom(statement, atom)
+
+        expression = self.visit_expression(statement.expr)
+
+        return nodes.ExprFlow(
+            startpos=statement.startpos,
+            endpos=statement.endpos,
+            atom=atom,
+            expression=expression,
+        )
+
     def visit_boolop_node(self, expression: ast.BoolOpNode) -> nodes.AtomFlow:
         atom = self.atomizer.visit_boolop_node(expression)
         if not self.requires_flow(atom):

@@ -7,6 +7,9 @@ import attr
 
 from . import atoms
 
+if typing.TYPE_CHECKING:
+    from typing_extensions import Self
+
 
 @attr.s(slots=True)
 class Symbol:
@@ -31,6 +34,24 @@ class Scope:
         self.type = type
         self.parent = parent
 
+    @classmethod
+    def create_global_scope(cls) -> Self:
+        scope = cls(ScopeType.GLOBAL)
+
+        scope.add_symbol('None', atoms.NONE)
+        scope.add_symbol('Ellipsis', atoms.ELLIPSIS)
+        scope.add_symbol('type', atoms.get_type(atoms.TYPE))
+        scope.add_symbol('bool', atoms.get_type(atoms.BOOL))
+        scope.add_symbol('str', atoms.get_type(atoms.STRING))
+        scope.add_symbol('int', atoms.get_type(atoms.INTEGER))
+        scope.add_symbol('float', atoms.get_type(atoms.FLOAT))
+        scope.add_symbol('complex', atoms.get_type(atoms.COMPLEX))
+
+        return scope
+
+    def create_function_scope(self) -> Self:
+        return Scope(ScopeType.FUNCTION, parent=self)
+
     def is_global_scope(self) -> bool:
         return self.type is ScopeType.GLOBAL
 
@@ -39,6 +60,12 @@ class Scope:
 
     def is_function_scope(self) -> bool:
         return self.type is ScopeType.FUNCTION
+
+    def get_parent(self) -> Self:
+        if self.parent is None:
+            raise ValueError('scope does not have parent')
+
+        return self.parent
 
     def add_symbol(self, name: str, atom: atoms.Atom) -> None:
         self.symbols[name] = Symbol(name, atom)

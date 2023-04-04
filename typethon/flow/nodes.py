@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import typing
 
 import attr
@@ -11,6 +13,22 @@ class AtomFlow:
     startpos: int = attr.ib()
     endpos: int = attr.ib()
     atom: atoms.Atom = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class FunctionFlow(AtomFlow):
+    decorators: typing.List[AtomFlow] = attr.ib()
+    body: typing.List[AtomFlow] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ReturnFlow(AtomFlow):
+    value: AtomFlow = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ExprFlow(AtomFlow):
+    expression: AtomFlow = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -108,3 +126,25 @@ class NameFlow(AtomFlow):
 class ListFlow(AtomFlow):
     atom: atoms.ListAtom = attr.ib()
     values: typing.List[AtomFlow] = attr.ib()
+
+
+StatementFlow = typing.Union[
+    FunctionFlow,
+    ExprFlow,
+]
+
+ExpressionFlow = typing.Union[
+    BoolOpFlow,
+    BinaryOpFlow,
+    UnaryOpFlow,
+    IfExpFlow,
+    DictFlow,
+    SetFlow,
+    CompareFlow,
+    CallFlow,
+    AttributeFlow,
+    SubscriptFlow,
+    StarredFlow,
+    NameFlow,
+    ListFlow,
+]

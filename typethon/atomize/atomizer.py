@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import enum
 import typing
 
 from .. import ast
 from ..parse.visitor import NodeVisitor
 from . import atoms, impls
-from .scope import Scope, ScopeType
+from .scope import Scope
 
 __all__ = ('Atomizer',)
 
@@ -44,36 +45,74 @@ class Atomizer(NodeVisitor[atoms.Atom]):
     def __init__(self) -> None:
         self.ctx = AtomizerContext.CODE
 
-        self.none = atoms.NoneAtom()
-        self.ellipsis = atoms.EllipsisAtom()
-        self.unknown = atoms.UnknownAtom()
-
         self.type_impl = impls.TypeImpl(self)
         self.int_impl = impls.IntegerImpl(self)
         self.function_impl = impls.FunctionImpl(self)
         self.method_impl = impls.MethodImpl(self)
 
-        self.scope = self.create_global_scope()
-
-    def create_global_scope(self) -> Scope:
-        scope = Scope(ScopeType.GLOBAL)
-
-        scope.add_symbol('None', self.none)
-        scope.add_symbol('Ellipsis', self.ellipsis)
-        scope.add_symbol('type', atoms.get_type(atoms.TypeAtom))
-        scope.add_symbol('bool', atoms.get_type(atoms.BoolAtom))
-        scope.add_symbol('str', atoms.get_type(atoms.StringAtom))
-        scope.add_symbol('int', atoms.get_type(atoms.IntegerAtom))
-        scope.add_symbol('float', atoms.get_type(atoms.FloatAtom))
-        scope.add_symbol('complex', atoms.get_type(atoms.ComplexAtom))
-
-        return scope
+        self.scope = Scope.create_global_scope()
 
     def is_evaluating_code(self) -> bool:
         return self.ctx is AtomizerContext.CODE
 
     def is_evaluating_type(self) -> bool:
         return self.ctx is AtomizerContext.TYPE
+
+    @contextlib.contextmanager
+    def enter_scope(self, scope: Scope) -> typing.Generator[None, None, None]:
+        self.scope = scope
+        yield
+        self.scope = self.scope.get_parent()
+
+    def visit_functiondef_node(self, statement: ast.FunctionDefNode) -> atoms.Atom:
+        self.scope = self.scope.create_function_scope()
+
+        parameters: typing.List[atoms.FunctionParameter] = []
+
+        for parameter in statement.parameters:
+            if parameter.annotation is None:
+                msg = 'parameter must be annotated'
+                return atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, message=msg)
+
+            annotation = self.visit_type_expression(parameter.annotation)
+            self.scope.add_symbol(parameter.name, annotation.instantiate())
+
+            default = None
+            if parameter.default is not None:
+                default = self.visit_expression(parameter.default)
+
+            parameter = atoms.FunctionParameter(
+                name=parameter.name, annotation=annotation, kind=parameter.kind, default=default
+            )
+            parameters.append(parameter)
+
+        returns = None
+        if statement.returns is not None:
+            returns = self.visit_expression(statement.returns)
+
+        fields = atoms.FunctionFields(
+            name=statement.name, parameters=parameters, returns=returns, scope=self.scope
+        )
+        function = result = atoms.FunctionAtom(fields=fields)
+
+        self.scope = self.scope.get_parent()
+
+        for decorator in reversed(statement.decorators):
+            decorator = self.visit_expression(decorator)
+            result = self.call(decorator, (result,))
+
+        self.scope.add_symbol(statement.name, result)
+        return function
+
+    def visit_return_node(self, statement: ast.ReturnNode) -> atoms.Atom:
+        if not self.scope.is_function_scope():
+            msg = 'return is not valid in this context'
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
+
+        if statement.value is None:
+            return atoms.NONE
+
+        return self.visit_expression(statement.value)
 
     def get_type(self, atom: atoms.Atom) -> atoms.Atom:
         if atom.is_type():
@@ -91,10 +130,10 @@ class Atomizer(NodeVisitor[atoms.Atom]):
         elif atom.kind is atoms.AtomKind.METHOD:
             attribute = self.method_impl.get_attribute(name)
         else:
-            return self.unknown
+            return atoms.UNKNOWN
 
         if atom.is_type():
-            instance = self.none
+            instance = atoms.NONE
         else:
             instance = atoms.ObjectAtom(atom)
 
@@ -112,7 +151,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
         return attribute
 
     def get_item(self, atom: atoms.Atom, slice: atoms.Atom) -> atoms.Atom:
-        return self.unknown
+        return atoms.UNKNOWN
 
     def call(
         self,
@@ -185,6 +224,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         type = self.get_type(left)
         function = self.get_attribute(type, operators[0])
+        print(left, right, type, function)
 
         result = self.call(function, (left, right))
 
@@ -204,12 +244,12 @@ class Atomizer(NodeVisitor[atoms.Atom]):
         operand = self.visit_expression(expression.operand).synthesize()
 
         if operand.kind is atoms.AtomKind.UNKNOWN:
-            return self.unknown
+            return atoms.UNKNOWN
 
         if expression.op is ast.UnaryOperator.NOT:
             truthness = self.truthness(operand).value
             if truthness is None:
-                result = atoms.get_type(atoms.BoolAtom)
+                result = atoms.get_type(atoms.BOOL)
             else:
                 result = atoms.BoolAtom(not truthness)
         else:
@@ -345,15 +385,15 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         elif expression.type is ast.ConstantType.NONE:
             if self.is_evaluating_type():
-                return atoms.get_type(atoms.NoneAtom)
+                return atoms.get_type(atoms.NONE)
 
-            return self.none
+            return atoms.NONE
 
         elif expression.type is ast.ConstantType.ELLIPSIS:
             if self.is_evaluating_type():
-                return atoms.get_type(atoms.EllipsisAtom)
+                return atoms.get_type(atoms.ELLIPSIS)
 
-            return self.ellipsis
+            return atoms.ELLIPSIS
 
         elif isinstance(expression, ast.StringNode):
             return atoms.StringAtom(expression.value, flags=flags)
@@ -430,6 +470,17 @@ class Atomizer(NodeVisitor[atoms.Atom]):
             flags |= atoms.AtomFlags.TYPE
 
         return atoms.TupleAtom(elts, flags=flags)
+
+    def visit_slice_node(self, expression: ast.SliceNode) -> atoms.Atom:
+        start = self.visit_expression(expression.start) if expression.start is not None else None
+        stop = self.visit_expression(expression.stop) if expression.stop is not None else None
+        step = self.visit_expression(expression.step) if expression.step is not None else None
+
+        if self.is_evaluating_type():
+            msg = 'slice is not valid in this context'
+            return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
+
+        return atoms.SliceAtom(start=start, stop=stop, step=step)
 
     def visit_type_expression(self, expression: ast.ExpressionNode) -> atoms.Atom:
         context = self.ctx

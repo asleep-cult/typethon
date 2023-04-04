@@ -15,7 +15,7 @@ class NodeVisitor(typing.Generic[VisitT]):
         str, typing.Callable[[NodeVisitor[VisitT], ast.ExpressionNode], VisitT]
     ]
     statement_visitors: typing.Dict[
-        str, typing.Callable[[NodeVisitor[VisitT], ast.StatementNode], None]
+        str, typing.Callable[[NodeVisitor[VisitT], ast.StatementNode], VisitT]
     ]
 
     def __init_subclass__(cls) -> None:
@@ -185,7 +185,7 @@ class NodeVisitor(typing.Generic[VisitT]):
 
         raise TypeError(f'No visitor implemented for {expression.__class__.__name__!r}')
 
-    def visit_statement(self, statement: ast.StatementNode) -> None:
+    def visit_statement(self, statement: ast.StatementNode) -> VisitT:
         visitor = self.statement_visitors.get(statement.__class__.__name__)
         if visitor is not None:
             return visitor(self, statement)

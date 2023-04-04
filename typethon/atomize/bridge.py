@@ -11,22 +11,35 @@ __all__ = ('bridge_type', 'bridge_function', 'bridge_literal')
 
 
 TYPES: typing.Dict[typing.Any, atoms.Atom] = {
-    type: atoms.get_type(atoms.TypeAtom),
-    object: atoms.get_type(atoms.ObjectAtom),
-    bool: atoms.get_type(atoms.BoolAtom),
-    types.NoneType: atoms.get_type(atoms.NoneAtom),
-    types.EllipsisType: atoms.get_type(atoms.EllipsisAtom),
-    str: atoms.get_type(atoms.StringAtom),
-    int: atoms.get_type(atoms.IntegerAtom),
-    float: atoms.get_type(atoms.FloatAtom),
-    complex: atoms.get_type(atoms.ComplexAtom),
-    slice: atoms.get_type(atoms.SliceAtom),
+    type: atoms.get_type(atoms.TYPE),
+    object: atoms.get_type(atoms.OBJECT),
+    bool: atoms.get_type(atoms.BOOL),
+    types.NoneType: atoms.get_type(atoms.NONE),
+    types.EllipsisType: atoms.get_type(atoms.ELLIPSIS),
+    str: atoms.get_type(atoms.STRING),
+    int: atoms.get_type(atoms.INTEGER),
+    float: atoms.get_type(atoms.FLOAT),
+    complex: atoms.get_type(atoms.COMPLEX),
+    slice: atoms.get_type(atoms.SLICE),
+}
+
+ATOMS: typing.Dict[typing.Type[atoms.Atom], atoms.Atom] = {
+    atoms.TypeAtom: atoms.get_type(atoms.TYPE),
+    atoms.ObjectAtom: atoms.get_type(atoms.OBJECT),
+    atoms.BoolAtom: atoms.get_type(atoms.BOOL),
+    atoms.NoneAtom: atoms.get_type(atoms.NONE),
+    atoms.EllipsisAtom: atoms.get_type(atoms.ELLIPSIS),
+    atoms.StringAtom: atoms.get_type(atoms.STRING),
+    atoms.IntegerAtom: atoms.get_type(atoms.INTEGER),
+    atoms.FloatAtom: atoms.get_type(atoms.FLOAT),
+    atoms.ComplexAtom: atoms.get_type(atoms.COMPLEX),
+    atoms.SliceAtom: atoms.get_type(atoms.SLICE),
 }
 
 
 def bridge_type(atom: typing.Union[typing.Optional[type], typing.Type[atoms.Atom]]) -> atoms.Atom:
     if isinstance(atom, type) and issubclass(atom, atoms.Atom):
-        return atoms.get_type(atom)
+        return ATOMS.get(atom, atoms.UNKNOWN)
 
     tp = TYPES.get(atom)
     if tp is not None:
