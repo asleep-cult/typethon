@@ -73,7 +73,7 @@ def bridge_type(atom: typing.Union[typing.Optional[type], typing.Type[atoms.Atom
     elif origin in (types.UnionType, typing.Union):
         return atoms.union(bridge_type(arg) for arg in args)
 
-    return atoms.UnknownAtom()
+    return atoms.UNKNOWN
 
 
 def bridge_function(function: types.FunctionType, *, method: bool = True) -> atoms.FunctionAtom:
@@ -107,10 +107,14 @@ def bridge_function(function: types.FunctionType, *, method: bool = True) -> ato
         parameter = atoms.FunctionParameter(name=name, annotation=type, kind=kind, default=default)
         parameters.append(parameter)
 
+    returns = getattr(function, '__impl_returns__', None)
+    if returns is None:
+        returns = bridge_type(signature.return_annotation)
+
     fields = atoms.FunctionFields(
         name=function.__name__,
         parameters=parameters,
-        returns=bridge_type(signature.return_annotation),
+        returns=returns,
     )
     return atoms.FunctionAtom(fields)
 

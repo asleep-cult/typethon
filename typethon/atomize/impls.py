@@ -29,8 +29,22 @@ def define(
         )
 
         builtin = atoms.BuiltinFunctionAtom(builtin_fields, function=function, flags=bridged.flags)
-        setattr(function, '__plugin_function__', builtin)
+        setattr(function, '__impl_function__', builtin)
 
+        return function
+
+    return wrapped
+
+
+def returns(
+    atom: atoms.Atom
+) -> typing.Callable[[typing.Callable[ParamsT, atoms.Atom]], typing.Callable[ParamsT, atoms.Atom]]:
+    def wrapped(
+        function: typing.Callable[ParamsT, atoms.Atom]
+    ) -> typing.Callable[ParamsT, atoms.Atom]:
+        assert isinstance(function, types.FunctionType)
+
+        setattr(function, '__impl_returns__', atom)
         return function
 
     return wrapped
@@ -47,7 +61,7 @@ class AtomImpl:
 
         for member in inspect.getmembers(cls, inspect.isfunction):
             function: typing.Optional[atoms.BuiltinFunctionAtom] = getattr(
-                member[1], '__plugin_function__', None
+                member[1], '__impl_function__', None
             )
 
             if function is not None:
@@ -55,7 +69,7 @@ class AtomImpl:
                 cls.definitions[fields.name] = function
 
     def get_attribute(self, name: str) -> atoms.Atom:
-        definition = self.definitions.get(name, atoms.UnknownAtom())
+        definition = self.definitions.get(name, atoms.UNKNOWN)
 
         if isinstance(definition, atoms.BuiltinFunctionAtom):
             return atoms.BuiltinFunctionAtom(
@@ -232,6 +246,7 @@ class IntegerImpl(AtomImpl):
         return bridge_literal(number.value.bit_count()).unwrap_as(atoms.IntegerAtom)
 
     @define('as_integer_ratio')
+    @returns(atoms.TupleAtom([atoms.IntegerAtom(), atoms.IntegerAtom(value=1)]))
     def as_integer_ratio(self, number: atoms.IntegerAtom) -> atoms.TupleAtom:
         if number.value is None:
             return atoms.TupleAtom([atoms.IntegerAtom(), atoms.IntegerAtom(value=1)])

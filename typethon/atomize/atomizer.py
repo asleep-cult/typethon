@@ -130,7 +130,11 @@ class Atomizer(NodeVisitor[atoms.Atom]):
         elif atom.kind is atoms.AtomKind.METHOD:
             attribute = self.method_impl.get_attribute(name)
         else:
-            return atoms.UNKNOWN
+            attribute = atoms.UNKNOWN
+
+        if atoms.is_unknown(atom):
+            msg = f'{atom} has no attribute {name!r}'
+            return atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, msg)
 
         if atom.is_type():
             instance = atoms.NONE
@@ -224,7 +228,6 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
         type = self.get_type(left)
         function = self.get_attribute(type, operators[0])
-        print(left, right, type, function)
 
         result = self.call(function, (left, right))
 
@@ -313,8 +316,8 @@ class Atomizer(NodeVisitor[atoms.Atom]):
             msg = 'dictionary is not valid in this context'
             return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
-        key = self.downgrade_constant(atoms.union(keys))
-        value = self.downgrade_constant(atoms.union(values))
+        key = atoms.union(keys).remove_implicit_value()
+        value = atoms.union(values).remove_implicit_value()
 
         fields = atoms.DictFields(key=key, value=value)
         return atoms.DictAtom(fields)
@@ -333,8 +336,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
             msg = 'set is not valid in this context'
             return atoms.ErrorAtom(atoms.ErrorCategory.SYNTAX_ERROR, msg)
 
-        value = self.downgrade_constant(atoms.union(elts))
-        return atoms.SetAtom(value)
+        return atoms.SetAtom(atoms.union(elts).remove_implicit_value())
 
     def visit_call_node(self, expression: ast.CallNode) -> atoms.Atom:
         func = self.visit_expression(expression.func).synthesize()
@@ -352,18 +354,6 @@ class Atomizer(NodeVisitor[atoms.Atom]):
                 unpack.append(value)
 
         return self.call(func, args, kwargs, unpack)
-
-    def downgrade_constant(self, atom: atoms.Atom) -> atoms.Atom:
-        if isinstance(atom, atoms.LiteralAtom):
-            if atom.flags & atoms.AtomFlags.IMPLICIT:
-                atom = atom.copy()
-                atom.value = None
-
-        elif atom.kind is atoms.AtomKind.UNION:
-            if atom.values is not None:
-                atom = atoms.union(self.downgrade_constant(atom) for atom in atom.values)
-
-        return atom
 
     def visit_constant_node(self, expression: ast.ConstantNode) -> atoms.Atom:
         if not self.is_evaluating_type() and not self.is_evaluating_code():
@@ -454,8 +444,7 @@ class Atomizer(NodeVisitor[atoms.Atom]):
 
             return atoms.ListAtom(elts[0], size, flags=atoms.AtomFlags.TYPE)
 
-        value = self.downgrade_constant(atoms.union(elts))
-        return atoms.ListAtom(value)
+        return atoms.ListAtom(atoms.union(elts).remove_implicit_value())
 
     def visit_tuple_node(self, expression: ast.TupleNode) -> atoms.Atom:
         elts = [self.visit_expression(elt).instantiate() for elt in expression.elts]

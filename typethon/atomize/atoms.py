@@ -96,6 +96,14 @@ class AtomBase(typing.Generic[KindT]):
         assert isinstance(self, Atom)
         return TypeAtom(self.instantiate())
 
+    def remove_implicit_value(self) -> Atom:
+        if isinstance(self, LiteralAtom) and self.flags & AtomFlags.IMPLICIT:
+            atom = self.copy()
+            atom.value = None
+            return atom
+
+        return self
+
     def unwrap_as(self, type: typing.Type[TypeT]) -> TypeT:
         assert isinstance(self, type)
         return self
@@ -141,6 +149,12 @@ class UnionAtom(AtomBase[typing.Literal[AtomKind.UNION]]):
             return 'union'
 
         return ' | '.join(str(value) for value in self.values)
+
+    def remove_implicit_value(self) -> Atom:
+        if self.values is None:
+            return self
+
+        return union(atom.remove_implicit_value() for atom in self.values)
 
 
 @attr.s(slots=True)
