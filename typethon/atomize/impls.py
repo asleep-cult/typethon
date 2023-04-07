@@ -44,7 +44,7 @@ def returns(
     ) -> typing.Callable[ParamsT, atoms.Atom]:
         assert isinstance(function, types.FunctionType)
 
-        setattr(function, '__impl_returns__', atom)
+        setattr(function, '__impl_returns__', atom.uninstantiate())
         return function
 
     return wrapped
@@ -88,7 +88,7 @@ class TypeImpl(AtomImpl):
         if left.value is None or right.value is None:
             raise RuntimeError('type atom is missing value')
 
-        union = atoms.union((left.value.instantiate(), right.value.instantiate()))
+        union = atoms.union((left.instantiate(), right.instantiate()))
         return atoms.TypeAtom(union)
 
 
@@ -350,8 +350,10 @@ class FunctionImpl(TypeImpl):
 
         if not invalid and isinstance(function, atoms.BuiltinFunctionAtom):
             result = function.function(*final_arguments, **final_keywords)
+        elif fields.returns is not None:
+            result = fields.returns.instantiate()
         else:
-            result = fields.returns if fields.returns is not None else atoms.UnknownAtom()
+            result = atoms.UNKNOWN
 
         return atoms.union((result, *errors))
 

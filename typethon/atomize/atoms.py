@@ -43,7 +43,6 @@ class AtomKind(enum.Enum):
 
 class AtomFlags(enum.IntFlag):
     NONE = 0
-    TYPE = enum.auto()
     IMPLICIT = enum.auto()
 
 
@@ -55,11 +54,7 @@ class AtomBase(typing.Generic[KindT]):
     flags: AtomFlags = attr.ib(kw_only=True, default=AtomFlags.NONE, repr=False)
 
     def __str__(self) -> str:
-        if self.kind in (AtomKind.TYPE, AtomKind.UNION):
-            return self.stringify()
-
-        string = self.stringify()
-        return f'type{{{string}}}' if self.flags & AtomFlags.TYPE else string
+        return self.stringify()
 
     def stringify(self) -> str:
         raise NotImplementedError
@@ -68,40 +63,23 @@ class AtomBase(typing.Generic[KindT]):
         return copy.copy(self)
 
     def is_type(self) -> bool:
-        if self.kind in (AtomKind.TYPE, AtomKind.UNION):
-            return True
+        return False
 
-        return self.flags & AtomFlags.TYPE != 0
+    def instantiate(self) -> Atom:
+        assert False, '<cannot instantiate non-type>'
 
-    def instantiate(self) -> Self:
-        if not self.is_type():
-            return self
-
-        copy = self.copy()
-        copy.flags &= ~AtomFlags.TYPE
-        return copy
-
-    def uninstantiate(self) -> Self:
-        if self.is_type():
-            return self
-
-        copy = self.copy()
-        copy.flags |= AtomFlags.TYPE
-        return copy
-
-    def synthesize(self) -> typing.Union[Self, TypeAtom]:
-        if self.kind is AtomKind.TYPE or not self.is_type():
-            return self
-
+    def uninstantiate(self) -> Atom:
         assert isinstance(self, Atom)
-        return TypeAtom(self.instantiate())
+        return TypeAtom(self)
 
     def remove_implicit_value(self) -> Atom:
-        if isinstance(self, LiteralAtom) and self.flags & AtomFlags.IMPLICIT:
-            atom = self.copy()
-            atom.value = None
-            return atom
+        if isinstance(self, LiteralAtom):
+            if self.flags & AtomFlags.IMPLICIT:
+                atom = self.copy()
+                atom.value = None
+                return atom
 
+        assert isinstance(self, Atom)
         return self
 
     def unwrap_as(self, type: typing.Type[TypeT]) -> TypeT:
@@ -135,6 +113,16 @@ class TypeAtom(AtomBase[typing.Literal[AtomKind.TYPE]]):
     kind: typing.Literal[AtomKind.TYPE] = attr.ib(init=False, default=AtomKind.TYPE)
     value: typing.Optional[Atom] = attr.ib(default=None)
 
+    def is_type(self) -> bool:
+        return True
+
+    def instantiate(self) -> Atom:
+        if self.value is None:
+            assert False, '<atom value is None>'
+            return OBJECT
+
+        return self.value
+
     def stringify(self) -> str:
         return f'type{{{self.value}}}' if self.value is not None else 'type'
 
@@ -143,6 +131,9 @@ class TypeAtom(AtomBase[typing.Literal[AtomKind.TYPE]]):
 class UnionAtom(AtomBase[typing.Literal[AtomKind.UNION]]):
     kind: typing.Literal[AtomKind.UNION] = attr.ib(init=False, default=AtomKind.UNION)
     values: typing.Optional[typing.List[Atom]] = attr.ib(default=None)
+
+    def is_type(self) -> bool:
+        return True
 
     def stringify(self) -> str:
         if self.values is None:
@@ -446,5 +437,5 @@ FUNCTION = FunctionAtom()
 METHOD = MethodAtom()
 
 
-def get_type(atom: TypeT) -> TypeT:
-    return atom.uninstantiate()
+def get_type(atom: Atom) -> TypeAtom:
+    return TypeAtom(atom)

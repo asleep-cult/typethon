@@ -56,19 +56,19 @@ def bridge_type(atom: typing.Union[typing.Optional[type], typing.Type[atoms.Atom
         value = bridge_type(args[1]).instantiate()
 
         fields = atoms.DictFields(key=key, value=value)
-        return atoms.DictAtom(fields, flags=atoms.AtomFlags.TYPE)
+        return atoms.get_type(atoms.DictAtom(fields))
 
     elif origin is set:
         value = bridge_type(args[0]).instantiate()
-        return atoms.SetAtom(value, flags=atoms.AtomFlags.TYPE)
+        return atoms.get_type(atoms.SetAtom(value))
 
     elif origin is tuple:
         values = [bridge_type(arg).instantiate() for arg in args]
-        return atoms.TupleAtom(values, flags=atoms.AtomFlags.TYPE)
+        return atoms.get_type(atoms.TupleAtom(values))
 
     elif origin is list:
         value = bridge_type(args[0]).instantiate()
-        return atoms.ListAtom(value, flags=atoms.AtomFlags.TYPE)
+        return atoms.get_type(atoms.ListAtom(value))
 
     elif origin in (types.UnionType, typing.Union):
         return atoms.union(bridge_type(arg) for arg in args)

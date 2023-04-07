@@ -27,6 +27,12 @@ class ReturnFlow(AtomFlow):
 
 
 @attr.s(kw_only=True, slots=True)
+class AssignFlow(AtomFlow):
+    targets: typing.List[AtomFlow] = attr.ib()
+    value: AtomFlow = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class ExprFlow(AtomFlow):
     expression: AtomFlow = attr.ib()
 

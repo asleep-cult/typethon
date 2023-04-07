@@ -2332,8 +2332,7 @@ class Parser:
         elts: typing.List[ast.DictElt] = []
 
         with self.alternative():
-            elts = self.star_kvpairs()
-            elts.extend(elts)
+            elts.extend(self.star_kvpairs())
 
         token = self.stream.peek_token()
         if token.type is not TokenType.CLOSEBRACE:

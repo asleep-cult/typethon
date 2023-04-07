@@ -73,6 +73,20 @@ class FlowCore(NodeVisitor[nodes.AtomFlow]):
             value=value,
         )
 
+    def visit_assign_node(self, statement: ast.AssignNode) -> nodes.AssignFlow:
+        atom = self.atomizer.visit_assign_node(statement)
+        value = self.visit_expression(statement.value)
+
+        targets = [self.visit_expression(target) for target in statement.targets]
+
+        return nodes.AssignFlow(
+            startpos=statement.startpos,
+            endpos=statement.endpos,
+            atom=atom,
+            targets=targets,
+            value=value,
+        )
+
     def visit_expr_node(self, statement: ast.ExprNode) -> nodes.AtomFlow:
         atom = self.atomizer.visit_expr_node(statement)
         if not self.requires_flow(atom):
