@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import typing
 
 from .. import ast
@@ -8,11 +9,24 @@ from ..parse import NodeVisitor
 from . import nodes
 
 
-class FlowCore(NodeVisitor[nodes.AtomFlow]):
+class FlowAnalyzer(NodeVisitor[nodes.AtomFlow]):
     def __init__(self) -> None:
         self.atomizer = atomizer.Atomizer()
 
+        self.forcing_flow = False
+
+    @contextlib.contextmanager
+    def force_flow(self) -> typing.Iterator[None]:
+        forcing_flow = self.forcing_flow
+
+        self.forcing_flow = True
+        yield
+        self.forcing_flow = forcing_flow
+
     def requires_flow(self, atom: atoms.Atom) -> bool:
+        if self.forcing_flow:
+            return True
+
         if isinstance(atom, atoms.LiteralAtom):
             return atom.value is None and atom.kind is not atoms.AtomKind.NONE
 
@@ -77,7 +91,8 @@ class FlowCore(NodeVisitor[nodes.AtomFlow]):
         atom = self.atomizer.visit_assign_node(statement)
         value = self.visit_expression(statement.value)
 
-        targets = [self.visit_expression(target) for target in statement.targets]
+        with self.force_flow():
+            targets = [self.visit_expression(target) for target in statement.targets]
 
         return nodes.AssignFlow(
             startpos=statement.startpos,

@@ -340,7 +340,7 @@ class FunctionImpl(TypeImpl):
                 msg = f'argument {name!r} has no matching parameter'
                 errors.append(atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, msg))
 
-        iterator = (parameter for parameter in parameters if parameter.default is not None)
+        iterator = (parameter for parameter in parameters if parameter.default is None)
         for parameter in iterator:
             msg = f'missing argument for parameter {parameter.name!r}'
             errors.append(atoms.ErrorAtom(atoms.ErrorCategory.TYPE_ERROR, msg))
