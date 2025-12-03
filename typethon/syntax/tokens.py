@@ -177,7 +177,7 @@ KEYWORDS = {
 
 @attr.s(kw_only=True, slots=True)
 class Token:
-    type: TokenType = attr.ib(eq=True)
+    type: typing.Any = attr.ib(eq=True)  # fix this
     start: int = attr.ib(eq=False)
     end: int = attr.ib(eq=False)
 

@@ -87,6 +87,51 @@ class Node:
 
 
 @attr.s(kw_only=True, slots=True)
+class TypeNameNode(Node):
+    value: str = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class TypeParameterNode(Node):
+    name: str = attr.ib()
+    constraint: typing.Optional[TypeExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class TypeCallNode(Node):
+    type: TypeExpressionNode = attr.ib()
+    args: typing.List[TypeExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class TypeAttributeNode(Node):
+    value: TypeExpressionNode = attr.ib()
+    attr: str = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class DictTypeNode(Node):
+    key: TypeExpressionNode = attr.ib()
+    value: TypeExpressionNode = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class SetTypeNode(Node):
+    elt: TypeExpressionNode = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ListTypeNode(Node):
+    elt: TypeExpressionNode = attr.ib()
+    # size: typing.Optional[int] = attr.ib(default=None)
+
+
+@attr.s(kw_only=True, slots=True)
+class TupleTypeNode(Node):
+    elts: typing.List[TypeExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class ModuleNode(Node):
     body: typing.List[StatementNode] = attr.ib()
 
@@ -98,7 +143,7 @@ class FunctionDefNode(Node):
     parameters: typing.List[FunctionParameterNode] = attr.ib()
     body: typing.Optional[typing.List[StatementNode]] = attr.ib()
     decorators: typing.List[ExpressionNode] = attr.ib()
-    returns: typing.Optional[ExpressionNode] = attr.ib()
+    returns: typing.Optional[TypeExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -106,7 +151,7 @@ class ClassDefNode(Node):
     name: str = attr.ib()
     bases: typing.List[ExpressionNode] = attr.ib()
     kwargs: typing.List[KeywordArgumentNode] = attr.ib()
-    meta: typing.Optional[ExpressionNode] = attr.ib()
+    #meta: typing.Optional[ExpressionNode] = attr.ib()
     body: typing.List[StatementNode] = attr.ib()
     decorators: typing.List[ExpressionNode] = attr.ib()
 
@@ -137,7 +182,7 @@ class AugAssignNode(Node):
 @attr.s(kw_only=True, slots=True)
 class AnnAssignNode(Node):
     target: ExpressionNode = attr.ib()
-    annotation: ExpressionNode = attr.ib()
+    annotation: TypeExpressionNode = attr.ib()
     value: typing.Optional[ExpressionNode] = attr.ib()
 
 
@@ -342,7 +387,7 @@ class FormattedValueNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ConstantNode(Node):
-    type: ConstantType = attr.ib()
+    type: typing.Any = attr.ib()  # fix this
 
 
 @attr.s(kw_only=True, slots=True)
@@ -359,7 +404,7 @@ class FloatNode(ConstantNode):
 
 @attr.s(kw_only=True, slots=True)
 class ComplexNode(ConstantNode):
-    type: typing.Literal[ConstantType.FLOAT] = attr.ib(init=False, default=ConstantType.COMPLEX)
+    type: typing.Literal[ConstantType.COMPLEX] = attr.ib(init=False, default=ConstantType.COMPLEX)
     value: complex = attr.ib()
 
 
@@ -410,17 +455,10 @@ class SliceNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeParameterNode(Node):
-    name: str = attr.ib()
-    type: ExpressionNode = attr.ib()
-    default: typing.Optional[ExpressionNode] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class FunctionParameterNode(Node):
     name: str = attr.ib()
     kind: ParameterKind = attr.ib()
-    annotation: typing.Optional[ExpressionNode] = attr.ib()
+    annotation: typing.Optional[TypeExpressionNode] = attr.ib()
     default: typing.Optional[ExpressionNode] = attr.ib()
 
 
@@ -476,12 +514,12 @@ StatementNode = typing.Union[
     IfNode,
     WithNode,
     RaiseNode,
-    TryNode,
-    AssertNode,
+    TryNode, # RETAIN?
+    AssertNode, # RETAIN?
     ImportNode,
     ImportFromNode,
-    GlobalNode,
-    NonlocalNode,
+    GlobalNode, # RETAIN?
+    NonlocalNode, # RETAIN?
     ExprNode,
     PassNode,
     BreakNode,
@@ -514,4 +552,15 @@ ExpressionNode = typing.Union[
     ListNode,
     TupleNode,
     SliceNode,
+]
+
+TypeExpressionNode = typing.Union[
+    TypeNameNode,
+    TypeParameterNode,
+    TypeCallNode,
+    TypeAttributeNode,
+    DictTypeNode,
+    SetTypeNode,
+    ListTypeNode,
+    # TupleTypeNode, TODO: Tuple
 ]

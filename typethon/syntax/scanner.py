@@ -1,6 +1,6 @@
 import typing
 
-from ..tokens import (
+from .tokens import (
     DedentToken,
     DirectiveToken,
     IdentifierToken,

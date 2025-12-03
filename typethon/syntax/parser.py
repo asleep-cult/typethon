@@ -6,8 +6,8 @@ import typing
 
 import attr
 
-from .. import ast
-from ..tokens import (
+from . import ast
+from .tokens import (
     IdentifierToken,
     NumberToken,
     NumberTokenFlags,
@@ -23,6 +23,8 @@ __all__ = ('Parser',)
 ReturnT = typing.TypeVar('ReturnT')
 
 # TODO: error handling, lambda (decide on syntax)
+# overhaul, this is based on CPython grammar and
+# its very inefficient without the optimizations
 
 
 class TokenStream:
@@ -304,12 +306,12 @@ class Parser:
         assert isinstance(token, IdentifierToken)
 
         content = token.content
-        expression = None
+        #expression = None
 
-        token = self.stream.peek_token()
-        if token.type is TokenType.FROM:
-            self.stream.consume_token()
-            expression = self.expression()
+        # token = self.stream.peek_token() class X from Y
+        #if token.type is TokenType.FROM:
+        #    self.stream.consume_token()
+        #    expression = self.expression()
 
         expressions: typing.List[ast.ExpressionNode] = []
         arguments: typing.List[ast.KeywordArgumentNode] = []
@@ -343,7 +345,7 @@ class Parser:
             name=content,
             bases=expressions,
             kwargs=arguments,
-            meta=expression,
+            #meta=expression,
             body=statements,
             decorators=decorators,
         )
@@ -391,7 +393,7 @@ class Parser:
         token = self.stream.peek_token()
         if token.type is TokenType.RARROW:
             self.stream.consume_token()
-            expression = self.expression()
+            expression = self.type_expression()
 
         token = self.stream.peek_token()
         if token.type is not TokenType.COLON:
@@ -535,7 +537,7 @@ class Parser:
         token = self.stream.peek_token()
         if token.type is TokenType.COLON:
             self.stream.consume_token()
-            expression = self.expression()
+            expression = self.type_expression()
 
         token = self.stream.peek_token()
         if token.type is TokenType.EQUAL:
@@ -1014,12 +1016,12 @@ class Parser:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
-        annotation = self.expression()
+        annotation = self.type_expression()
 
         token = self.stream.peek_token()
         if token.type is not TokenType.EQUAL:
             if not isinstance(target, ast.NameNode):
-                assert False, '<Expected EQUAL>'
+                assert False, '<Expected NAME>'
 
             return ast.AnnAssignNode(
                 startpos=target.startpos,
@@ -1482,6 +1484,215 @@ class Parser:
             endpos=expressions.endpos if expressions is not None else token.end,
             value=expressions,
         )
+
+    def type_expression(self) -> ast.TypeExpressionNode:
+        return self.type_primary()
+
+    def type_primary(self) -> ast.TypeExpressionNode:
+        atom = self.type_atom()
+
+        while True:
+            token = self.stream.peek_token()
+
+            if token.type is TokenType.DOT:
+                self.stream.consume_token()
+
+                token = self.stream.peek_token()
+                if token.type is not TokenType.IDENTIFIER:
+                    assert False, '<Expected IDENTIFIER>'
+                
+                self.stream.consume_token()
+                assert isinstance(token, IdentifierToken)
+
+                atom = ast.TypeAttributeNode(
+                    startpos=atom.startpos,
+                    endpos=token.end,
+                    value=atom,
+                    attr=token.content
+                )
+            elif token.type is TokenType.OPENPAREN:
+                self.stream.consume_token()
+                expressions = self.type_arguments()
+
+                token = self.stream.peek_token()
+                if token.type is not TokenType.CLOSEPAREN:
+                    assert False, '<Expected CLOSEPAREN>'
+                
+                self.stream.consume_token()
+                atom = ast.TypeCallNode(
+                    startpos=atom.startpos,
+                    endpos=token.end,
+                    type=atom,
+                    args=expressions,
+                )
+            else:
+                return atom
+
+    def type_arguments(self) -> typing.List[ast.TypeExpressionNode]:
+        expressions: typing.List[ast.TypeExpressionNode] = []
+        expression = None
+
+        while True:
+            with self.alternative() as alternative:
+                expression = self.type_expression()
+
+            if alternative.accepted:
+                assert expression is not None
+                expressions.append(expression)
+
+            token = self.stream.peek_token()
+            is_comma = token.type is TokenType.COMMA
+
+            if not alternative.accepted or not is_comma:
+                return expressions
+
+            self.stream.consume_token()
+
+    def type_atom(self) -> ast.TypeExpressionNode:
+        token = self.stream.peek_token()
+
+        if token.type is TokenType.IDENTIFIER:
+            self.stream.consume_token()
+            assert isinstance(token, IdentifierToken)
+
+            return ast.TypeNameNode(
+                startpos=token.start,
+                endpos=token.end,
+                value=token.content,
+            )
+
+        elif token.type is TokenType.VERTICALBAR:
+            with self.alternative():
+                return self.type_parameter()
+
+        elif token.type is TokenType.OPENBRACKET:
+            with self.alternative():
+                return self.list_type()
+        
+        elif token.type is TokenType.OPENBRACE:
+            with self.alternative():
+                return self.dict_type()
+            
+            with self.alternative():
+                return self.set_type()
+
+        assert False, f'<Unexpected token {token!r}>'
+
+    def type_parameter(self) -> ast.TypeParameterNode:
+        token = self.stream.peek_token()
+        assert token.type is TokenType.VERTICALBAR
+
+        startpos = token.start
+        self.stream.consume_token()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.IDENTIFIER:
+            assert False, '<Expected IDENTIFIER>'
+
+        self.stream.consume_token()
+        assert isinstance(token, IdentifierToken)
+
+        content = token.content
+        constraint = None
+
+        token = self.stream.peek_token()
+        if token.type is TokenType.COLON:
+            self.stream.consume_token()
+            constraint = self.type_expression()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.VERTICALBAR:
+            assert False, '<Expected VERTICALBAR>'
+
+        self.stream.consume_token()
+        return ast.TypeParameterNode(
+            startpos=startpos,
+            endpos=token.end,
+            name=content,
+            constraint=constraint,
+        )
+
+    def list_type(self) -> ast.ListTypeNode:
+        token = self.stream.peek_token()
+        if token.type is not TokenType.OPENBRACKET:
+            assert False, '<Expected OPENBRACKET>'
+
+        startpos = token.start
+        self.stream.consume_token()
+
+        elt = self.type_expression()
+        # size = None
+
+        token = self.stream.peek_token()
+        #if token.type is TokenType.COMMA: TODO: Sized Lists
+        #    self.stream.consume_token()
+        #
+        #    token = self.stream.peek_token()
+        #    if token.type is not TokenType.NUMBER:
+        #        assert False, '<Expected NUMBER>'
+        #
+        #    assert isinstance(token, NumberToken)
+        #    size = token.content
+
+        #    self.stream.consume_token()
+
+        #token = self.stream.peek_token()
+        if token.type is not TokenType.CLOSEBRACKET:
+            assert False, '<Expected CLOSEBRACKET>'
+
+        self.stream.consume_token()
+        return ast.ListTypeNode(
+            startpos=startpos,
+            endpos=token.end,
+            elt=elt,
+            # size=size,
+        )
+
+    def dict_type(self) -> ast.DictTypeNode:
+        token = self.stream.peek_token()
+        if token.type is not TokenType.OPENBRACE:
+            assert False, '<Expected OPENBRACE>'
+
+        startpos = token.start
+        self.stream.consume_token()
+
+        key = self.type_expression()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.COLON:
+            assert False, '<Expected COLON>'
+
+        self.stream.consume_token()
+        value = self.type_expression()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.CLOSEBRACE:
+            assert False, '<Expected CLOSEBRACE>'
+
+        self.stream.consume_token()
+        return ast.DictTypeNode(
+            startpos=startpos,
+            endpos=token.end,
+            key=key,
+            value=value,
+        )
+
+    def set_type(self) -> ast.SetTypeNode:
+        token = self.stream.peek_token()
+        if token.type is not TokenType.OPENBRACE:
+            assert False, '<Expected OPENBRACE>'
+
+        startpos = token.start
+        self.stream.consume_token()
+
+        elt = self.type_expression()
+
+        token = self.stream.peek_token()
+        if token.type is not TokenType.CLOSEBRACE:
+            assert False, '<Expected CLOSEBRACE>'
+
+        self.stream.consume_token()
+        return ast.SetTypeNode(startpos=startpos, endpos=token.end, elt=elt)
 
     def expression_list(
         self, function: typing.Callable[[], ast.ExpressionNode]
@@ -2526,9 +2737,6 @@ class Parser:
 
         elt = self.kvpair()
         comprehensions = self.for_if_clauses()
-
-        if token.type is not TokenType.CLOSEBRACE:
-            assert False, '<Expected CLOSEBRACE>'
 
         self.stream.consume_token()
         return ast.DictCompNode(
