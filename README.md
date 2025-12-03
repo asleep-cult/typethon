@@ -6,15 +6,15 @@ that is seen in Golang.
 
 So, the compiler will look something like this:
 
-Compiler frontend
+#### Compiler frontend
 1. Syntax (Scan and Parse into AST)
 2. Analysis (Check AST types and memory safety)
 3. Intermediate (Convert AST into IR AST and optimizes)
 
-Compiler middle-end
+#### Compiler middle-end
 5. SSA (Converts IR AST into SSA and optimizes)
 
-Compiler backend
+#### Compiler backend
 6. Compile (Conversion to machine code and optimizes)
 
 This language is not intended to be identical to Python and it
@@ -72,7 +72,7 @@ def get_item(items: |T: Indexable(|U|)|, index: int) -> U:
 #       for static dispatch. This is kind of confusing which is probably why rust forces
 #       you to use the dyn keyword.
 # 2. This notation gets ugly when you start nesting polymorphic constraints
-#       There will likely be something simelar to get_item(items: |T: Indexable|) -> T.Output
+#       There will likely be something similar to get_item(items: |T: Indexable|) -> T.Output
 #       But overall we will probably need a more robust constraint syntax for more complex code
 # Maybe some variation of this syntax (which is very questionable):
 
