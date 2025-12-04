@@ -4,12 +4,75 @@ import typing
 
 from . import types
 from ..syntax import ast
-from .scope import Scope, Symbol
+from .scope import Scope, Symbol, UNRESOLVED
 
 class TypeAnalyzer:
     def __init__(self, module: ast.ModuleNode) -> None:
         self.module = module
         self.module_scope = Scope()
+
+    def initialize_types(
+        self,
+        scope: Scope,
+        statements: typing.List[ast.StatementNode],
+    ) -> None:
+        # This function serves as the first pass, initializing all types
+        # in the list of statements as a TypeParameter or PolymorphicType
+        for statement in statements:
+            match statement:
+                case ast.FunctionDefNode():
+                    function_scope = scope.create_child_scope(statement.name)
+
+                    for parameter in statement.parameters:
+                        if parameter.annotation is not None:
+                            self.initialize_type_parameters(function_scope, parameter.annotation)
+
+                    if statement.body is not None:
+                        self.initialize_types(function_scope, statement.body)
+
+                    parameters = [symbol.type for symbol in function_scope.get_all_symbols()]
+                    # TODO: Use a new class called TypeReference then replace it,
+                    # or just use FunctionType and mutate it 
+                    type = types.PolymorphicType(name=statement.name, parameters=parameters)
+
+                    scope.add_symbol(Symbol(name=statement.name, type=type))
+
+                case ast.ClassDefNode():
+                    class_scope = scope.create_child_scope(statement.name)
+                    self.initialize_types(class_scope, statement.body)
+
+                    parameters = [symbol.type for symbol in class_scope.get_all_symbols()]
+                    type = types.PolymorphicType(name=statement.name, parameters=parameters)
+
+                    scope.add_symbol(Symbol(name=statement.name, type=type))
+
+                case ast.AnnAssignNode:
+                    self.initialize_type_parameters(scope, statement.annotation)
+
+    def initialize_type_parameters(
+        self, scope: Scope, expression: ast.TypeExpressionNode
+    ) -> None:
+        match expression:
+            case ast.TypeParameterNode():
+                type = types.TypeParameter(name=expression.name)
+                scope.add_symbol(Symbol(name=expression.name, type=type))
+
+                if expression.constraint is not None:
+                    self.initialize_type_parameters(scope, expression.constraint)
+
+            case ast.TypeCallNode():
+                for argument in expression.args:
+                    self.initialize_type_parameters(scope, argument)
+
+            case ast.DictTypeNode():
+                self.initialize_type_parameters(scope, expression.key)
+                self.initialize_type_parameters(scope, expression.value)
+
+            case ast.SetTypeNode():
+                self.initialize_type_parameters(scope, expression.elt)
+
+            case ast.ListTypeNode():
+                self.initialize_type_parameters(scope, expression.elt)
 
     def evaluate_type_expression(
         self,
@@ -19,22 +82,22 @@ class TypeAnalyzer:
         match expression:
             case ast.TypeNameNode():
                 symbol = scope.get_symbol(expression.value)
-                if symbol is None:
-                    assert False, f'<{expression.value} is undefined>'
+                if symbol is UNRESOLVED:
+                    assert False, f'<Unresolved symbol {expression.value}>'
 
                 return symbol.type
 
             case ast.TypeParameterNode():
-                type = types.TypeParameter(name=expression.name)
+                symbol = scope.get_symbol(expression.name)
+                assert isinstance(symbol.type, types.TypeParameter)
 
                 if expression.constraint is not None:
-                    type.constraint = self.evaluate_type_expression(
+                    symbol.type.constraint = self.evaluate_type_expression(
                         scope,
                         expression.constraint,
                     )
 
-                scope.add_symbol(Symbol(name=expression.name, type=type))
-                return type
+                return symbol.type
 
             case ast.TypeCallNode():
                 callee = self.evaluate_type_expression(scope, expression.type)
@@ -68,34 +131,56 @@ class TypeAnalyzer:
     def analyze_statement(self, scope: Scope, statement: ast.StatementNode) -> None:
         match statement:
             case ast.FunctionDefNode():
-                function_scope = scope.create_child_scope()
+                function_scope = scope.get_child_scope(statement.name)
+
                 parameters: typing.List[types.AnalyzedType] = []
+                fn_parameters: typing.List[types.AnalyzedType] = []
 
                 for parameter in statement.parameters:
                     if parameter.annotation is None:
                         assert False, f'<Please provide annotation {parameter.name}>'
 
-                    # We need to lazily evaluate the annotations
                     type = self.evaluate_type_expression(function_scope, parameter.annotation)
+                    fn_parameters.append(type)
+
                     if isinstance(type, types.PolymorphicType):
                         if type.is_hollow():
                             assert False, f'<Use {type.name}(|T|)>'
 
                         parameters.extend(type.uninitialized_parameters())
 
-                    function_scope.add_symbol(Symbol(name=parameter.name, type=type))
-
                 if statement.returns is None:
                     assert False, f'<Please provide return value>'
 
-                returns = self.evaluate_type_expression(function_scope, statement.returns)
+                fn_returns = self.evaluate_type_expression(function_scope, statement.returns)
                 if statement.body is not None:
                     self.analyze_block(function_scope, statement.body)
 
-                type = types.FunctionType(name=statement.name, parameters=parameters, returns=returns)
-                print(function_scope.symbols)
+                type = types.FunctionType(
+                    name=statement.name,
+                    parameters=parameters, 
+                    fn_parameters=fn_parameters,
+                    fn_returns=fn_returns,
+                )
+                scope.add_symbol(Symbol(name=statement.name, type=type))
+
+            case ast.ClassDefNode():
+                initial_class = scope.get_symbol(statement.name)
+                assert isinstance(initial_class.type, types.PolymorphicType)
+
+                class_scope = scope.get_child_scope(statement.name)
+                self.analyze_block(class_scope, statement.body)
+
+                type = types.ClassType(
+                    name=statement.name,
+                    parameters=initial_class.type.parameters
+                )
                 scope.add_symbol(Symbol(name=statement.name, type=type))
 
     def analyze_block(self, scope: Scope, statements: typing.List[ast.StatementNode]) -> None:
         for statement in statements:
             self.analyze_statement(scope, statement)
+
+    def analyze_module(self) -> None:
+        self.initialize_types(self.module_scope, self.module.body)
+        self.analyze_block(self.module_scope, self.module.body)

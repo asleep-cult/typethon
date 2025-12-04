@@ -42,9 +42,17 @@ class PolymorphicType(AnalyzedType):
 
 @attr.s(kw_only=True, slots=True)
 class FunctionType(PolymorphicType):
-    # paramaters: typing.List[...] = attr.ib()
-    returns: AnalyzedType = attr.ib()
+    fn_parameters: typing.List[AnalyzedType] = attr.ib()
+    fn_returns: AnalyzedType = attr.ib()
 
+
+@attr.s(kw_only=True, slots=True)
+class ClassType(PolymorphicType):
+    # cls_attributes: typing.List[AnalyzedType] = attr.ib()
+    ...
+
+
+UNKNOWN = AnalyzedType(name='unknown')
 
 LIST = PolymorphicType(name='list', parameters=[TypeParameter(name='T')])
 DICT = PolymorphicType(name='dict', parameters=[TypeParameter(name='K'), TypeParameter(name='V')])
