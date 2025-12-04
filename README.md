@@ -106,4 +106,9 @@ trait Foo |T|:
 
 f = (x) -> x # def f(x: |T|) -> T: return x
 f = (Box(x)) -> x # def f(box: Box(|T|)) -> T: return x.vaule
+
+# 4. There will probably be syntactic sugar for initializing a polymorphic type
+# with a polymorphic parameter to reduce clutter
+
+Type|T, U| # Same as Type(|T|, |U|)
 ```
