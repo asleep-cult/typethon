@@ -12,6 +12,12 @@ class Symbol:
     type: AnalyzedType = attr.ib()
 
 
+@attr.s(kw_only=True, slots=True)
+class VariableSymbol(Symbol):
+    # mutable: bool = attr.ib()
+    known_value: typing.Optional[typing.Any] = attr.ib(default=None)
+
+
 class Scope:
     def __init__(self, *, parent: typing.Optional[Scope] = None) -> None:
         self.parent_scope = parent
@@ -25,9 +31,6 @@ class Scope:
             return self.parent_scope.get_symbol(name)
 
         return symbol
-
-    def get_all_symbols(self) -> typing.List[Symbol]:
-        return list(self.symbols.values())
 
     def add_symbol(self, symbol: Symbol) -> None:
         self.symbols[symbol.name] = symbol

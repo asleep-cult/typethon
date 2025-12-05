@@ -55,7 +55,7 @@ class PolymorphicType(AnalyzedType):
 class FunctionType(PolymorphicType):
     propagated: bool = attr.ib()
     # PolymorphicType fields must be filled regardless of propagation
-    fn_parameters: typing.List[AnalyzedType] = attr.ib(factory=list)
+    fn_parameters: typing.Dict[str, AnalyzedType] = attr.ib(factory=dict)
     fn_returns: AnalyzedType = attr.ib(default=UNKNOWN)
 
     def complete_propagation(self) -> None:
@@ -68,6 +68,26 @@ class ClassType(PolymorphicType):
 
     def complete_propagation(self) -> None:
         self.propagated = True
+
+
+@attr.s(kw_only=True, slots=True)
+class IntegerConstantType(AnalyzedType):
+    value: int = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class FloatConstantType(AnalyzedType):
+    value: float = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ComplexConstantType(AnalyzedType):
+    value: complex = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class StringConstantType(AnalyzedType):
+    value: str = attr.ib()
 
 
 LIST = PolymorphicType(name='list', parameters=[TypeParameter(name='T')])
