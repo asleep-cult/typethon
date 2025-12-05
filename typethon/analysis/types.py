@@ -3,30 +3,39 @@ from __future__ import annotations
 import attr
 import typing
 
+
 @attr.s(kw_only=True, slots=True)
 class AnalyzedType:
     name: str = attr.ib()
+
+    def __str__(self) -> str:
+        return f'{self.name}'
 
     def access_attribute(self, name: str) -> AnalyzedType:
         assert False, f'<{self} has no attribute {name}>'
 
 
+UNKNOWN = AnalyzedType(name='unknown')
+
 @attr.s(kw_only=True, slots=True)
 class TypeParameter(AnalyzedType):
+    owner: AnalyzedType = attr.ib(default=UNKNOWN)
     constraint: typing.Optional[AnalyzedType] = attr.ib(default=None)
+
+    def __str__(self) -> str:
+        return f'|{self.name}: {self.constraint}|'
 
 
 @attr.s(kw_only=True, slots=True)
 class PolymorphicType(AnalyzedType):
-    parameters: typing.List[AnalyzedType] = attr.ib()
+    parameters: typing.List[AnalyzedType] = attr.ib(factory=list)
+
+    def __str__(self) -> str:
+        parameters = ', '.join(repr(parameter) for parameter in self.parameters)
+        return f'{self.name}({parameters})'
 
     def is_polymorphic(self) -> bool:
         return any(self.uninitialized_parameters())
-
-    def is_hollow(self) -> bool:
-        # type X = |T|
-        # type Y = X (is_hollow = True), type Y = X(|T|) (is_hollow = False)
-        return any(child not in self.parameters for child in self.uninitialized_parameters())
 
     def uninitialized_parameters(self) -> typing.Generator[TypeParameter]:
         for parameter in self.parameters:
@@ -34,6 +43,8 @@ class PolymorphicType(AnalyzedType):
                 case TypeParameter():
                     yield parameter
                 case PolymorphicType():
+                    # This should always be nothing theoretically
+                    # So this function is useless
                     yield from parameter.uninitialized_parameters()
 
     def with_parameters(self, parameters: typing.List[AnalyzedType]) -> PolymorphicType:
@@ -42,17 +53,22 @@ class PolymorphicType(AnalyzedType):
 
 @attr.s(kw_only=True, slots=True)
 class FunctionType(PolymorphicType):
-    fn_parameters: typing.List[AnalyzedType] = attr.ib()
-    fn_returns: AnalyzedType = attr.ib()
+    propagated: bool = attr.ib()
+    # PolymorphicType fields must be filled regardless of propagation
+    fn_parameters: typing.List[AnalyzedType] = attr.ib(factory=list)
+    fn_returns: AnalyzedType = attr.ib(default=UNKNOWN)
+
+    def complete_propagation(self) -> None:
+        self.propagated = True
 
 
 @attr.s(kw_only=True, slots=True)
 class ClassType(PolymorphicType):
-    # cls_attributes: typing.List[AnalyzedType] = attr.ib()
-    ...
+    propagated: bool = attr.ib()
 
+    def complete_propagation(self) -> None:
+        self.propagated = True
 
-UNKNOWN = AnalyzedType(name='unknown')
 
 LIST = PolymorphicType(name='list', parameters=[TypeParameter(name='T')])
 DICT = PolymorphicType(name='dict', parameters=[TypeParameter(name='K'), TypeParameter(name='V')])
