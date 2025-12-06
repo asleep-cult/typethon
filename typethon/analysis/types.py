@@ -65,6 +65,8 @@ class FunctionType(PolymorphicType):
 @attr.s(kw_only=True, slots=True)
 class ClassType(PolymorphicType):
     propagated: bool = attr.ib()
+    cls_attributes: typing.Dict[str, AnalyzedType] = attr.ib(factory=dict)
+    cls_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
 
     def complete_propagation(self) -> None:
         self.propagated = True

@@ -8,14 +8,15 @@ from .types import AnalyzedType, UNKNOWN
 
 @attr.s(kw_only=True, slots=True)
 class Symbol:
+    # TODO: Should symbols keep a reference to the scope they were defined in?
     name: str = attr.ib()
     type: AnalyzedType = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class VariableSymbol(Symbol):
-    # mutable: bool = attr.ib()
-    known_value: typing.Optional[typing.Any] = attr.ib(default=None)
+    # Here we could add things such as mutable: bool
+    ...
 
 
 class Scope:

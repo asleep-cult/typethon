@@ -3,14 +3,27 @@ from __future__ import annotations
 import typing
 
 from . import types
+from .context import AnalysisContext, ContextFlags
 from ..syntax import ast
 from .scope import Scope, Symbol, VariableSymbol, UNRESOLVED
 
+T = typing.TypeVar('T', bound=ast.StatementNode)
+
 
 class TypeAnalyzer:
-    def __init__(self, module: ast.ModuleNode) -> None:
+    def __init__(
+        self,
+        module: ast.ModuleNode,
+        *,
+        ctx: typing.Optional[AnalysisContext] = None
+    ) -> None:
         self.module = module
         self.module_scope = Scope()
+
+        if ctx is None:
+            ctx = AnalysisContext()
+
+        self.ctx = ctx
 
     def initialize_types(
         self,
@@ -54,9 +67,16 @@ class TypeAnalyzer:
     def walk_class_parameters(
         self, statement: ast.ClassDefNode
     ) -> typing.Generator[ast.TypeParameterNode]:
-        for node in statement.body:
-            if isinstance(node, ast.AnnAssignNode):
-                yield from self.walk_type_parameters(node.annotation)
+        assignments = self.filter_statements(statement.body, ast.AnnAssignNode)
+        for assignment in assignments:
+            yield from self.walk_type_parameters(assignment.annotation)
+
+    def filter_statements(
+        self,
+        statements: typing.List[ast.StatementNode],
+        type: typing.Type[T],
+    ) -> typing.Iterator[T]:
+        return (statement for statement in statements if isinstance(statement, type))
 
     def walk_type_parameters(
         self, expression: ast.TypeExpressionNode
@@ -92,7 +112,8 @@ class TypeAnalyzer:
         statements: typing.List[ast.StatementNode],
     ) -> None:
         # This function propagetes the fn_returns and fn_paramaters fields for
-        # function types. TODO: Add cls_attributes and cls_functions or use the scope?
+        # function types, and the cls_attributs and cls_returns fields for 
+        # class types.
         for statement in statements:
             match statement:
                 case ast.FunctionDefNode():
@@ -130,6 +151,20 @@ class TypeAnalyzer:
                     assert isinstance(cls, types.ClassType)
 
                     class_scope = scope.get_child_scope(statement.name)
+
+                    assignments = self.filter_statements(statement.body, ast.AnnAssignNode)
+                    for assignment in assignments:
+                        type = self.evaluate_type_expression(
+                            class_scope, assignment.annotation
+                        )
+                        cls.cls_attributes[assignment.target.value] = type
+
+                    functions = self.filter_statements(statement.body, ast.FunctionDefNode)
+                    for function in functions:
+                        cls_function = class_scope.get_symbol(function.name).type
+                        assert isinstance(cls_function, types.FunctionType)
+                        cls.cls_functions[function.name] = cls_function
+
                     cls.complete_propagation()
                     self.propagate_types(class_scope, statement.body)
 
@@ -205,28 +240,15 @@ class TypeAnalyzer:
                 return types.LIST.with_parameters([elt])
 
     def analyze_types(
-        self, scope: Scope, statements: typing.List[ast.StatementNode]
+        self,
+        scope: Scope,
+        ctx: AnalysisContext,
+        statements: typing.List[ast.StatementNode],
     ) -> None:
-        # TODO: Add hooks so that the analyzer can be used to
-        # generate an intermediate representation where every expression 
-        # becomes associated with a type. (I think this will require
-        # hooks to be associated with specific blocks containing
-        # their own stack of types?)
-        # i.e. for a function such as
-        # def f(x: int) -> int: return x + x
-        # the analyzer would create ExpressionHooks(type=FunctionType(name='f', ...))
-        # and it would call
-        #   hooks.load_name(NameNode('x'), int) Add int to stack
-        #   hooks.load_name(NameNode('x'), int) Add int to stack
-        #   hooks.binary_op(BinaryOp(...), int) Pop two types off the stack
-        #       for the left and right hand types, then add int
-        # Using this method, ExpressionHooks could create it's own typed
-        # syntax tree (or whatever else it wants)
         for statement in statements:
             match statement:
                 case ast.FunctionDefNode() if statement.body is not None:
                     function_scope = scope.get_child_scope(statement.name)
-
                     function = scope.get_symbol(statement.name).type
                     assert (
                         isinstance(function, types.FunctionType)
@@ -237,24 +259,39 @@ class TypeAnalyzer:
                         symbol = VariableSymbol(name=name, type=type)
                         function_scope.add_symbol(symbol)
 
-                    self.analyze_types(function_scope, statement.body)
+                    inner_ctx = ctx.create_inner_context(function)
+                    inner_ctx.flags |= ContextFlags.ALLOW_RETURN
+                    self.analyze_types(function_scope, inner_ctx, statement.body)
 
                 case ast.ClassDefNode():
                     class_scope = scope.get_child_scope(statement.name)
-                    self.analyze_types(class_scope, statement.body)
+                    cls = scope.get_symbol(statement.name).type
+                    assert (
+                        isinstance(cls, types.ClassType)
+                        and cls.propagated
+                    )
+
+                    inner_ctx = ctx.create_inner_context(cls)
+                    self.analyze_types(class_scope, inner_ctx, statement.body)
 
                 case ast.ReturnNode():
+                    if not ctx.flags & ContextFlags.ALLOW_RETURN:
+                        assert False, '<Return is not valid in this context>'
+
                     if statement.value is not None:
-                        type = self.analyze_type(scope, statement.value)
+                        type = self.analyze_type(scope, ctx, statement.value)
+                        ctx.return_hook(type, statement)
                         # TODO: check for type coherency
 
                 case ast.AssignNode():
-                    type = self.analyze_type(scope, statement.value)
+                    type = self.analyze_type(scope, ctx, statement.value)
                     self.analyze_assignment(scope, type, statement.targets)
+                    ctx.assign_hook(type, statement)
 
                 case ast.ExprNode():
                     # The expression is unused
-                    self.analyze_type(scope, statement.expr)
+                    type = self.analyze_type(scope, ctx, statement.expr)
+                    ctx.expr_hook(type, statement)
 
     def analyze_assignment(
         self,
@@ -271,40 +308,54 @@ class TypeAnalyzer:
             scope.add_symbol(VariableSymbol(name=target.value, type=value))
 
     def analyze_type(
-        self, scope: Scope, expression: ast.ExpressionNode
+        self,
+        scope: Scope,
+        ctx: AnalysisContext,
+        expression: ast.ExpressionNode,
     ) -> types.AnalyzedType:
         match expression:
-            case ast.NameNode:
+            case ast.BinaryOpNode():
+                left = self.analyze_type(scope, ctx, expression.left)
+                right = self.analyze_type(scope, ctx, expression.right)
+                assert left is right # TODO: check for type coherency
+
+                ctx.binary_op_hook(left, expression)
+                return left
+
+            case ast.NameNode():
                 symbol = scope.get_symbol(expression.value)
                 if symbol is UNRESOLVED:
                     assert False, f'<{symbol.name} is unresolved>'
 
+                ctx.name_hook(symbol.type, expression)
                 return symbol.type
             # XXX: I don't know if constants should be handled like this
             case ast.IntegerNode():
-                return types.IntegerConstantType(
-                    name='<const int>', value=expression.value
-                )
+                type = types.IntegerConstantType(name='<const int>', value=expression.value)
+                ctx.constant_hook(type, expression)
+                return type
 
             case ast.FloatNode():
-                return types.FloatConstantType(
-                    name='<const float>', value=expression.value
-                )
+                type = types.FloatConstantType(name='<const float>', value=expression.value)
+                ctx.constant_hook(type, expression)
+                return type
 
             case ast.ComplexNode():
-                return types.ComplexConstantType(
-                    name='<const complex>', value=expression.value
-                )
+                type = types.ComplexConstantType(name='<const complex>', value=expression.value)
+                ctx.constant_hook(type, expression)
+                return type
 
             case ast.StringNode():
-                return types.StringConstantType(
-                    name='<const str>', value=expression.value
-                )
+                type = types.StringConstantType(name='<const str>', value=expression.value)
+                ctx.constant_hook(type, expression)
+                return type
 
             case ast.CallNode():
-                function = self.analyze_type(scope, expression.func)
+                function = self.analyze_type(scope, ctx, expression.func)
                 if isinstance(function, types.FunctionType):
-                    return self.analyze_function_call(scope, function, expression)
+                    type = self.analyze_function_call(scope, function, expression)
+                    ctx.call_hook(type, expression)
+                    return type
 
         assert False, f'<Unable to determine type of {expression}>'
 
@@ -319,4 +370,4 @@ class TypeAnalyzer:
     def analyze_module(self) -> None:
         self.initialize_types(self.module_scope, self.module.body)
         self.propagate_types(self.module_scope, self.module.body)
-        self.analyze_types(self.module_scope, self.module.body)
+        self.analyze_types(self.module_scope, self.ctx, self.module.body)

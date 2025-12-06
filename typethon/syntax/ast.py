@@ -181,7 +181,7 @@ class AugAssignNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class AnnAssignNode(Node):
-    target: ExpressionNode = attr.ib()
+    target: NameNode = attr.ib()
     annotation: TypeExpressionNode = attr.ib()
     value: typing.Optional[ExpressionNode] = attr.ib()
 
