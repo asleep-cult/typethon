@@ -13,12 +13,6 @@ class Symbol:
     type: AnalyzedType = attr.ib()
 
 
-@attr.s(kw_only=True, slots=True)
-class VariableSymbol(Symbol):
-    # Here we could add things such as mutable: bool
-    ...
-
-
 class Scope:
     def __init__(self, *, parent: typing.Optional[Scope] = None) -> None:
         self.parent_scope = parent

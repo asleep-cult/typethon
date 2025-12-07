@@ -3,7 +3,7 @@ from __future__ import annotations
 import attr
 import typing
 
-# TODO: __str__ and __eq__ need to resolve resursion issues
+# TODO: __eq__ needs to resolve resursion issues
 # that arise from cyclic references
 
 
@@ -12,10 +12,22 @@ class AnalyzedType:
     name: str = attr.ib()
 
     def __str__(self) -> str:
-        return f'{self.name}'
+        string = self.get_string()
+        return f'type({string})'
+
+    def get_string(self, *, top_level: bool = True) -> str:
+        return str(self.name)
 
     def access_attribute(self, name: str) -> AnalyzedType:
         assert False, f'<{self} has no attribute {name}>'
+
+
+@attr.s(kw_only=True, slots=True)
+class InstanceOfType(AnalyzedType):
+    type: AnalyzedType = attr.ib()
+
+    def __str__(self) -> str:
+        return self.get_string()
 
 
 UNKNOWN = AnalyzedType(name='unknown')
@@ -25,11 +37,13 @@ class TypeParameter(AnalyzedType):
     owner: AnalyzedType = attr.ib(default=UNKNOWN, eq=False)  # False because of recursion
     constraint: typing.Optional[AnalyzedType] = attr.ib(default=None)
 
-    def __str__(self) -> str:
+    def get_string(self, *, top_level: bool = True) -> str:
+        owner = self.owner.get_string(top_level=False) if top_level else self.owner.name
+
         if self.constraint is not None:
-            return f'|{self.name} of {self.owner.name}: {self.constraint}|'
-        
-        return f'|{self.name} of {self.owner.name}|'
+            return f'|{self.name}@{owner}: {self.constraint}|'
+
+        return f'|{self.name}@{owner}|'
 
 
 @attr.s(kw_only=True, slots=True)
@@ -37,8 +51,10 @@ class PolymorphicType(AnalyzedType):
     initial_type: typing.Optional[PolymorphicType] = attr.ib(default=None)
     parameters: typing.List[AnalyzedType] = attr.ib(factory=list)
 
-    def __str__(self) -> str:
-        parameters = ', '.join(repr(parameter) for parameter in self.parameters)
+    def get_string(self, *, top_level: bool = True) -> str:
+        parameters = ', '.join(
+            parameter.get_string(top_level=False) for parameter in self.parameters
+        )
         return f'{self.name}({parameters})'
 
     def get_initial_type(self) -> PolymorphicType:
@@ -69,9 +85,16 @@ class FunctionType(PolymorphicType):
     fn_parameters: typing.Dict[str, AnalyzedType] = attr.ib(factory=dict)
     fn_returns: AnalyzedType = attr.ib(default=UNKNOWN)
 
-    def __str__(self) -> str:
-        parameters = ', '.join(f'{name}: {type}' for name, type in self.fn_parameters.items())
-        return f'({parameters}) -> {self.fn_returns}'
+    def get_string(self, *, top_level: bool = True) -> str:
+        strings: typing.List[str] = []
+
+        for name, type in self.fn_parameters.items():
+            string = type.get_string(top_level=False)
+            strings.append(f'{name}: {string}')
+
+        parameters = ', '.join(strings)
+        returns = self.fn_returns.get_string(top_level=False)
+        return f'({parameters}) -> {returns}'
 
     def complete_propagation(self) -> None:
         self.propagated = True

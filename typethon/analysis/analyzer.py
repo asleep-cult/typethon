@@ -5,7 +5,7 @@ import typing
 from . import types
 from .context import AnalysisContext, ContextFlags
 from ..syntax import ast
-from .scope import Scope, Symbol, VariableSymbol, UNRESOLVED
+from .scope import Scope, Symbol, UNRESOLVED
 
 T = typing.TypeVar('T', bound=ast.StatementNode)
 
@@ -112,7 +112,7 @@ class TypeAnalyzer:
         statements: typing.List[ast.StatementNode],
     ) -> None:
         # This function propagetes the fn_returns and fn_paramaters fields for
-        # function types, and the cls_attributs and cls_functions fields for 
+        # function types, and the cls_attributes and cls_functions fields for 
         # class types.
         for statement in statements:
             match statement:
@@ -242,14 +242,18 @@ class TypeAnalyzer:
     def check_type_compatibility(
         self,
         type: types.AnalyzedType,
-        value: types.AnalyzedType,  # types.InstanceOfType
+        value: types.AnalyzedType, 
     ) -> None:
+        if not isinstance(value, types.InstanceOfType):
+            # TODO: Make def f(x: type(|T|)), f(int) valid
+            assert False, f'<Expected instance, got {value}>'
+
         match type:
             case types.TypeParameter():
-                if isinstance(value, types.TypeParameter):
+                if isinstance(value.type, types.TypeParameter):
                     # XXX: Should this ever be possible?
-                    assert type == value, f'Imcompatible type parameters {type}, {value}'
-                
+                    assert type == value.type, f'Incompatible type parameters {type}, {value}'
+
                 # TODO: Check for constraints
             case types.FunctionType():
                 assert False, 'Not implemented'
@@ -257,11 +261,11 @@ class TypeAnalyzer:
                 assert False, 'Not implemented'
             case types.PolymorphicType():
                 assert (
-                    isinstance(value, types.PolymorphicType)
-                    and type.get_initial_type() == value.get_initial_type()
+                    isinstance(value.type, types.PolymorphicType)
+                    and type.get_initial_type() == value.type.get_initial_type()
                 )
 
-                parameters = zip(type.parameters, value.parameters)
+                parameters = zip(type.parameters, value.type.parameters)
                 for parameter_type, parameter_value in parameters:
                     self.check_type_compatibility(parameter_type, parameter_value)
 
@@ -285,7 +289,8 @@ class TypeAnalyzer:
                     )
 
                     for name, type in function.fn_parameters.items():
-                        symbol = VariableSymbol(name=name, type=type)
+                        instance = types.InstanceOfType(name=type.name, type=type)
+                        symbol = Symbol(name=name, type=instance)
                         function_scope.add_symbol(symbol)
 
                     inner_ctx = ctx.create_inner_context(function)
@@ -317,6 +322,9 @@ class TypeAnalyzer:
 
                 case ast.AssignNode():
                     type = self.analyze_type(scope, ctx, statement.value)
+                    if not isinstance(type, types.InstanceOfType):
+                        assert False, f'<Cannot asssign {type}, did you mean {type}()>'
+
                     self.analyze_assignment(scope, type, statement.targets)
                     ctx.assign_hook(type, statement)
 
@@ -328,7 +336,7 @@ class TypeAnalyzer:
     def analyze_assignment(
         self,
         scope: Scope,
-        value: types.AnalyzedType,
+        value: types.InstanceOfType,
         targets: typing.List[ast.ExpressionNode],
     ) -> None:
         for target in targets:
@@ -337,7 +345,7 @@ class TypeAnalyzer:
                 assert False, 'Non-variable assignment implemented'
 
             # TODO: check for type coherency
-            scope.add_symbol(VariableSymbol(name=target.value, type=value))
+            scope.add_symbol(Symbol(name=target.value, type=value))
 
     def analyze_type(
         self,
