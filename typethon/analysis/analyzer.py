@@ -112,7 +112,7 @@ class TypeAnalyzer:
         statements: typing.List[ast.StatementNode],
     ) -> None:
         # This function propagetes the fn_returns and fn_paramaters fields for
-        # function types, and the cls_attributs and cls_returns fields for 
+        # function types, and the cls_attributs and cls_functions fields for 
         # class types.
         for statement in statements:
             match statement:
@@ -180,7 +180,7 @@ class TypeAnalyzer:
             # If a type is polymorphic over T, the caller is responsible
             # for defining the type of T.
             for parameter in type.uninitialized_parameters():
-                if parameter.owner is not owner:
+                if parameter.owner != owner:
                     assert False, f'<Use {type.name}(|T|)>'
 
         return type
@@ -239,6 +239,35 @@ class TypeAnalyzer:
                 elt = self.evaluate_type_expression(scope, expression.elt)
                 return types.LIST.with_parameters([elt])
 
+    def check_type_compatibility(
+        self,
+        type: types.AnalyzedType,
+        value: types.AnalyzedType,  # types.InstanceOfType
+    ) -> None:
+        match type:
+            case types.TypeParameter():
+                if isinstance(value, types.TypeParameter):
+                    # XXX: Should this ever be possible?
+                    assert type == value, f'Imcompatible type parameters {type}, {value}'
+                
+                # TODO: Check for constraints
+            case types.FunctionType():
+                assert False, 'Not implemented'
+            case types.ClassType():
+                assert False, 'Not implemented'
+            case types.PolymorphicType():
+                assert (
+                    isinstance(value, types.PolymorphicType)
+                    and type.get_initial_type() == value.get_initial_type()
+                )
+
+                parameters = zip(type.parameters, value.parameters)
+                for parameter_type, parameter_value in parameters:
+                    self.check_type_compatibility(parameter_type, parameter_value)
+
+            case unknown:
+                assert False, f'Unknown type {unknown}'
+
     def analyze_types(
         self,
         scope: Scope,
@@ -280,8 +309,11 @@ class TypeAnalyzer:
 
                     if statement.value is not None:
                         type = self.analyze_type(scope, ctx, statement.value)
+                        if not isinstance(ctx.outer_type, types.FunctionType):
+                            assert False, '<unreachable>'
+
+                        self.check_type_compatibility(ctx.outer_type.fn_returns, type)
                         ctx.return_hook(type, statement)
-                        # TODO: check for type coherency
 
                 case ast.AssignNode():
                     type = self.analyze_type(scope, ctx, statement.value)
@@ -327,6 +359,9 @@ class TypeAnalyzer:
                 if symbol is UNRESOLVED:
                     assert False, f'<{symbol.name} is unresolved>'
 
+                # TODO: We will probably need to add InstanceOfType
+                # because right now we cannot differentiate betweeen
+                # something def f(x: |T|) -> T: return T / return x
                 ctx.name_hook(symbol.type, expression)
                 return symbol.type
             # XXX: I don't know if constants should be handled like this

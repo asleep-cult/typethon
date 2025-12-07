@@ -3,6 +3,9 @@ from __future__ import annotations
 import attr
 import typing
 
+# TODO: __str__ and __eq__ need to resolve resursion issues
+# that arise from cyclic references
+
 
 @attr.s(kw_only=True, slots=True)
 class AnalyzedType:
@@ -19,20 +22,27 @@ UNKNOWN = AnalyzedType(name='unknown')
 
 @attr.s(kw_only=True, slots=True)
 class TypeParameter(AnalyzedType):
-    owner: AnalyzedType = attr.ib(default=UNKNOWN)
+    owner: AnalyzedType = attr.ib(default=UNKNOWN, eq=False)  # False because of recursion
     constraint: typing.Optional[AnalyzedType] = attr.ib(default=None)
 
     def __str__(self) -> str:
-        return f'|{self.name}: {self.constraint}|'
+        if self.constraint is not None:
+            return f'|{self.name} of {self.owner.name}: {self.constraint}|'
+        
+        return f'|{self.name} of {self.owner.name}|'
 
 
 @attr.s(kw_only=True, slots=True)
 class PolymorphicType(AnalyzedType):
+    initial_type: typing.Optional[PolymorphicType] = attr.ib(default=None)
     parameters: typing.List[AnalyzedType] = attr.ib(factory=list)
 
     def __str__(self) -> str:
         parameters = ', '.join(repr(parameter) for parameter in self.parameters)
         return f'{self.name}({parameters})'
+
+    def get_initial_type(self) -> PolymorphicType:
+        return self.initial_type if self.initial_type is not None else self
 
     def is_polymorphic(self) -> bool:
         return any(self.uninitialized_parameters())
@@ -48,7 +58,8 @@ class PolymorphicType(AnalyzedType):
                     yield from parameter.uninitialized_parameters()
 
     def with_parameters(self, parameters: typing.List[AnalyzedType]) -> PolymorphicType:
-        return PolymorphicType(name=self.name, parameters=parameters)
+        initial_type = self.get_initial_type()
+        return PolymorphicType(initial_type=initial_type, name=self.name, parameters=parameters)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -57,6 +68,10 @@ class FunctionType(PolymorphicType):
     # PolymorphicType fields must be filled regardless of propagation
     fn_parameters: typing.Dict[str, AnalyzedType] = attr.ib(factory=dict)
     fn_returns: AnalyzedType = attr.ib(default=UNKNOWN)
+
+    def __str__(self) -> str:
+        parameters = ', '.join(f'{name}: {type}' for name, type in self.fn_parameters.items())
+        return f'({parameters}) -> {self.fn_returns}'
 
     def complete_propagation(self) -> None:
         self.propagated = True
