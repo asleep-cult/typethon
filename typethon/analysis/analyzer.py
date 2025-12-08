@@ -180,7 +180,7 @@ class TypeAnalyzer:
             # If a type is polymorphic over T, the caller is responsible
             # for defining the type of T.
             for parameter in type.uninitialized_parameters():
-                if parameter.owner != owner:
+                if parameter.owner is not owner:
                     assert False, f'<Use {type.name}(|T|)>'
 
         return type
@@ -252,7 +252,7 @@ class TypeAnalyzer:
             case types.TypeParameter():
                 if isinstance(value.type, types.TypeParameter):
                     # XXX: Should this ever be possible?
-                    assert type == value.type, f'Incompatible type parameters {type}, {value}'
+                    assert type is value.type, f'Incompatible type parameters {type}, {value}'
 
                 # TODO: Check for constraints
             case types.FunctionType():
@@ -262,7 +262,7 @@ class TypeAnalyzer:
             case types.PolymorphicType():
                 assert (
                     isinstance(value.type, types.PolymorphicType)
-                    and type.get_initial_type() == value.type.get_initial_type()
+                    and type.get_initial_type() is value.type.get_initial_type()
                 )
 
                 parameters = zip(type.parameters, value.type.parameters)
@@ -278,6 +278,17 @@ class TypeAnalyzer:
         ctx: AnalysisContext,
         statements: typing.List[ast.StatementNode],
     ) -> None:
+        """
+        WithNode,
+        RaiseNode,
+        TryNode, # RETAIN?
+        AssertNode, # RETAIN?
+        ImportNode,
+        ImportFromNode,
+        GlobalNode, # RETAIN?
+        NonlocalNode, # RETAIN?
+        ExprNode,
+        """
         for statement in statements:
             match statement:
                 case ast.FunctionDefNode() if statement.body is not None:
@@ -289,8 +300,7 @@ class TypeAnalyzer:
                     )
 
                     for name, type in function.fn_parameters.items():
-                        instance = types.InstanceOfType(name=type.name, type=type)
-                        symbol = Symbol(name=name, type=instance)
+                        symbol = Symbol(name=name, type=type.to_instance())
                         function_scope.add_symbol(symbol)
 
                     inner_ctx = ctx.create_inner_context(function)
@@ -320,26 +330,83 @@ class TypeAnalyzer:
                         self.check_type_compatibility(ctx.outer_type.fn_returns, type)
                         ctx.return_hook(type, statement)
 
-                case ast.AssignNode():
-                    type = self.analyze_type(scope, ctx, statement.value)
-                    if not isinstance(type, types.InstanceOfType):
-                        assert False, f'<Cannot asssign {type}, did you mean {type}()>'
+                case ast.DeleteNode():
+                    assert False, '<Del is not implemented>'
 
-                    self.analyze_assignment(scope, type, statement.targets)
-                    ctx.assign_hook(type, statement)
+                case ast.AssignNode():
+                    value = self.analyze_type(scope, ctx, statement.value)
+                    self.analyze_assignment(scope, statement, value)
+                    ctx.assign_hook(value, statement)
+
+                case ast.AugAssignNode():
+                    value = self.analyze_type(scope, ctx, statement.value)
+                    self.analyze_aug_assignment(scope, statement, value)
+                    ctx.aug_assign_hook(value, statement)
+
+                case ast.AnnAssignNode():
+                    if statement.value is not None:
+                        value = self.analyze_type(scope, ctx, statement.value)
+                        self.analyze_ann_assignment(scope, statement, value)
+                        ctx.ann_assign_hook(value, statement)
+
+                case ast.ForNode():
+                    initial_flags = ctx.flags
+                    ctx.flags |= ContextFlags.ALLOW_LOOP_CONTROL
+
+                    iterator = self.analyze_type(scope, ctx, statement.iterator)
+                    # implementation = self.implementation_for(types.ITERATOR, iterator)
+                    # next = implementation.functions['__next__']
+                    # self.analyze_assignment(scope, statement.target, ...)
+                    assert False, '<For loop is not implemented>'
+
+                    self.analyze_types(scope, ctx, statement.body)
+                    ctx.flags = initial_flags
+
+                case ast.WhileNode():
+                    initial_flags = ctx.flags
+                    ctx.flags |= ContextFlags.ALLOW_LOOP_CONTROL
+
+                    condition = self.analyze_type(scope, ctx, statement.condition)
+                    self.analyze_types(scope, ctx, statement.body)
+
+                    ctx.flags = initial_flags
+                    ctx.while_hook(condition, statement)
+
+                case ast.IfNode():
+                    condition = self.analyze_type(scope, ctx, statement.condition)
+
+                    self.analyze_types(scope, ctx, statement.body)
+                    self.analyze_types(scope, ctx, statement.else_body)
+
+                    ctx.if_hook(condition, statement)
 
                 case ast.ExprNode():
                     # The expression is unused
-                    type = self.analyze_type(scope, ctx, statement.expr)
-                    ctx.expr_hook(type, statement)
+                    expression = self.analyze_type(scope, ctx, statement.expr)
+                    ctx.expr_hook(expression, statement)
+
+                case ast.PassNode():
+                    ctx.pass_hook(statement)
+
+                case ast.BreakNode():
+                    if not ctx.flags & ContextFlags.ALLOW_LOOP_CONTROL:
+                        assert False, '<Break is not valid in this context>'
+
+                    ctx.break_hook(statement)
+
+                case ast.ContinueNode():
+                    if not ctx.flags & ContextFlags.ALLOW_LOOP_CONTROL:
+                        assert False, '<Continue is not valid in this context>'
+
+                    ctx.continue_hook(statement)
 
     def analyze_assignment(
         self,
         scope: Scope,
-        value: types.InstanceOfType,
-        targets: typing.List[ast.ExpressionNode],
+        assignment: ast.AssignNode,
+        value: types.AnalyzedType,
     ) -> None:
-        for target in targets:
+        for target in assignment.targets:
             if not isinstance(target, ast.NameNode):
                 # TODO: Allow unpacking, the parser needs fixing here as well
                 assert False, 'Non-variable assignment implemented'
@@ -347,17 +414,64 @@ class TypeAnalyzer:
             # TODO: check for type coherency
             scope.add_symbol(Symbol(name=target.value, type=value))
 
+    def analyze_aug_assignment(
+        self,
+        scope: Scope,
+        assignment: ast.AugAssignNode,
+        value: types.AnalyzedType,
+    ) -> None:
+        assert False, '<Aug assignment is not implemented>'
+
+    def analyze_ann_assignment(
+        self,
+        scope: Scope,
+        assignment: ast.AnnAssignNode,
+        value: types.AnalyzedType,
+    ) -> None:
+        assert False, '<Ann assignment is not implemented>'
+
     def analyze_type(
         self,
         scope: Scope,
         ctx: AnalysisContext,
         expression: ast.ExpressionNode,
     ) -> types.AnalyzedType:
+        """
+        UnaryOpNode,
+        LambdaNode,
+        IfExpNode,
+        DictNode,
+        SetNode,
+        ListCompNode,
+        SetCompNode,
+        DictCompNode,
+        GeneratorExpNode,
+        AwaitNode,
+        YieldNode,
+        YieldFromNode,
+        CompareNode,
+        CallNode,
+        FormattedValueNode,
+        ConstantNode,
+        AttributeNode,
+        SubscriptNode,
+        StarredNode,
+        NameNode,
+        ListNode,
+        TupleNode,
+        SliceNode,
+        """
         match expression:
+            case ast.BoolOpNode():
+                operands = [self.analyze_type(scope, ctx, operand) for operand in expression.values]
+
+                type = types.BOOL.to_instance()
+                ctx.bool_op_hook(type, expression)
+
             case ast.BinaryOpNode():
                 left = self.analyze_type(scope, ctx, expression.left)
                 right = self.analyze_type(scope, ctx, expression.right)
-                assert left is right # TODO: check for type coherency
+                assert left is right
 
                 ctx.binary_op_hook(left, expression)
                 return left
@@ -367,29 +481,26 @@ class TypeAnalyzer:
                 if symbol is UNRESOLVED:
                     assert False, f'<{symbol.name} is unresolved>'
 
-                # TODO: We will probably need to add InstanceOfType
-                # because right now we cannot differentiate betweeen
-                # something def f(x: |T|) -> T: return T / return x
                 ctx.name_hook(symbol.type, expression)
                 return symbol.type
             # XXX: I don't know if constants should be handled like this
             case ast.IntegerNode():
-                type = types.IntegerConstantType(name='<const int>', value=expression.value)
+                type = types.INT.to_instance(expression.value)
                 ctx.constant_hook(type, expression)
                 return type
 
             case ast.FloatNode():
-                type = types.FloatConstantType(name='<const float>', value=expression.value)
+                type = types.FLOAT.to_instance(value=expression.value)
                 ctx.constant_hook(type, expression)
                 return type
 
             case ast.ComplexNode():
-                type = types.ComplexConstantType(name='<const complex>', value=expression.value)
+                type = types.COMPLEX.to_instance(value=expression.value)
                 ctx.constant_hook(type, expression)
                 return type
 
             case ast.StringNode():
-                type = types.StringConstantType(name='<const str>', value=expression.value)
+                type = types.STRING.to_instance(value=expression.value)
                 ctx.constant_hook(type, expression)
                 return type
 
@@ -408,7 +519,7 @@ class TypeAnalyzer:
         function: types.FunctionType,
         node: ast.CallNode,
     ) -> types.AnalyzedType:
-        return function.fn_returns
+        return function.fn_returns.to_instance()
 
     def analyze_module(self) -> None:
         self.initialize_types(self.module_scope, self.module.body)

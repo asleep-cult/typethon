@@ -21,10 +21,14 @@ class AnalyzedType:
     def access_attribute(self, name: str) -> AnalyzedType:
         assert False, f'<{self} has no attribute {name}>'
 
+    def to_instance(self, value: typing.Any = None) -> InstanceOfType:
+        return InstanceOfType(name=self.name, type=self, known_value=value)
+
 
 @attr.s(kw_only=True, slots=True)
 class InstanceOfType(AnalyzedType):
     type: AnalyzedType = attr.ib()
+    known_value: typing.Any = attr.ib()
 
     def __str__(self) -> str:
         return self.get_string()
@@ -38,12 +42,16 @@ class TypeParameter(AnalyzedType):
     constraint: typing.Optional[AnalyzedType] = attr.ib(default=None)
 
     def get_string(self, *, top_level: bool = True) -> str:
-        owner = self.owner.get_string(top_level=False) if top_level else self.owner.name
+        if top_level:
+            owner = self.owner.get_string(top_level=False)
+            name = f'{self.name}@{owner}'
+        else:
+            name = self.name
 
         if self.constraint is not None:
-            return f'|{self.name}@{owner}: {self.constraint}|'
+            return f'|{name}: {self.constraint}|'
 
-        return f'|{self.name}@{owner}|'
+        return f'|{name}|'
 
 
 @attr.s(kw_only=True, slots=True)
@@ -110,26 +118,11 @@ class ClassType(PolymorphicType):
         self.propagated = True
 
 
-@attr.s(kw_only=True, slots=True)
-class IntegerConstantType(AnalyzedType):
-    value: int = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class FloatConstantType(AnalyzedType):
-    value: float = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class ComplexConstantType(AnalyzedType):
-    value: complex = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class StringConstantType(AnalyzedType):
-    value: str = attr.ib()
-
-
+BOOL = AnalyzedType(name='bool')
+INT = AnalyzedType(name='bool')
+FLOAT = AnalyzedType(name='float')
+COMPLEX = AnalyzedType(name='complex')
+STRING = AnalyzedType(name='complex')
 LIST = PolymorphicType(name='list', parameters=[TypeParameter(name='T')])
 DICT = PolymorphicType(name='dict', parameters=[TypeParameter(name='K'), TypeParameter(name='V')])
 SET = PolymorphicType(name='set', parameters=[TypeParameter(name='T')])
