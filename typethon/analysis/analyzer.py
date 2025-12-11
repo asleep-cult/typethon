@@ -27,7 +27,6 @@ class TypeAnalyzer:
 
     def initialize_builtin_symbols(self) -> None:
         builtins = (
-            ('Self', types.BuiltinTypes.SELF),  # TODO: Make Self a keyword limited to annotations
             ('bool', types.BuiltinTypes.BOOL),
             ('int', types.BuiltinTypes.INT),
             ('float', types.BuiltinTypes.FLOAT),
@@ -144,34 +143,20 @@ class TypeAnalyzer:
 
                         type = self.evaluate_annotation(
                             function_scope,
-                            function,
                             parameter.annotation,
+                            function,
                         )
-                        # TODO: Determine what syntax to use for implementing
-                        # trait functions on classes. At the moment, I think
-                        # it might be nice to tie it into the Self type i.e.
-                        # def add(self: Self as Add) However, it will be necessary
-                        # to allow defining implementation functions outside of classes,
-                        # and in that case, some special variation of Self seems
-                        # much less intuitive.
-
                         function.fn_parameters.append(
                             types.FunctionParameter(name=parameter.name, type=type)
                         )
-
-                        if type is types.BuiltinTypes.SELF:
-                            if len(function.fn_parameters) != 0:
-                                assert False, 'Self type must be the first parameter'
-
-                            function.fn_self = type
 
                     if statement.returns is None:
                         assert False, f'<Please provide return value>'
 
                     function.fn_returns = self.evaluate_annotation(
                         function_scope,
-                        function,
                         statement.returns,
+                        function,
                     )
                     function.complete_propagation()
 
@@ -187,7 +172,7 @@ class TypeAnalyzer:
                     assignments = self.filter_statements(statement.body, ast.AnnAssignNode)
                     for assignment in assignments:
                         type = self.evaluate_type_expression(
-                            class_scope, assignment.annotation
+                            class_scope, assignment.annotation, cls,
                         )
                         cls.cls_attributes.append(
                             types.ClassAttribute(name=assignment.target.value, type=type)
@@ -205,10 +190,10 @@ class TypeAnalyzer:
     def evaluate_annotation(
         self,
         scope: Scope,
-        owner: types.AnalyzedType,
         expression: ast.TypeExpressionNode,
+        owner: types.AnalyzedType,
     ) -> types.AnalyzedType:
-        type = self.evaluate_type_expression(scope, expression)
+        type = self.evaluate_type_expression(scope, expression, owner)
 
         if isinstance(type, types.PolymorphicType):
             # If a type is polymorphic over T, the caller is responsible
@@ -223,9 +208,22 @@ class TypeAnalyzer:
         self,
         scope: Scope,
         expression: ast.TypeExpressionNode,
+        owner: typing.Optional[types.AnalyzedType],
     ) -> types.AnalyzedType:
+        # FIXME: Passing the instance of owner isn't necessary
+        # we just need to find somewhere reasonable to put Self that this
+        # function can access
         match expression:
             case ast.TypeNameNode():
+                if expression.value == 'Self':
+                    if not isinstance(owner, types.FunctionType):
+                        assert False, '<Use of Self outside of function>'
+
+                    if owner.fn_self is None:
+                        owner.fn_self = types.SelfType(name='Self')
+
+                    return owner.fn_self
+
                 symbol = scope.get_symbol(expression.value)
                 if symbol is UNRESOLVED:
                     assert False, f'<Unresolved symbol {expression.value}>'
@@ -240,37 +238,61 @@ class TypeAnalyzer:
                     symbol.type.constraint = self.evaluate_type_expression(
                         scope,
                         expression.constraint,
+                        owner,
                     )
 
                 return symbol.type
 
             case ast.TypeCallNode():
-                callee = self.evaluate_type_expression(scope, expression.type)
+                # TODO: Make Self(T) invalid except as first function argument
+                # probably through the parser
+                callee = self.evaluate_type_expression(
+                    scope,
+                    expression.type,
+                    owner,
+                )
+                if isinstance(callee, types.SelfType):
+                    if not expression.args:
+                        return callee
+                    elif len(expression.args) != 1:
+                        assert False, 'Self type can only take one parameter'
+
+                    callee.owner = self.evaluate_type_expression(
+                        scope,
+                        expression.args[0],
+                        owner
+                    )
+                    return callee
+
                 if not isinstance(callee, types.PolymorphicType):
                     assert False, f'<{callee} is not polymorphic>'
 
                 if not callee.is_polymorphic():
                     assert False, f'<{callee} is already parameterized>'
 
-                arguments = [self.evaluate_type_expression(scope, arg) for arg in expression.args]
+                arguments: typing.List[types.AnalyzedType] = []
+                for arg in expression.args:
+                    argument = self.evaluate_type_expression(scope, arg, owner)
+                    arguments.append(argument)
+
                 return callee.with_parameters(arguments)
 
             case ast.TypeAttributeNode():
-                type = self.evaluate_type_expression(scope, expression.value)
+                type = self.evaluate_type_expression(scope, expression.value, owner)
                 return type.access_attribute(expression.attr)
 
             case ast.DictTypeNode():
-                key = self.evaluate_type_expression(scope, expression.key)
-                value = self.evaluate_type_expression(scope, expression.value)
+                key = self.evaluate_type_expression(scope, expression.key, owner)
+                value = self.evaluate_type_expression(scope, expression.value, owner)
 
                 return types.BuiltinTypes.DICT.with_parameters([key, value])
 
             case ast.SetTypeNode():
-                elt = self.evaluate_type_expression(scope, expression.elt)
+                elt = self.evaluate_type_expression(scope, expression.elt, owner)
                 return types.BuiltinTypes.SET.with_parameters([elt])
 
             case ast.ListTypeNode():
-                elt = self.evaluate_type_expression(scope, expression.elt)
+                elt = self.evaluate_type_expression(scope, expression.elt, owner)
                 return types.BuiltinTypes.LIST.with_parameters([elt])
 
     def check_type_compatibility(
@@ -333,8 +355,17 @@ class TypeAnalyzer:
                     )
 
                     if function.fn_self is not None:
-                        if not isinstance(ctx.outer_type, types.ClassType):
-                            assert False, '<Self type is only valid in class>'
+                        if function.fn_self.owner is types.UNKNOWN:
+                            if not isinstance(ctx.outer_type, types.ClassType):
+                                assert False, '<Unbound Self outside of class>'
+
+                            function.fn_self.owner = ctx.outer_type
+
+                        elif (
+                            isinstance(ctx.outer_type, types.ClassType)
+                            and function.fn_self.owner is not ctx.outer_type
+                        ):
+                            assert False, f'<Self({function.fn_self.owner}) is not {ctx.outer_type}>'
 
                     for parameter in function.fn_parameters:
                         symbol = Symbol(name=parameter.name, type=parameter.type.to_instance())

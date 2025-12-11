@@ -65,7 +65,7 @@ x = unbox_int(box) # type: int
 # to what will eventually become traits. The syntax |T: Trait| constrains
 # the type T to a Trait.
 
-def get_item(items: |T: Indexable(|U|)|, index: int) -> U:
+def get_item(items: |T: Indexable(int, |U|)|, index: int) -> U:
     return items[index]
 
 # Alternatively, the with/for syntax can be used to for more complex constraints.
@@ -78,8 +78,36 @@ with (
     return items[index]
 
 # The with/for syntax cannot constrain parameters that aren't already defined
-# in the function definition. However, it can be used to extract the parameters
-# from a polymorphic constraint. (i.e. Indexable(|U|) for |T| would be invalid)
+# in the function definition. (i.e. Indexable(|U|) for |T| would be invalid)
+# However, it can be used to extract the parameters from a polymorphic constraint.
+
+# The Self type is a special type used to define a function on a type.
+
+class Identity:
+    def f(self: Self) -> Self:
+        return self
+
+# Alternatively, Self can be used to define a function on a class outside of
+# the class. Self can be bound to another type using the Self(T) syntax.
+
+def g(self: Self(Identity)) -> Self:
+    return self
+
+x = Identity()
+x = x.f()
+x = x.g()
+
+# The Self type can be used in combination with the with/for syntax to denote
+# a function serves as the implementation function for a trait function.
+
+class Map:
+    mapping: {|K|: |V|}
+
+    def get_item(self: Self, key: K) -> V
+    with (
+        Indexable(K, V) for Self
+    ):
+        return self.mapping[key]
 
 # I'm unsure how traits would be handled as of right now because:
 # 1. Other languages use def f(x: Trait) for dynamic dispatch and def f(x: |T: Trait|)

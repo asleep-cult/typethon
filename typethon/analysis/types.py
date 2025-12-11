@@ -90,6 +90,11 @@ class PolymorphicType(AnalyzedType):
 
 
 @attr.s(kw_only=True, slots=True)
+class SelfType(AnalyzedType):
+    owner: AnalyzedType = attr.ib(default=UNKNOWN)
+
+
+@attr.s(kw_only=True, slots=True)
 class TypeTrait(PolymorphicType):
     tr_functions: typing.List[FunctionType] = attr.ib()
 
@@ -106,7 +111,7 @@ class FunctionParameter:
 class FunctionType(PolymorphicType):
     propagated: bool = attr.ib(default=True)
     # PolymorphicType fields must be filled regardless of propagation
-    fn_self: typing.Optional[AnalyzedType] = attr.ib(default=None)
+    fn_self: typing.Optional[SelfType] = attr.ib(default=None)
     fn_parameters: typing.List[FunctionParameter] = attr.ib(factory=list)
     fn_returns: AnalyzedType = attr.ib(default=UNKNOWN)
 
@@ -362,7 +367,7 @@ class BuiltinTypes:
     TRUE = BOOL.to_instance(True)
     FALSE = BOOL.to_instance(False)
 
-    INT = TypeBuilder.new_type('bool').build_type()
+    INT = TypeBuilder.new_type('int').build_type()
     FLOAT = TypeBuilder.new_type('float').build_type()
     COMPLEX = TypeBuilder.new_type('complex').build_type()
     STR = TypeBuilder.new_type('str').build_type()
