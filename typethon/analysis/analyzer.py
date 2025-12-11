@@ -25,6 +25,22 @@ class TypeAnalyzer:
 
         self.ctx = ctx
 
+    def initialize_builtin_symbols(self) -> None:
+        builtins = (
+            ('Self', types.BuiltinTypes.SELF),  # TODO: Make Self a keyword limited to annotations
+            ('bool', types.BuiltinTypes.BOOL),
+            ('int', types.BuiltinTypes.INT),
+            ('float', types.BuiltinTypes.FLOAT),
+            ('complex', types.BuiltinTypes.COMPLEX),
+            ('str', types.BuiltinTypes.STR),
+            ('list', types.BuiltinTypes.LIST),
+            ('dict', types.BuiltinTypes.DICT),
+            ('set', types.BuiltinTypes.SET),
+        )
+
+        for name, type in builtins:
+            self.module_scope.add_symbol(Symbol(name=name, type=type))
+
     def initialize_types(
         self,
         scope: Scope,
@@ -131,7 +147,23 @@ class TypeAnalyzer:
                             function,
                             parameter.annotation,
                         )
-                        function.fn_parameters[parameter.name] = type
+                        # TODO: Determine what syntax to use for implementing
+                        # trait functions on classes. At the moment, I think
+                        # it might be nice to tie it into the Self type i.e.
+                        # def add(self: Self as Add) However, it will be necessary
+                        # to allow defining implementation functions outside of classes,
+                        # and in that case, some special variation of Self seems
+                        # much less intuitive.
+
+                        function.fn_parameters.append(
+                            types.FunctionParameter(name=parameter.name, type=type)
+                        )
+
+                        if type is types.BuiltinTypes.SELF:
+                            if len(function.fn_parameters) != 0:
+                                assert False, 'Self type must be the first parameter'
+
+                            function.fn_self = type
 
                     if statement.returns is None:
                         assert False, f'<Please provide return value>'
@@ -157,13 +189,15 @@ class TypeAnalyzer:
                         type = self.evaluate_type_expression(
                             class_scope, assignment.annotation
                         )
-                        cls.cls_attributes[assignment.target.value] = type
+                        cls.cls_attributes.append(
+                            types.ClassAttribute(name=assignment.target.value, type=type)
+                        )
 
                     functions = self.filter_statements(statement.body, ast.FunctionDefNode)
                     for function in functions:
                         cls_function = class_scope.get_symbol(function.name).type
                         assert isinstance(cls_function, types.FunctionType)
-                        cls.cls_functions[function.name] = cls_function
+                        cls.cls_functions.append(cls_function)
 
                     cls.complete_propagation()
                     self.propagate_types(class_scope, statement.body)
@@ -229,15 +263,15 @@ class TypeAnalyzer:
                 key = self.evaluate_type_expression(scope, expression.key)
                 value = self.evaluate_type_expression(scope, expression.value)
 
-                return types.DICT.with_parameters([key, value])
+                return types.BuiltinTypes.DICT.with_parameters([key, value])
 
             case ast.SetTypeNode():
                 elt = self.evaluate_type_expression(scope, expression.elt)
-                return types.SET.with_parameters([elt])
+                return types.BuiltinTypes.SET.with_parameters([elt])
 
             case ast.ListTypeNode():
                 elt = self.evaluate_type_expression(scope, expression.elt)
-                return types.LIST.with_parameters([elt])
+                return types.BuiltinTypes.LIST.with_parameters([elt])
 
     def check_type_compatibility(
         self,
@@ -268,9 +302,8 @@ class TypeAnalyzer:
                 parameters = zip(type.parameters, value.type.parameters)
                 for parameter_type, parameter_value in parameters:
                     self.check_type_compatibility(parameter_type, parameter_value)
-
-            case unknown:
-                assert False, f'Unknown type {unknown}'
+            case types.AnalyzedType():
+                assert type is value.type
 
     def analyze_types(
         self,
@@ -299,8 +332,12 @@ class TypeAnalyzer:
                         and function.propagated
                     )
 
-                    for name, type in function.fn_parameters.items():
-                        symbol = Symbol(name=name, type=type.to_instance())
+                    if function.fn_self is not None:
+                        if not isinstance(ctx.outer_type, types.ClassType):
+                            assert False, '<Self type is only valid in class>'
+
+                    for parameter in function.fn_parameters:
+                        symbol = Symbol(name=parameter.name, type=parameter.type.to_instance())
                         function_scope.add_symbol(symbol)
 
                     inner_ctx = ctx.create_inner_context(function)
@@ -465,7 +502,7 @@ class TypeAnalyzer:
             case ast.BoolOpNode():
                 operands = [self.analyze_type(scope, ctx, operand) for operand in expression.values]
 
-                type = types.BOOL.to_instance()
+                type = types.BuiltinTypes.BOOL.to_instance()
                 ctx.bool_op_hook(type, expression)
 
             case ast.BinaryOpNode():
@@ -483,24 +520,9 @@ class TypeAnalyzer:
 
                 ctx.name_hook(symbol.type, expression)
                 return symbol.type
-            # XXX: I don't know if constants should be handled like this
-            case ast.IntegerNode():
-                type = types.INT.to_instance(expression.value)
-                ctx.constant_hook(type, expression)
-                return type
 
-            case ast.FloatNode():
-                type = types.FLOAT.to_instance(value=expression.value)
-                ctx.constant_hook(type, expression)
-                return type
-
-            case ast.ComplexNode():
-                type = types.COMPLEX.to_instance(value=expression.value)
-                ctx.constant_hook(type, expression)
-                return type
-
-            case ast.StringNode():
-                type = types.STRING.to_instance(value=expression.value)
+            case ast.ConstantNode():
+                type = self.analyze_constant(scope, expression)
                 ctx.constant_hook(type, expression)
                 return type
 
@@ -513,6 +535,35 @@ class TypeAnalyzer:
 
         assert False, f'<Unable to determine type of {expression}>'
 
+    def analyze_constant(self, scope: Scope, constant: ast.ConstantNode) -> types.AnalyzedType:
+        match constant.type:
+            case ast.ConstantType.TRUE:
+                return types.BuiltinTypes.TRUE
+
+            case ast.ConstantType.FALSE:
+                return types.BuiltinTypes.FALSE
+
+            case ast.ConstantType.NONE:
+                return types.BuiltinTypes.NONE
+
+            case ast.ConstantType.ELLIPSIS:
+                assert False, '<TODO>'
+
+            case ast.ConstantType.INTEGER:
+                assert isinstance(constant, ast.IntegerNode)
+                return types.BuiltinTypes.INT.to_instance(constant.value)
+
+            case ast.ConstantType.FLOAT:
+                assert isinstance(constant, ast.FloatNode)
+                return types.BuiltinTypes.FLOAT.to_instance(constant.value)
+
+            case ast.ConstantType.COMPLEX:
+                assert isinstance(constant, ast.ComplexNode)
+                return types.BuiltinTypes.FLOAT.to_instance(constant.value)
+
+            case ast.ConstantType.STRING | ast.ConstantType.BYTES:
+                assert False, '<TODO>'
+
     def analyze_function_call(
         self,
         scope: Scope,
@@ -522,6 +573,7 @@ class TypeAnalyzer:
         return function.fn_returns.to_instance()
 
     def analyze_module(self) -> None:
+        self.initialize_builtin_symbols()
         self.initialize_types(self.module_scope, self.module.body)
         self.propagate_types(self.module_scope, self.module.body)
         self.analyze_types(self.module_scope, self.ctx, self.module.body)
