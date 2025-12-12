@@ -87,8 +87,8 @@ class Identity:
     def f(self: Self) -> Self:
         return self
 
-# Alternatively, Self can be used to define a function on a class outside of
-# the class. Self can be bound to another type using the Self(T) syntax.
+# Alternatively, Self can be used to define a function on a type outside of
+# the type by binding it with the Self(T) syntax.
 
 def g(self: Self(Identity)) -> Self:
     return self

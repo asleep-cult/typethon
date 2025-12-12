@@ -46,6 +46,18 @@ class TraitTable:
     trait: TypeTrait = attr.ib()
     functions: typing.Dict[str, FunctionType] = attr.ib()
 
+    def get_function(self, name: str) -> FunctionType:
+        if name not in self.functions:
+            assert False, f'<Trait table has no function {name}>'
+
+        return self.functions[name]
+
+
+@attr.s(kw_only=True, slots=True)
+class UnionType(AnalyzedType):
+    # XXX: This will probably be a compiler only type
+    types: typing.List[AnalyzedType] = attr.ib(factory=list)
+
 
 @attr.s(kw_only=True, slots=True)
 class InstanceOfType(AnalyzedType):
@@ -533,6 +545,36 @@ class BuiltinTypes:
     SET: PolymorphicType
 
 
+def create_binary_operator(name: str, function: str) -> TypeTrait:
+    return (
+        TypeBuilder.new_trait(name)
+        .add_type_parameter('T')
+        .add_type_parameter('U')
+        .add_function(
+            TypeBuilder.new_function(function)
+            .add_parameter('self', 'Self')
+            .add_parameter('rhs', 'T')
+            .add_return_type('U')
+            .build_type(nested=True)
+        )
+        .build_type()
+    )
+
+
+def create_unary_operator(name: str, function: str) -> TypeTrait:
+    return (
+        TypeBuilder.new_trait(name)
+        .add_type_parameter('T')
+        .add_function(
+            TypeBuilder.new_function(function)
+            .add_parameter('self', 'Self')
+            .add_return_type('T')
+            .build_type(nested=True)
+        )
+        .build_type()
+    )
+
+
 class BuiltinTraits:
     HASH = (
         TypeBuilder.new_trait('Hash')
@@ -545,52 +587,44 @@ class BuiltinTraits:
         .build_type()
     )
 
-    ADD = (
-        TypeBuilder.new_trait('Add')
-        .add_type_parameter('T')
-        .add_type_parameter('U')
-        .add_function(
-            TypeBuilder.new_function('add')
-            .add_parameter('self', 'Self')
-            .add_parameter('rhs', 'T')
-            .add_return_type('U')
-            .build_type(nested=True)
-        )
-        .build_type()
+    ADD = create_binary_operator('Add', 'add')
+    SUB = create_binary_operator('Sub', 'sub')
+    MULT = create_binary_operator('Mult', 'mult')
+    MATMULT = create_binary_operator('Matmult', 'matmult')
+    DIV = create_binary_operator('Div', 'div')
+    MOD = create_binary_operator('Mod', 'mod')
+    POW = create_binary_operator('Pow', 'pow')
+    LSHIFT = create_binary_operator('LShift', 'lshift')
+    RSHIFT = create_binary_operator('RShift', 'rshift')
+    BITOR = create_binary_operator('BitOr', 'bitor')
+    BITXOR = create_binary_operator('BitXOr', 'bitxor')
+    BITAND = create_binary_operator('BitAnd', 'bitand')
+    FLOORDIV = create_binary_operator('FloorDiv', 'floordiv')
+
+    BINARY_OPERATORS = (
+        ADD,
+        SUB,
+        MULT,
+        MATMULT,
+        DIV,
+        MOD,
+        POW,
+        LSHIFT,
+        RSHIFT,
+        BITOR,
+        BITXOR,
+        BITAND,
+        FLOORDIV,
     )
 
-    INVERT = (
-        TypeBuilder.new_trait('Invert')
-        .add_type_parameter('T')
-        .add_function(
-            TypeBuilder.new_function('invert')
-            .add_parameter('self', 'Self')
-            .add_return_type('T')
-            .build_type(nested=True)
-        )
-        .build_type()
-    )
-    UADD = (
-        TypeBuilder.new_trait('UAdd')
-        .add_type_parameter('T')
-        .add_function(
-            TypeBuilder.new_function('uadd')
-            .add_parameter('self', 'Self')
-            .add_return_type('T')
-            .build_type(nested=True)
-        )
-        .build_type()
-    )
-    USUB = (
-        TypeBuilder.new_trait('USub')
-        .add_type_parameter('T')
-        .add_function(
-            TypeBuilder.new_function('usub')
-            .add_parameter('self', 'Self')
-            .add_return_type('T')
-            .build_type(nested=True)
-        )
-        .build_type()
+    INVERT = create_unary_operator('Invert', 'invert')
+    UADD = create_unary_operator('UAdd', 'uadd')
+    USUB = create_unary_operator('USub', 'usub')
+
+    UNARY_OPERATORS = (
+        INVERT,
+        UADD,
+        USUB,
     )
 
 
@@ -606,28 +640,117 @@ BuiltinTypes.SET = (
     .build_type()
 )
 
-(
-    TypeBuilder.new_trait_table(
-        BuiltinTraits.USUB.with_parameters([BuiltinTypes.INT])
+
+def create_unary_table(
+    trait: TypeTrait,
+    type: AnalyzedType,
+    output: AnalyzedType,
+) -> TraitTable:
+    return (
+        TypeBuilder.new_trait_table(
+        trait.with_parameters([output])
+        )
+        .add_function(
+            TypeBuilder.new_function(trait.name.lower()) # XXX: Get the name elsewhere
+            .add_parameter('self', 'Self')
+            .add_return_type(type)
+            .build_type(nested=True)
+        )
+        .build_table(type)
     )
-    .add_function(
-        TypeBuilder.new_function('usub')
-        .add_parameter('self', 'Self')
-        .add_return_type(BuiltinTypes.INT)
-        .build_type(nested=True)
+
+
+def create_binary_table(
+    trait: TypeTrait,
+    type: AnalyzedType,
+    rhs: AnalyzedType,
+    output: AnalyzedType,
+) -> TraitTable:
+    return (
+        TypeBuilder.new_trait_table(
+            trait.with_parameters([rhs, output])
+        )
+        .add_function(
+            TypeBuilder.new_function(trait.name.lower())
+            .add_parameter('self', 'Self')
+            .add_parameter('rhs', rhs)
+            .add_return_type(output)
+            .build_type(nested=True)
+        )
+        .build_table(type)
     )
-    .build_table(BuiltinTypes.INT)
+
+
+def create_unary_tables(
+    traits: typing.Iterable[TypeTrait],
+    type: AnalyzedType,
+    output: AnalyzedType,
+) -> None:
+    for trait in traits:
+        create_unary_table(trait, type, output)
+
+
+def create_binary_tables(
+    traits: typing.Iterable[TypeTrait],
+    type: AnalyzedType,
+    rhs: AnalyzedType,
+    output: AnalyzedType,
+) -> None:
+    for trait in traits:
+        create_binary_table(trait, type, rhs, output)
+
+
+create_unary_tables(BuiltinTraits.UNARY_OPERATORS, BuiltinTypes.INT, BuiltinTypes.INT) # +int
+create_unary_tables((BuiltinTraits.UADD, BuiltinTraits.USUB), BuiltinTypes.FLOAT, BuiltinTypes.FLOAT) # +float
+
+create_binary_tables(
+    (
+        BuiltinTraits.ADD, # int + int
+        BuiltinTraits.SUB,
+        BuiltinTraits.MULT,
+        BuiltinTraits.DIV,
+        BuiltinTraits.MOD,
+        BuiltinTraits.POW,
+        BuiltinTraits.LSHIFT,
+        BuiltinTraits.RSHIFT,
+        BuiltinTraits.BITOR,
+        BuiltinTraits.BITXOR,
+        BuiltinTraits.BITAND,
+        BuiltinTraits.FLOORDIV,
+    ), 
+    BuiltinTypes.INT, BuiltinTypes.INT, BuiltinTypes.INT
 )
-(
-    TypeBuilder.new_trait_table(
-        BuiltinTraits.ADD.with_parameters([BuiltinTypes.INT, BuiltinTypes.INT])
-    )
-    .add_function(
-        TypeBuilder.new_function('add')
-        .add_parameter('self', 'Self')
-        .add_parameter('rhs', BuiltinTypes.INT)
-        .add_return_type(BuiltinTypes.INT)
-        .build_type(nested=True)
-    )
-    .build_table(BuiltinTypes.INT)
+create_binary_tables(
+    (
+        BuiltinTraits.ADD, # int + float
+        BuiltinTraits.SUB,
+        BuiltinTraits.MULT,
+        BuiltinTraits.DIV,
+        BuiltinTraits.MOD,
+        BuiltinTraits.POW,
+    ),
+    BuiltinTypes.INT, BuiltinTypes.FLOAT, BuiltinTypes.FLOAT
+)
+
+create_binary_tables(
+    (
+        BuiltinTraits.ADD, # float + float
+        BuiltinTraits.SUB,
+        BuiltinTraits.MULT,
+        BuiltinTraits.DIV,
+        BuiltinTraits.MOD,
+        BuiltinTraits.POW,
+    ),
+    BuiltinTypes.FLOAT, BuiltinTypes.FLOAT, BuiltinTypes.FLOAT
+)
+create_binary_tables(
+    (
+        BuiltinTraits.ADD, # float + int
+        BuiltinTraits.SUB,
+        BuiltinTraits.MULT,
+        BuiltinTraits.DIV,
+        BuiltinTraits.MOD,
+        BuiltinTraits.POW,
+    ),
+    BuiltinTypes.FLOAT, BuiltinTypes.INT, BuiltinTypes.FLOAT
 )

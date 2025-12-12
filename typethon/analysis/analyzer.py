@@ -415,10 +415,8 @@ class TypeAnalyzer:
 
                 case ast.IfNode():
                     condition = self.analyze_type(scope, ctx, statement.condition)
-
                     self.analyze_types(scope, ctx, statement.body)
                     self.analyze_types(scope, ctx, statement.else_body)
-
                     ctx.if_hook(condition, statement)
 
                 case ast.ExprNode():
@@ -522,7 +520,42 @@ class TypeAnalyzer:
                     case ast.Operator.ADD:
                         trait = types.BuiltinTraits.ADD
                         name = 'add'
-                    case _: assert False, '<Not implemented>'
+                    case ast.Operator.SUB:
+                        trait = types.BuiltinTraits.SUB
+                        name = 'sub'
+                    case ast.Operator.MULT:
+                        trait = types.BuiltinTraits.MULT
+                        name = 'mult'
+                    case ast.Operator.MATMULT:
+                        trait = types.BuiltinTraits.MATMULT
+                        name = 'matmult'
+                    case ast.Operator.DIV:
+                        trait = types.BuiltinTraits.DIV
+                        name = 'div'
+                    case ast.Operator.MOD:
+                        trait = types.BuiltinTraits.MOD
+                        name = 'mod'
+                    case ast.Operator.POW:
+                        trait = types.BuiltinTraits.POW
+                        name = 'pow'
+                    case ast.Operator.LSHIFT:
+                        trait = types.BuiltinTraits.LSHIFT
+                        name = 'lshift'
+                    case ast.Operator.RSHIFT:
+                        trait = types.BuiltinTraits.RSHIFT
+                        name = 'rshift'
+                    case ast.Operator.BITOR:
+                        trait = types.BuiltinTraits.BITOR
+                        name = 'bitor'
+                    case ast.Operator.BITXOR:
+                        trait = types.BuiltinTraits.BITXOR
+                        name = 'bitxor'
+                    case ast.Operator.BITAND:
+                        trait = types.BuiltinTraits.BITAND
+                        name = 'bitand'
+                    case ast.Operator.FLOORDIV:
+                        trait = types.BuiltinTraits.FLOORDIV
+                        name = 'floordiv'
 
                 trait_table = left.type.get_trait_table(
                     trait.with_parameters([right.type, types.BuiltinTypes.ANY])
@@ -532,7 +565,7 @@ class TypeAnalyzer:
 
                 ctx.binary_op_hook(left, expression)
 
-                function = trait_table.functions[name]
+                function = trait_table.get_function(name)
                 return function.fn_returns.to_instance()
 
             case ast.UnaryOpNode():
@@ -561,9 +594,21 @@ class TypeAnalyzer:
                 if trait_table is None:
                     assert False, '<The operand does not implement the operation>'
 
-                function = trait_table.functions[name]
+                function = trait_table.get_function(name)
                 return function.fn_returns.to_instance()
 
+            case ast.ConstantNode():
+                value = self.analyze_constant(scope, expression)
+                ctx.constant_hook(value, expression)
+                return value
+
+            case ast.CallNode():
+                function = self.analyze_type(scope, ctx, expression.func)
+                if isinstance(function, types.FunctionType):
+                    value = self.analyze_function_call(scope, function, expression)
+                    ctx.call_hook(value, expression)
+                    return value
+            
             case ast.NameNode():
                 symbol = scope.get_symbol(expression.value)
                 if symbol is UNRESOLVED:
@@ -572,17 +617,17 @@ class TypeAnalyzer:
                 ctx.name_hook(symbol.type, expression)
                 return symbol.type
 
-            case ast.ConstantNode():
-                type = self.analyze_constant(scope, expression)
-                ctx.constant_hook(type, expression)
-                return type
+            case ast.ListNode():
+                elts = [self.analyze_type(scope, ctx, elt) for elt in expression.elts]
 
-            case ast.CallNode():
-                function = self.analyze_type(scope, ctx, expression.func)
-                if isinstance(function, types.FunctionType):
-                    type = self.analyze_function_call(scope, function, expression)
-                    ctx.call_hook(type, expression)
-                    return type
+                union = types.UnionType(name='<elts>')
+                for elt in elts:
+                    if not isinstance(elt, types.InstanceOfType):
+                        assert False, '<List cannot contain type>'
+                    
+                    union.types.append(elt.type)
+
+                return types.BuiltinTypes.LIST.with_parameters([union]).to_instance()
 
         assert False, f'<Unable to determine type of {expression}>'
 
