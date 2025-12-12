@@ -153,7 +153,7 @@ users = apply((name) ::
 
 # 5. If expressions will be changed to the rejected form to add more flexibility
 
-f(if x < 0: 'negative' else: 'even')
+f(if x < 0: 'negative' else: 'positive')
 
 # The expression might be a "complex expression" meaning it skips whitespace
 # when not in parenthesis
@@ -171,7 +171,7 @@ if name.len() < 10: name
 
 names = for name in usernames
 if name.len() < 10: name
-else: f'name[10]...'
+else: f'name[:10]...'
 
 # 7. Assignment expressions do not and probably will not exist.
 
