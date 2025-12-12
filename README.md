@@ -68,16 +68,16 @@ x = unbox_int(box) # type: int
 def get_item(items: |T: Indexable(int, |U|)|, index: int) -> U:
     return items[index]
 
-# Alternatively, the with/for syntax can be used to for more complex constraints.
+# Alternatively, the for syntax can be used to for more complex constraints.
 # ^ (maybe?)
 
 def get_item(self, items: |T|, index: int) -> U
-with (
+(
     Indexable(|U|) for T,
 ):
     return items[index]
 
-# The with/for syntax cannot constrain parameters that aren't already defined
+# The for syntax cannot constrain parameters that aren't already defined
 # in the function definition. (i.e. Indexable(|U|) for |T| would be invalid)
 # However, it can be used to extract the parameters from a polymorphic constraint.
 
@@ -97,14 +97,14 @@ x = Identity()
 x = x.f()
 x = x.g()
 
-# The Self type can be used in combination with the with/for syntax to denote
+# The Self type can be used in combination with the for syntax to denote
 # a function serves as the implementation function for a trait function.
 
 class Map:
     mapping: {|K|: |V|}
 
     def get_item(self: Self, key: K) -> V
-    with (
+    (
         Indexable(K, V) for Self
     ):
         return self.mapping[key]
@@ -150,4 +150,39 @@ users = apply((name) ::
 
     return User(name)
 ::, ['Alice', 'Jimmy'])
+
+# 5. If expressions will be changed to the rejected form to add more flexibility
+
+f(if x < 0: 'negative' else: 'even')
+
+# The expression might be a "complex expression" meaning it skips whitespace
+# when not in parenthesis
+
+status = if response == 200: 'ok'
+elif response == 402: 'forbidden'
+else: response.str()
+
+# 6. Comprehensions will be similarly changed
+
+names = for names in usernames
+if name.len() < 10: name
+
+# else/elif expressions can be used here
+
+names = for name in usernames
+if name.len() < 10: name
+else: f'name[10]...'
+
+# 7. Assignment expressions do not and probably will not exist.
+
+# 8. Match statements might become a complex expression. (Will almost certainly
+# use else.)
+
+# No colon after match, similar to for
+result = match operator
+case Operators.ADD: self.add(left, right)
+case operator.SUB: self.sub(left, right)
+else: UnknownOperatorError()
+
+# Not sure how the statement form will work
 ```
