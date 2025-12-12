@@ -135,23 +135,7 @@ trait Foo |T|:
 
 Type|T, U| # Same as Type(|T|, |U|)
 
-# 4. Lambdas might be defined with double colons. 
-# They also might be implicitly parametrically polymorphic
-
-f = (x) :: x # def f(x: |T|) -> T: return x
-f = (Box(x)) :: x # def f(box: Box(|T|)) -> T: return x.vaule
-
-# They can be made multiline by adding another double colon at the end
-# (Please note: I think this syntax is great but slightly cursed)
-
-users = apply((name) ::
-    if name not in usernames:
-        usernames.append(name)
-
-    return User(name)
-::, ['Alice', 'Jimmy'])
-
-# 5. If expressions will be changed to the rejected form to add more flexibility
+# 4. If expressions will be changed to the rejected form to add more flexibility
 
 f(if x < 0: 'negative' else: 'positive')
 
@@ -162,27 +146,83 @@ status = if response == 200: 'ok'
 elif response == 402: 'forbidden'
 else: response.str()
 
-# 6. Comprehensions will be similarly changed
+# 5. Comprehensions will be similarly changed
 
-names = for names in usernames
-if name.len() < 10: name
+names = for names in usernames: name.lower()
 
-# else/elif expressions can be used here
+# Indentation should be reccomended but it cannot be enforced
+# because the scanner skips whitespace in paranthesis and it would be
+# weird to only enforce is in this context.
 
-names = for name in usernames
-if name.len() < 10: name
-else: f'name[:10]...'
+names = for name in usernames:
+    if name.len() < 10: name
+    else: f'name[:10]...'
+
+# 6. For statements and expressions might have an optional guard
+
+for name in usernames if name.len() < 10:
+    ...
+
+names = for name in usernames if name.len() < 10: name
 
 # 7. Assignment expressions do not and probably will not exist.
 
-# 8. Match statements might become a complex expression. (Will almost certainly
+# The ideas above range from highly likely to certain, the ones
+# below might not happen at all.
+
+# 8. There might be a mechanism for specifying the loop for break/continue
+
+while True:
+    for letter in input():
+        if letter == 'c':
+            break while
+
+# This would be a nice feature, but it still has ambiguity when nesting in
+# the same type of loop. This could be solved with labels, but I am not willing
+# to add labels.
+
+# 9. Lambdas might be defined with double colons. 
+# They also might be implicitly parametrically polymorphic
+
+f = (x) :: x # def f(x: |T|) -> T: return x
+f = (Box(x)) :: x # def f(box: Box(|T|)) -> T: return x.vaule
+
+# They can be made multiline by adding another double colon at the end
+
+users = apply((name) ::
+    if name not in usenames:
+        usernames.append(name)
+
+    return User(name)
+::, ['Alice', 'Jimmy'])
+
+# This is actually very nice syntactically, but I do not want to run amuck
+# and completely destroy the pythonic syntax. Here are my arguments against
+# the syntax:
+# 1. The double colon looks very out of place and makes the language
+# feel like Haskell or C++
+# 2. Nothing else in the language requires explicitly defining the end of a
+# block and theres no reason to do it here.
+# 3. This can easily be achieved by using a function instead of introducing
+# special syntax
+
+# Counter-arguments:
+# 1. The double colon is significantly more pythnonic than braces or alternative
+# syntax choices and is semi-consistent with colons defining the beginning of
+# blocks 
+# 2. The purpose of a this lambda is to allow the use of a code block as a single
+# expression, so it is inherently different from other statements
+# 3. The existing lambda syntax is so restrictive that the majority of reasonable
+# use cases are impossible without a function
+
+# 10. Match statements might become a complex expression. (They  will almost certainly
 # use else.)
 
-# No colon after match, similar to for
-result = match operator
-case Operators.ADD: self.add(left, right)
-case operator.SUB: self.sub(left, right)
-else: UnknownOperatorError()
+result = match operator:
+    case Operators.ADD: self.add(left, right)
+    case operator.SUB: self.sub(left, right)
+    else: UnknownOperatorError()
 
-# Not sure how the statement form will work
+# Not sure how the statement form will work but I want to avoid the deep nesting
+# that comes from indented case blocks.
 ```
