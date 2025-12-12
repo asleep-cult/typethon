@@ -130,13 +130,24 @@ def proto(foo: int) -> str
 trait Foo |T|:
     def proto(self, foo: int) -> T
 
-# 3. Lambdas might be implicitly parametrically polymorphic
-
-f = (x) -> x # def f(x: |T|) -> T: return x
-f = (Box(x)) -> x # def f(box: Box(|T|)) -> T: return x.vaule
-
-# 4. There will probably be syntactic sugar for initializing a polymorphic type
+# 3. There will probably be syntactic sugar for initializing a polymorphic type
 # with a polymorphic parameter to reduce clutter
 
 Type|T, U| # Same as Type(|T|, |U|)
+
+# 4. Lambdas might be defined with double colons. 
+# They also might be implicitly parametrically polymorphic
+
+f = (x) :: x # def f(x: |T|) -> T: return x
+f = (Box(x)) :: x # def f(box: Box(|T|)) -> T: return x.vaule
+
+# They can be made multiline by adding another double colon at the end
+# (Please note: I think this syntax is great but slightly cursed)
+
+users = apply((name) ::
+    if name not in usernames:
+        usernames.append(name)
+
+    return User(name)
+::, ['Alice', 'Jimmy'])
 ```
