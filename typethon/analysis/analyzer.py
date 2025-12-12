@@ -295,38 +295,6 @@ class TypeAnalyzer:
                 elt = self.evaluate_type_expression(scope, expression.elt, owner)
                 return types.BuiltinTypes.LIST.with_parameters([elt])
 
-    def check_type_compatibility(
-        self,
-        type: types.AnalyzedType,
-        value: types.AnalyzedType, 
-    ) -> None:
-        if not isinstance(value, types.InstanceOfType):
-            # TODO: Make def f(x: type(|T|)), f(int) valid
-            assert False, f'<Expected instance, got {value}>'
-
-        match type:
-            case types.TypeParameter():
-                if isinstance(value.type, types.TypeParameter):
-                    # XXX: Should this ever be possible?
-                    assert type is value.type, f'Incompatible type parameters {type}, {value}'
-
-                # TODO: Check for constraints
-            case types.FunctionType():
-                assert False, 'Not implemented'
-            case types.ClassType():
-                assert False, 'Not implemented'
-            case types.PolymorphicType():
-                assert (
-                    isinstance(value.type, types.PolymorphicType)
-                    and type.get_initial_type() is value.type.get_initial_type()
-                )
-
-                parameters = zip(type.parameters, value.type.parameters)
-                for parameter_type, parameter_value in parameters:
-                    self.check_type_compatibility(parameter_type, parameter_value)
-            case types.AnalyzedType():
-                assert type is value.type
-
     def analyze_types(
         self,
         scope: Scope,
@@ -391,12 +359,17 @@ class TypeAnalyzer:
                         assert False, '<Return is not valid in this context>'
 
                     if statement.value is not None:
-                        type = self.analyze_type(scope, ctx, statement.value)
                         if not isinstance(ctx.outer_type, types.FunctionType):
                             assert False, '<unreachable>'
 
-                        self.check_type_compatibility(ctx.outer_type.fn_returns, type)
-                        ctx.return_hook(type, statement)
+                        value = self.analyze_type(scope, ctx, statement.value)
+                        if not isinstance(value, types.InstanceOfType):
+                            assert False, '<Function cannot return type>'
+
+                        if not ctx.outer_type.fn_returns.is_compatible_with(value.type):
+                            assert False, f'<Return type is incompatible>'
+
+                        ctx.return_hook(value, statement)
 
                 case ast.DeleteNode():
                     assert False, '<Del is not implemented>'
@@ -539,10 +512,57 @@ class TypeAnalyzer:
             case ast.BinaryOpNode():
                 left = self.analyze_type(scope, ctx, expression.left)
                 right = self.analyze_type(scope, ctx, expression.right)
-                assert left is right
+                if (
+                    not isinstance(left, types.InstanceOfType)
+                    or not isinstance(right, types.InstanceOfType)
+                ):
+                    assert False, '<Expected instance of type>'
+
+                match expression.op:
+                    case ast.Operator.ADD:
+                        trait = types.BuiltinTraits.ADD
+                        name = 'add'
+                    case _: assert False, '<Not implemented>'
+
+                trait_table = left.type.get_trait_table(
+                    trait.with_parameters([right.type, types.BuiltinTypes.ANY])
+                )
+                if trait_table is None:
+                    assert False, '<The left expression does not implement add>'
 
                 ctx.binary_op_hook(left, expression)
-                return left
+
+                function = trait_table.functions[name]
+                return function.fn_returns.to_instance()
+
+            case ast.UnaryOpNode():
+                operand = self.analyze_type(scope, ctx, expression.operand)
+                if not isinstance(operand, types.InstanceOfType):
+                    assert False, '<Expected instance of type>'
+
+                match expression.op:
+                    case ast.UnaryOperator.INVERT:
+                        trait = types.BuiltinTraits.INVERT
+                        name = 'invert'
+                    case ast.UnaryOperator.NOT:
+                        return types.BuiltinTypes.BOOL.to_instance()
+                    case ast.UnaryOperator.UADD:
+                        trait = types.BuiltinTraits.UADD
+                        name = 'uadd'
+                    case ast.UnaryOperator.USUB:
+                        trait = types.BuiltinTraits.USUB
+                        name = 'usub'
+
+                # XXX: This is essentially saying that the expression is polymorphic
+                # over the output type
+                trait_table = operand.type.get_trait_table(
+                    trait.with_parameters([types.BuiltinTypes.ANY])
+                )
+                if trait_table is None:
+                    assert False, '<The operand does not implement the operation>'
+
+                function = trait_table.functions[name]
+                return function.fn_returns.to_instance()
 
             case ast.NameNode():
                 symbol = scope.get_symbol(expression.value)
