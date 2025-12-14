@@ -367,6 +367,7 @@ class TypeAnalyzer:
                             assert False, '<Function cannot return type>'
 
                         if not ctx.outer_type.fn_returns.is_compatible_with(value.type):
+                            print(repr(ctx.outer_type.fn_returns), repr(value.type))
                             assert False, f'<Return type is incompatible>'
 
                         ctx.return_hook(value, statement)
@@ -404,9 +405,10 @@ class TypeAnalyzer:
                     if not isinstance(statement.target, ast.NameNode):
                         assert False, '<Non-name assign not implemented>'
 
-                    function = trait_table.get_function('next')
+                    function = trait_table.functions['next']
+                    return_type = function.get_return_type(iterator.type)
                     scope.add_symbol(
-                        Symbol(name=statement.target.value, type=function.fn_returns.to_instance())
+                        Symbol(name=statement.target.value, type=return_type.to_instance())
                     )
 
                     self.analyze_types(scope, ctx, statement.body)
@@ -569,7 +571,7 @@ class TypeAnalyzer:
 
                 ctx.binary_op_hook(left, expression)
 
-                function = trait_table.get_function(name)
+                function = trait_table.functions[name]
                 return function.fn_returns.to_instance()
 
             case ast.UnaryOpNode():
@@ -596,7 +598,7 @@ class TypeAnalyzer:
                 if trait_table is None:
                     assert False, '<The operand does not implement the operation>'
 
-                function = trait_table.get_function(name)
+                function = trait_table.functions[name]
                 return function.fn_returns.to_instance()
 
             case ast.ConstantNode():
