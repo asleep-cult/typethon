@@ -33,8 +33,8 @@ class TypeAnalyzer:
             ('complex', types.BuiltinTypes.COMPLEX),
             ('str', types.BuiltinTypes.STR),
             ('list', types.BuiltinTypes.LIST),
-            ('dict', types.BuiltinTypes.DICT),
-            ('set', types.BuiltinTypes.SET),
+            #('dict', types.BuiltinTypes.DICT),
+            #('set', types.BuiltinTypes.SET),
         )
 
         for name, type in builtins:
@@ -220,7 +220,7 @@ class TypeAnalyzer:
                         assert False, '<Use of Self outside of function>'
 
                     if owner.fn_self is None:
-                        owner.fn_self = types.SelfType(name='Self')
+                        owner.fn_self = types.SelfType()
 
                     return owner.fn_self
 
@@ -394,11 +394,20 @@ class TypeAnalyzer:
                     initial_flags = ctx.flags
                     ctx.flags |= ContextFlags.ALLOW_LOOP_CONTROL
 
-                    iterator = self.analyze_type(scope, ctx, statement.iterator)
-                    # implementation = self.implementation_for(types.ITERATOR, iterator)
-                    # next = implementation.functions['__next__']
-                    # self.analyze_assignment(scope, statement.target, ...)
-                    assert False, '<For loop is not implemented>'
+                    iterator = self.analyze_instance_type(scope, ctx, statement.iterator)
+                    trait_table = iterator.type.get_trait_table(
+                        types.BuiltinTraits.ITER.with_parameters([types.BuiltinTypes.ANY])
+                    )
+                    if trait_table is None:
+                        assert False, '<The expression is not iterable>'
+
+                    if not isinstance(statement.target, ast.NameNode):
+                        assert False, '<Non-name assign not implemented>'
+
+                    function = trait_table.get_function('next')
+                    scope.add_symbol(
+                        Symbol(name=statement.target.value, type=function.fn_returns.to_instance())
+                    )
 
                     self.analyze_types(scope, ctx, statement.body)
                     ctx.flags = initial_flags
@@ -508,13 +517,8 @@ class TypeAnalyzer:
                 ctx.bool_op_hook(type, expression)
 
             case ast.BinaryOpNode():
-                left = self.analyze_type(scope, ctx, expression.left)
-                right = self.analyze_type(scope, ctx, expression.right)
-                if (
-                    not isinstance(left, types.InstanceOfType)
-                    or not isinstance(right, types.InstanceOfType)
-                ):
-                    assert False, '<Expected instance of type>'
+                left = self.analyze_instance_type(scope, ctx, expression.left)
+                right = self.analyze_instance_type(scope, ctx, expression.right)
 
                 match expression.op:
                     case ast.Operator.ADD:
@@ -569,9 +573,7 @@ class TypeAnalyzer:
                 return function.fn_returns.to_instance()
 
             case ast.UnaryOpNode():
-                operand = self.analyze_type(scope, ctx, expression.operand)
-                if not isinstance(operand, types.InstanceOfType):
-                    assert False, '<Expected instance of type>'
+                operand = self.analyze_instance_type(scope, ctx, expression.operand)
 
                 match expression.op:
                     case ast.UnaryOperator.INVERT:
@@ -608,7 +610,7 @@ class TypeAnalyzer:
                     value = self.analyze_function_call(scope, function, expression)
                     ctx.call_hook(value, expression)
                     return value
-            
+
             case ast.NameNode():
                 symbol = scope.get_symbol(expression.value)
                 if symbol is UNRESOLVED:
@@ -618,18 +620,34 @@ class TypeAnalyzer:
                 return symbol.type
 
             case ast.ListNode():
-                elts = [self.analyze_type(scope, ctx, elt) for elt in expression.elts]
+                elts = [self.analyze_instance_type(scope, ctx, elt) for elt in expression.elts]
 
-                union = types.UnionType(name='<elts>')
-                for elt in elts:
-                    if not isinstance(elt, types.InstanceOfType):
-                        assert False, '<List cannot contain type>'
-                    
-                    union.types.append(elt.type)
+                if elts:
+                    first_type = elts[0].type
 
-                return types.BuiltinTypes.LIST.with_parameters([union]).to_instance()
+                    if all(first_type.is_compatible_with(elt.type) for elt in elts):
+                        type = first_type
+                    else:
+                        elt_types = [elt.type for elt in elts]
+                        type = types.UnionType(name='<list elts>', types=elt_types)
+                else:
+                    type = types.UNKNOWN
+
+                return types.BuiltinTypes.LIST.with_parameters([type]).to_instance()
 
         assert False, f'<Unable to determine type of {expression}>'
+
+    def analyze_instance_type(
+        self,
+        scope: Scope,
+        ctx: AnalysisContext,
+        expression: ast.ExpressionNode,
+    ) -> types.InstanceOfType:
+        type = self.analyze_type(scope, ctx, expression)
+        if not isinstance(type, types.InstanceOfType):
+            assert False, f'<{type} is not allowed in this context>'
+
+        return type
 
     def analyze_constant(self, scope: Scope, constant: ast.ConstantNode) -> types.AnalyzedType:
         match constant.type:
