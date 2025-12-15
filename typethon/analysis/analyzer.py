@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing
 
 from . import types
+from .builder import Types, Traits
 from .context import AnalysisContext, ContextFlags
 from ..syntax import ast
 from .scope import Scope, Symbol, UNRESOLVED
@@ -27,18 +28,18 @@ class TypeAnalyzer:
 
     def initialize_builtin_symbols(self) -> None:
         builtins = (
-            ('bool', types.BuiltinTypes.BOOL),
-            ('int', types.BuiltinTypes.INT),
-            ('float', types.BuiltinTypes.FLOAT),
-            ('complex', types.BuiltinTypes.COMPLEX),
-            ('str', types.BuiltinTypes.STR),
-            ('list', types.BuiltinTypes.LIST),
-            #('dict', types.BuiltinTypes.DICT),
-            #('set', types.BuiltinTypes.SET),
+            ('bool', Types.BOOL),
+            ('int', Types.INT),
+            ('float', Types.FLOAT),
+            ('complex', Types.COMPLEX),
+            ('str', Types.STR),
+            ('list', Types.LIST),
+            #('dict', Types.DICT),
+            #('set', Types.SET),
         )
 
         for name, type in builtins:
-            self.module_scope.add_symbol(Symbol(name=name, type=type))
+            self.module_scope.add_symbol(Symbol(name=name, content=type))
 
     def initialize_types(
         self,
@@ -59,13 +60,13 @@ class TypeAnalyzer:
             else:
                 continue
 
-            scope.add_symbol(Symbol(name=statement.name, type=type))
+            scope.add_symbol(Symbol(name=statement.name, content=type))
             child_scope = scope.create_child_scope(statement.name)
 
             for parameter in parameters:
                 type_parameter = types.TypeParameter(name=parameter.name, owner=type)
 
-                symbol = Symbol(name=parameter.name, type=type_parameter)
+                symbol = Symbol(name=parameter.name, content=type_parameter)
                 child_scope.add_symbol(symbol)
                 type.parameters.append(type_parameter)
 
@@ -132,7 +133,7 @@ class TypeAnalyzer:
         for statement in statements:
             match statement:
                 case ast.FunctionDefNode():
-                    function = scope.get_symbol(statement.name).type
+                    function = scope.get_type(statement.name)
                     assert isinstance(function, types.FunctionType)
 
                     function_scope = scope.get_child_scope(statement.name)
@@ -146,7 +147,7 @@ class TypeAnalyzer:
                             parameter.annotation,
                             function,
                         )
-                        function.fn_parameters.append(
+                        function.fn_parameters[parameter.name] = (
                             types.FunctionParameter(name=parameter.name, type=type)
                         )
 
@@ -164,7 +165,7 @@ class TypeAnalyzer:
                         self.propagate_types(function_scope, statement.body)
 
                 case ast.ClassDefNode():
-                    cls = scope.get_symbol(statement.name).type
+                    cls = scope.get_type(statement.name)
                     assert isinstance(cls, types.ClassType)
 
                     class_scope = scope.get_child_scope(statement.name)
@@ -174,15 +175,15 @@ class TypeAnalyzer:
                         type = self.evaluate_type_expression(
                             class_scope, assignment.annotation, cls,
                         )
-                        cls.cls_attributes.append(
+                        cls.cls_attributes[assignment.target.value] = (
                             types.ClassAttribute(name=assignment.target.value, type=type)
                         )
 
                     functions = self.filter_statements(statement.body, ast.FunctionDefNode)
                     for function in functions:
-                        cls_function = class_scope.get_symbol(function.name).type
+                        cls_function = class_scope.get_type(function.name)
                         assert isinstance(cls_function, types.FunctionType)
-                        cls.cls_functions.append(cls_function)
+                        cls.cls_functions[function.name] = cls_function
 
                     cls.complete_propagation()
                     self.propagate_types(class_scope, statement.body)
@@ -224,24 +225,20 @@ class TypeAnalyzer:
 
                     return owner.fn_self
 
-                symbol = scope.get_symbol(expression.value)
-                if symbol is UNRESOLVED:
-                    assert False, f'<Unresolved symbol {expression.value}>'
-
-                return symbol.type
+                return scope.get_type(expression.value)
 
             case ast.TypeParameterNode():
-                symbol = scope.get_symbol(expression.name)
-                assert isinstance(symbol.type, types.TypeParameter)
+                type = scope.get_type(expression.name)
+                assert isinstance(type, types.TypeParameter)
 
                 if expression.constraint is not None:
-                    symbol.type.constraint = self.evaluate_type_expression(
+                    type.constraint = self.evaluate_type_expression(
                         scope,
                         expression.constraint,
                         owner,
                     )
 
-                return symbol.type
+                return type
 
             case ast.TypeCallNode():
                 # TODO: Make Self(T) invalid except as first function argument
@@ -267,7 +264,7 @@ class TypeAnalyzer:
                 if not isinstance(callee, types.PolymorphicType):
                     assert False, f'<{callee} is not polymorphic>'
 
-                if not callee.is_polymorphic():
+                if not callee.has_uninitialized_parameters():
                     assert False, f'<{callee} is already parameterized>'
 
                 arguments: typing.List[types.AnalyzedType] = []
@@ -285,15 +282,15 @@ class TypeAnalyzer:
                 key = self.evaluate_type_expression(scope, expression.key, owner)
                 value = self.evaluate_type_expression(scope, expression.value, owner)
 
-                return types.BuiltinTypes.DICT.with_parameters([key, value])
+                return Types.DICT.with_parameters([key, value])
 
             case ast.SetTypeNode():
                 elt = self.evaluate_type_expression(scope, expression.elt, owner)
-                return types.BuiltinTypes.SET.with_parameters([elt])
+                return Types.SET.with_parameters([elt])
 
             case ast.ListTypeNode():
                 elt = self.evaluate_type_expression(scope, expression.elt, owner)
-                return types.BuiltinTypes.LIST.with_parameters([elt])
+                return Types.LIST.with_parameters([elt])
 
     def analyze_types(
         self,
@@ -316,7 +313,7 @@ class TypeAnalyzer:
             match statement:
                 case ast.FunctionDefNode() if statement.body is not None:
                     function_scope = scope.get_child_scope(statement.name)
-                    function = scope.get_symbol(statement.name).type
+                    function = scope.get_type(statement.name)
                     assert (
                         isinstance(function, types.FunctionType)
                         and function.propagated
@@ -328,15 +325,17 @@ class TypeAnalyzer:
                                 assert False, '<Unbound Self outside of class>'
 
                             function.fn_self.owner = ctx.outer_type
-
                         elif (
                             isinstance(ctx.outer_type, types.ClassType)
                             and function.fn_self.owner is not ctx.outer_type
                         ):
                             assert False, f'<Self({function.fn_self.owner}) is not {ctx.outer_type}>'
 
-                    for parameter in function.fn_parameters:
-                        symbol = Symbol(name=parameter.name, type=parameter.type.to_instance())
+                    for parameter in function.fn_parameters.values():
+                        symbol = Symbol(
+                            name=parameter.name,
+                            content=parameter.type.to_instance(),
+                        )
                         function_scope.add_symbol(symbol)
 
                     inner_ctx = ctx.create_inner_context(function)
@@ -345,7 +344,7 @@ class TypeAnalyzer:
 
                 case ast.ClassDefNode():
                     class_scope = scope.get_child_scope(statement.name)
-                    cls = scope.get_symbol(statement.name).type
+                    cls = scope.get_type(statement.name)
                     assert (
                         isinstance(cls, types.ClassType)
                         and cls.propagated
@@ -367,7 +366,6 @@ class TypeAnalyzer:
                             assert False, '<Function cannot return type>'
 
                         if not ctx.outer_type.fn_returns.is_compatible_with(value.type):
-                            print(repr(ctx.outer_type.fn_returns), repr(value.type))
                             assert False, f'<Return type is incompatible>'
 
                         ctx.return_hook(value, statement)
@@ -397,7 +395,7 @@ class TypeAnalyzer:
 
                     iterator = self.analyze_instance_type(scope, ctx, statement.iterator)
                     trait_table = iterator.type.get_trait_table(
-                        types.BuiltinTraits.ITER.with_parameters([types.BuiltinTypes.ANY])
+                        Traits.ITER.with_parameters([types.ANY])
                     )
                     if trait_table is None:
                         assert False, '<The expression is not iterable>'
@@ -407,9 +405,12 @@ class TypeAnalyzer:
 
                     function = trait_table.functions['next']
                     return_type = function.get_return_type(iterator.type)
-                    scope.add_symbol(
-                        Symbol(name=statement.target.value, type=return_type.to_instance())
+
+                    symbol = Symbol(
+                        name=statement.target.value,
+                        content=return_type.to_instance()
                     )
+                    scope.add_symbol(symbol)
 
                     self.analyze_types(scope, ctx, statement.body)
                     ctx.flags = initial_flags
@@ -462,7 +463,7 @@ class TypeAnalyzer:
                 assert False, 'Non-variable assignment implemented'
 
             # TODO: check for type coherency
-            scope.add_symbol(Symbol(name=target.value, type=value))
+            scope.add_symbol(Symbol(name=target.value, content=value))
 
     def analyze_aug_assignment(
         self,
@@ -485,7 +486,7 @@ class TypeAnalyzer:
         scope: Scope,
         ctx: AnalysisContext,
         expression: ast.ExpressionNode,
-    ) -> types.AnalyzedType:
+    ) -> types.TypeOrInstance:
         """
         UnaryOpNode,
         LambdaNode,
@@ -515,7 +516,7 @@ class TypeAnalyzer:
             case ast.BoolOpNode():
                 operands = [self.analyze_type(scope, ctx, operand) for operand in expression.values]
 
-                type = types.BuiltinTypes.BOOL.to_instance()
+                type = Types.BOOL.to_instance()
                 ctx.bool_op_hook(type, expression)
 
             case ast.BinaryOpNode():
@@ -524,47 +525,47 @@ class TypeAnalyzer:
 
                 match expression.op:
                     case ast.Operator.ADD:
-                        trait = types.BuiltinTraits.ADD
+                        trait = Traits.ADD
                         name = 'add'
                     case ast.Operator.SUB:
-                        trait = types.BuiltinTraits.SUB
+                        trait = Traits.SUB
                         name = 'sub'
                     case ast.Operator.MULT:
-                        trait = types.BuiltinTraits.MULT
+                        trait = Traits.MULT
                         name = 'mult'
                     case ast.Operator.MATMULT:
-                        trait = types.BuiltinTraits.MATMULT
+                        trait = Traits.MATMULT
                         name = 'matmult'
                     case ast.Operator.DIV:
-                        trait = types.BuiltinTraits.DIV
+                        trait = Traits.DIV
                         name = 'div'
                     case ast.Operator.MOD:
-                        trait = types.BuiltinTraits.MOD
+                        trait = Traits.MOD
                         name = 'mod'
                     case ast.Operator.POW:
-                        trait = types.BuiltinTraits.POW
+                        trait = Traits.POW
                         name = 'pow'
                     case ast.Operator.LSHIFT:
-                        trait = types.BuiltinTraits.LSHIFT
+                        trait = Traits.LSHIFT
                         name = 'lshift'
                     case ast.Operator.RSHIFT:
-                        trait = types.BuiltinTraits.RSHIFT
+                        trait = Traits.RSHIFT
                         name = 'rshift'
                     case ast.Operator.BITOR:
-                        trait = types.BuiltinTraits.BITOR
+                        trait = Traits.BITOR
                         name = 'bitor'
                     case ast.Operator.BITXOR:
-                        trait = types.BuiltinTraits.BITXOR
+                        trait = Traits.BITXOR
                         name = 'bitxor'
                     case ast.Operator.BITAND:
-                        trait = types.BuiltinTraits.BITAND
+                        trait = Traits.BITAND
                         name = 'bitand'
                     case ast.Operator.FLOORDIV:
-                        trait = types.BuiltinTraits.FLOORDIV
+                        trait = Traits.FLOORDIV
                         name = 'floordiv'
 
                 trait_table = left.type.get_trait_table(
-                    trait.with_parameters([right.type, types.BuiltinTypes.ANY])
+                    trait.with_parameters([right.type, types.ANY])
                 )
                 if trait_table is None:
                     assert False, '<The left expression does not implement add>'
@@ -579,21 +580,21 @@ class TypeAnalyzer:
 
                 match expression.op:
                     case ast.UnaryOperator.INVERT:
-                        trait = types.BuiltinTraits.INVERT
+                        trait = Traits.INVERT
                         name = 'invert'
                     case ast.UnaryOperator.NOT:
-                        return types.BuiltinTypes.BOOL.to_instance()
+                        return Types.BOOL.to_instance()
                     case ast.UnaryOperator.UADD:
-                        trait = types.BuiltinTraits.UADD
+                        trait = Traits.UADD
                         name = 'uadd'
                     case ast.UnaryOperator.USUB:
-                        trait = types.BuiltinTraits.USUB
+                        trait = Traits.USUB
                         name = 'usub'
 
                 # XXX: This is essentially saying that the expression is polymorphic
                 # over the output type
                 trait_table = operand.type.get_trait_table(
-                    trait.with_parameters([types.BuiltinTypes.ANY])
+                    trait.with_parameters([types.ANY])
                 )
                 if trait_table is None:
                     assert False, '<The operand does not implement the operation>'
@@ -602,9 +603,16 @@ class TypeAnalyzer:
                 return function.fn_returns.to_instance()
 
             case ast.ConstantNode():
-                value = self.analyze_constant(scope, expression)
+                value = self.analyze_constant(expression)
                 ctx.constant_hook(value, expression)
                 return value
+
+            case ast.AttributeNode():
+                type = self.analyze_type(scope, ctx, expression.value)
+                if not isinstance(type, types.InstanceOfType):
+                    return type.access_attribute(type.name)
+
+                return self.analyze_attribute(type.type, expression)
 
             case ast.CallNode():
                 function = self.analyze_type(scope, ctx, expression.func)
@@ -618,26 +626,29 @@ class TypeAnalyzer:
                 if symbol is UNRESOLVED:
                     assert False, f'<{symbol.name} is unresolved>'
 
-                ctx.name_hook(symbol.type, expression)
-                return symbol.type
+                ctx.name_hook(symbol.content, expression)
+                return symbol.content
 
             case ast.ListNode():
-                elts = [self.analyze_instance_type(scope, ctx, elt) for elt in expression.elts]
-
-                if elts:
-                    first_type = elts[0].type
-
-                    if all(first_type.is_compatible_with(elt.type) for elt in elts):
-                        type = first_type
-                    else:
-                        elt_types = [elt.type for elt in elts]
-                        type = types.UnionType(name='<list elts>', types=elt_types)
-                else:
-                    type = types.UNKNOWN
-
-                return types.BuiltinTypes.LIST.with_parameters([type]).to_instance()
+                assert False, '<NotImplemented>'
 
         assert False, f'<Unable to determine type of {expression}>'
+
+    def analyze_attribute(
+        self,
+        type: types.AnalyzedType,
+        attribute: ast.AttributeNode,
+    ) -> types.InstanceOfType:
+        match type:
+            case types.ClassType():
+                if attribute.attr in type.cls_functions:
+                    return type.get_unbound_function(attribute.attr).to_instance()
+
+                if attribute.attr in type.cls_attributes:
+                    return type.get_attribute(attribute.attr).to_instance()
+
+            case types.FunctionType():
+                assert False, '<Cannot get function attribute>'
 
     def analyze_instance_type(
         self,
@@ -651,31 +662,31 @@ class TypeAnalyzer:
 
         return type
 
-    def analyze_constant(self, scope: Scope, constant: ast.ConstantNode) -> types.AnalyzedType:
+    def analyze_constant(self, constant: ast.ConstantNode) -> types.InstanceOfType:
         match constant.type:
             case ast.ConstantType.TRUE:
-                return types.BuiltinTypes.TRUE
+                return Types.TRUE
 
             case ast.ConstantType.FALSE:
-                return types.BuiltinTypes.FALSE
+                return Types.FALSE
 
             case ast.ConstantType.NONE:
-                return types.BuiltinTypes.NONE
+                return Types.NONE
 
             case ast.ConstantType.ELLIPSIS:
                 assert False, '<TODO>'
 
             case ast.ConstantType.INTEGER:
                 assert isinstance(constant, ast.IntegerNode)
-                return types.BuiltinTypes.INT.to_instance(constant.value)
+                return Types.INT.to_instance(constant.value)
 
             case ast.ConstantType.FLOAT:
                 assert isinstance(constant, ast.FloatNode)
-                return types.BuiltinTypes.FLOAT.to_instance(constant.value)
+                return Types.FLOAT.to_instance(constant.value)
 
             case ast.ConstantType.COMPLEX:
                 assert isinstance(constant, ast.ComplexNode)
-                return types.BuiltinTypes.FLOAT.to_instance(constant.value)
+                return Types.FLOAT.to_instance(constant.value)
 
             case ast.ConstantType.STRING | ast.ConstantType.BYTES:
                 assert False, '<TODO>'
@@ -685,7 +696,7 @@ class TypeAnalyzer:
         scope: Scope,
         function: types.FunctionType,
         node: ast.CallNode,
-    ) -> types.AnalyzedType:
+    ) -> types.InstanceOfType:
         return function.fn_returns.to_instance()
 
     def analyze_module(self) -> None:

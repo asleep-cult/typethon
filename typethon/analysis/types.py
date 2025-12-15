@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import attr
 import typing
-import enum
 
 # TODO: __eq__ needs to resolve resursion issues
-# that arise from cyclic references, improve handling
-# type parameters, it is error prone at the moment
-
-T = typing.TypeVar('T')
+# that arise from cyclic references
 
 
 @attr.s(kw_only=True, slots=True, hash=True)
@@ -21,7 +17,7 @@ class AnalyzedType:
         return f'type({string})'
 
     def is_compatible_with(self, type: AnalyzedType) -> bool:
-        if self is BuiltinTypes.ANY or type is BuiltinTypes.ANY:
+        if self is ANY or type is ANY:
             return True
 
         return self is type
@@ -54,6 +50,10 @@ class AnalyzedType:
         return self
 
 
+UNKNOWN = AnalyzedType(name='unknown')
+ANY = AnalyzedType(name='any')
+
+
 @attr.s(kw_only=True, slots=True)
 class TraitTable:
     trait: TypeTrait = attr.ib()
@@ -71,15 +71,9 @@ class UnionType(AnalyzedType):
 
 
 @attr.s(kw_only=True, slots=True)
-class InstanceOfType(AnalyzedType):
+class InstanceOfType:
     type: AnalyzedType = attr.ib()
     known_value: typing.Any = attr.ib()
-
-    def __str__(self) -> str:
-        return self.get_string()
-
-
-UNKNOWN = AnalyzedType(name='unknown')
 
 
 @attr.s(kw_only=True, slots=True, hash=True)
@@ -102,7 +96,7 @@ class TypeParameter(AnalyzedType):
     def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
         for parameter in type.parameters:
             if not isinstance(parameter, GivenTypeParameter):
-                assert False, f'<{parameter} has not been given>'
+                raise ValueError(f'{type} is missing a paramater for {parameter}')
 
             resolved = parameter.resolve_for(self)
             if resolved is not None:
@@ -124,13 +118,12 @@ class GivenTypeParameter(AnalyzedType):
     ] = attr.ib()
 
     def is_compatible_with(self, type: AnalyzedType) -> bool:
-        if not isinstance(type, GivenTypeParameter):
+        if (
+            not isinstance(type, GivenTypeParameter)
+            or self.parameter is not type.parameter
+        ):
             return False
 
-        if self.parameter is not type.parameter:
-            assert False, f'<{self.parameter} and {type.parameter} are not the same parameter>'
-
-        # XXX: This may or may not be what we want to do
         return self.type.is_compatible_with(type.type)
 
     def get_actual_type(self) -> AnalyzedType:
@@ -212,30 +205,40 @@ class PolymorphicType(AnalyzedType):
     def get_initial_type(self) -> typing.Self:
         return self.initial_type if self.initial_type is not None else self
 
-    def is_polymorphic(self) -> bool:
+    def has_uninitialized_parameters(self) -> bool:
         return any(self.uninitialized_parameters())
 
     def all_parameters_given(self) -> bool:
         return all(isinstance(parameter, GivenTypeParameter) for parameter in self.parameters)
 
     def uninitialized_parameters(self) -> typing.Generator[TypeParameter]:
-        # TODO: FIX THIS
         for parameter in self.parameters:
             match parameter:
                 case TypeParameter():
                     yield parameter
                 case GivenTypeParameter():
-                    if isinstance(parameter.type, TypeParameter):
-                        yield parameter.type        
+                    type = parameter.get_actual_type()
+                    if isinstance(type, TypeParameter):
+                        yield type
 
     def with_parameters(self, parameters: typing.List[AnalyzedType]) -> typing.Self:
         initial_type = self.get_initial_type()
         if len(parameters) != len(initial_type.parameters):
-            raise ValueError(f'with_parameters(): must pass the same number of parameters')
+            raise ValueError(
+                'Expected {0} parameters, reveived {1}'.format(
+                    len(initial_type.parameters), len(parameters)
+                )
+            )
 
         given_parameters: typing.List[GivenTypeParameter] = []
 
         for parameter, given_parameter in zip(self.parameters, parameters):
+            if (
+                isinstance(given_parameter, PolymorphicType)
+                and given_parameter.has_uninitialized_parameters()
+            ):
+                raise ValueError(f'Received an uninitialized parameter in {given_parameter}')
+
             if isinstance(parameter, GivenTypeParameter):
                 new_parameter = parameter.with_type(given_parameter)
             else:
@@ -263,7 +266,13 @@ class SelfType(AnalyzedType):
 
 @attr.s(kw_only=True, slots=True)
 class TypeTrait(PolymorphicType):
-    tr_functions: typing.List[FunctionType] = attr.ib(factory=list)
+    tr_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
+
+    def get_unbound_function(self, name: str) -> FunctionType:
+        if name not in self.tr_functions:
+            raise ValueError(f'{self} has no function named {name}')
+
+        return self.tr_functions[name]
 
 
 @attr.s(kw_only=True, slots=True)
@@ -276,18 +285,17 @@ class FunctionParameter:
 
 @attr.s(kw_only=True, slots=True)
 class FunctionType(PolymorphicType):
-    # XXX: Make sure we never store the result of bind_with_parameters
-    # do everything lazily
+    # TODO: Consider adding a BoundFunctionType
     propagated: bool = attr.ib(default=True)
     # PolymorphicType fields must be filled regardless of propagation
     fn_self: typing.Optional[SelfType] = attr.ib(default=None)
-    fn_parameters: typing.List[FunctionParameter] = attr.ib(factory=list)
+    fn_parameters: typing.Dict[str, FunctionParameter] = attr.ib(factory=dict)
     fn_returns: AnalyzedType = attr.ib(default=UNKNOWN)
 
     def get_string(self, *, top_level: bool = True) -> str:
         strings: typing.List[str] = []
 
-        for parameter in self.fn_parameters:
+        for parameter in self.fn_parameters.values():
             string = parameter.type.get_string(top_level=False)
             strings.append(f'{parameter.name}: {string}')
 
@@ -301,21 +309,28 @@ class FunctionType(PolymorphicType):
     def get_parameter_type(
         self,
         name: str,
-        owner: PolymorphicType,
+        owner: typing.Optional[PolymorphicType]
     ) -> AnalyzedType:
-        if owner.all_parameters_given():
-            assert False, '<The owner is missing a parameter...>'
+        if name not in self.fn_parameters:
+            raise ValueError(f'{self} has no parameter named {name}')
 
-        for parameter in self.fn_parameters:
-            if parameter.name != name:
-                continue
+        parameter_type = self.fn_parameters[name].type
+        type = parameter_type.bind_with_parameters(self)
 
-            return parameter.type.bind_with_parameters(owner)
+        if owner is not None:
+            type = type.bind_with_parameters(owner)
 
-        assert False, f'<No parameter {name!r}>'
+        return type
 
-    def get_return_type(self, owner: PolymorphicType) -> AnalyzedType:
-        return self.fn_returns.bind_with_parameters(owner)
+    def get_return_type(
+        self,
+        owner: typing.Optional[PolymorphicType] = None,
+    ) -> AnalyzedType:
+        type = self.fn_returns.bind_with_parameters(self)
+        if owner is not None:
+            type = type.bind_with_parameters(owner)
+
+        return type
 
 
 @attr.s(kw_only=True, slots=True)
@@ -328,578 +343,27 @@ class ClassAttribute:
 @attr.s(kw_only=True, slots=True)
 class ClassType(PolymorphicType):
     propagated: bool = attr.ib(default=True)
-    cls_attributes: typing.List[ClassAttribute] = attr.ib(factory=list)
-    cls_functions: typing.List[FunctionType] = attr.ib(factory=list)
+    cls_attributes: typing.Dict[str, ClassAttribute] = attr.ib(factory=dict)
+    cls_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
 
     def complete_propagation(self) -> None:
         self.propagated = True
 
+    def get_attribute(self, name: str) -> AnalyzedType:
+        if name not in self.cls_attributes:
+            raise ValueError(f'{self} has no attribute named {name}')
 
-# TODO: Clean everything below this up
+        type = self.cls_attributes[name].type
+        return type.bind_with_parameters(self)
 
-class TypeBuilderKind(enum.Enum):
-    BASIC = enum.auto()
-    POLYMORPHIC = enum.auto()
-    FUNCTION = enum.auto()
-    CLASS = enum.auto()
-    TRAIT = enum.auto()
-    TRAIT_TABLE = enum.auto()
+    def get_unbound_function(self, name: str) -> FunctionType:
+        if name not in self.cls_functions:
+            raise ValueError(f'{self} has not attribute named {name}')
 
+        return self.cls_functions[name]
 
-@attr.s(kw_only=True, slots=True)
-class _UnknownTypeParameter(AnalyzedType):
-    # This class is used to represent Self and type parameters before they are created.
-    # The resolver function is called after the actual type is created.
-    # This allows for something like f(x: |T|) -> [T], which becomes:
-    # TypeBuilder.new_function()
-    #   .add_type_parameter('T')
-    #   .add_parameter('x', 'T')
-    #   .add_return_type('T', lambda type: LIST.with_parameters([type]))
-    resolver: typing.Optional[typing.Callable[[AnalyzedType], AnalyzedType]] = attr.ib(default=None)
 
-    def resolve(self, types: typing.Dict[str, AnalyzedType]) -> AnalyzedType:
-        type = types[self.name]
-        if self.resolver is not None:
-            return self.resolver(type)
-
-        return type
-
-
-class TypeBuilder(typing.Generic[T]):
-    def __init__(self, name: str, kind: TypeBuilderKind) -> None:
-        self.name = name
-        self.kind = kind
-
-        if self.kind is not TypeBuilderKind.BASIC:
-            self.parameters: typing.List[typing.Tuple[str, typing.Optional[AnalyzedType]]] = []
-
-        match self.kind:
-            case TypeBuilderKind.FUNCTION:
-                self.fn_parameters: typing.List[FunctionParameter] = []
-                self.fn_self = None
-                self.fn_returns = None
-
-            case TypeBuilderKind.CLASS:
-                self.cls_attributes: typing.List[ClassAttribute] = []
-                self.cls_functions: typing.List[FunctionType] = []
-
-            case TypeBuilderKind.TRAIT:
-                self.tr_functions: typing.List[FunctionType] = []
-            
-            case TypeBuilderKind.TRAIT_TABLE:
-                self.tb_functions: typing.List[FunctionType] = []
-                self.tb_trait: TypeTrait
-
-    @classmethod
-    def new_type(
-        cls: typing.Type[TypeBuilder[AnalyzedType]], name: str
-    ) -> TypeBuilder[AnalyzedType]:
-        return cls(name, TypeBuilderKind.BASIC)
-
-    @classmethod
-    def new_polymorphic_type(
-        cls: typing.Type[TypeBuilder[PolymorphicType]], name: str
-    ) -> TypeBuilder[PolymorphicType]:
-        return cls(name, TypeBuilderKind.POLYMORPHIC)
-
-    @classmethod
-    def new_function(
-        cls: typing.Type[TypeBuilder[FunctionType]], name: str
-    ) -> TypeBuilder[FunctionType]:
-        return cls(name, TypeBuilderKind.FUNCTION)
-
-    @classmethod
-    def new_class(
-        cls: typing.Type[TypeBuilder[ClassType]], name: str
-    ) -> TypeBuilder[ClassType]:
-        return TypeBuilder(name, TypeBuilderKind.CLASS)
-
-    @classmethod
-    def new_trait(
-        cls: typing.Type[TypeBuilder[TypeTrait]], name: str
-    ) -> TypeBuilder[TypeTrait]:
-        return cls(name, TypeBuilderKind.TRAIT)
-
-    @classmethod
-    def new_trait_table(
-        cls: typing.Type[TypeBuilder[TraitTable]],
-        trait: TypeTrait,
-    ) -> TypeBuilder[TraitTable]:
-        builder = cls(trait.name, TypeBuilderKind.TRAIT_TABLE)
-        builder.tb_trait = trait
-        return builder
-
-    def build_type_parameters(self, owner: AnalyzedType) -> typing.Generator[TypeParameter]:
-        for name, constraint in self.parameters:
-            yield TypeParameter(name=name, owner=owner, constraint=constraint)
-
-    def update_function_types(
-        self,
-        type_parameters: typing.Dict[str, AnalyzedType],
-        function: FunctionType,
-        allow_unknown: bool
-    ) -> None:
-        for parameter in function.fn_parameters:
-            if not isinstance(parameter.type, _UnknownTypeParameter):
-                continue
-
-            if parameter.type.name == 'Self':
-                if function.fn_self is None:
-                    function.fn_self = SelfType()
-
-                parameter.type = parameter.type.resolve({'Self': function.fn_self})
-
-            elif parameter.type.name in type_parameters:
-                parameter.type = parameter.type.resolve(type_parameters)
-
-            elif not allow_unknown:
-                raise ValueError(
-                    f'Encountered unknown paramater {parameter.name}: '
-                    f'{parameter.type.name} in {function.name}'
-                )
-
-        if isinstance(function.fn_returns, _UnknownTypeParameter):
-            if function.fn_returns.name == 'Self':
-                if function.fn_self is None:
-                    raise ValueError(f'{function.name} must accept Self')
-
-                function.fn_returns = function.fn_returns.resolve({'Self': function.fn_self})
-
-            elif function.fn_returns.name in type_parameters:
-                function.fn_returns = function.fn_returns.resolve(type_parameters)
-
-            elif not allow_unknown:
-                raise ValueError(
-                    f'Encountered unknown return value {function.fn_returns.name} '
-                    f'in {function.name}'
-                )
-
-    def update_unknown_parameters(
-        self,
-        type: PolymorphicType,
-        allow_unknown: bool
-    ) -> None:
-        type_parameters = {parameter.name: parameter for parameter in type.parameters}
-
-        match type:
-            case FunctionType():
-                self.update_function_types(type_parameters, type, allow_unknown)
-
-            case ClassType():
-                for attribute in self.cls_attributes:
-                    if not isinstance(attribute.type, _UnknownTypeParameter):
-                        continue
-
-                    if attribute.type.name in type_parameters:
-                        attribute.type = attribute.type.resolve(type_parameters)
-
-                    elif not allow_unknown:
-                        raise ValueError(
-                            f'Encountered unknown attribute {attribute.name}: '
-                            f'{attribute.type.name} in {type.name}'
-                        )
-
-                for function in self.cls_functions:
-                    if function.fn_self is not None:
-                        function.fn_self.owner = type
-
-                    self.update_function_types(type_parameters, function, allow_unknown)
-
-            case TypeTrait():
-                for function in self.tr_functions:
-                    if function.fn_self is not None:
-                        function.fn_self.owner = type
-
-                    self.update_function_types(type_parameters, function, allow_unknown)
-
-    def build_type(self, *, nested: bool = False) -> T:
-        # This function creates the type and the type parameters,
-        # then replaces the temporary instances of _UnknownTypeParameter.
-        # If nested is set to True, this function will not raise an exception
-        # for any unresolved type parameters. This allows nested types to use
-        # type parameters from their parent types.
-        if self.kind is TypeBuilderKind.TRAIT_TABLE:
-            raise ValueError('build_type() is not for trait tables')
-
-        match self.kind:
-            case TypeBuilderKind.BASIC:
-                return typing.cast(T, AnalyzedType(name=self.name))
-
-            case TypeBuilderKind.POLYMORPHIC:
-                type = PolymorphicType(name=self.name)
-
-            case TypeBuilderKind.FUNCTION:
-                if self.fn_returns is None:
-                    raise ValueError('function requires return type')
-
-                type = FunctionType(
-                    name=self.name,
-                    fn_parameters=self.fn_parameters,
-                    fn_returns=self.fn_returns,
-                )
-
-                if self.fn_self is not None:
-                    self.fn_self.owner = type
-
-            case TypeBuilderKind.CLASS:
-                type = ClassType(
-                    name=self.name,
-                    cls_attributes=self.cls_attributes,
-                    cls_functions=self.cls_functions,
-                )
-
-            case TypeBuilderKind.TRAIT:
-                type = TypeTrait(name=self.name, tr_functions=self.tr_functions)
-
-        type.parameters.extend(self.build_type_parameters(type))
-        self.update_unknown_parameters(type, allow_unknown=nested)
-
-        return typing.cast(T, type)
-
-    def build_table(self, type: AnalyzedType) -> TraitTable:
-        if self.kind is not TypeBuilderKind.TRAIT_TABLE:
-            raise ValueError('build_table() is for trait tables')
-
-        parameters = self.build_type_parameters(type)
-        type_parameters = {parameter.name: parameter for parameter in parameters}
-
-        for function in self.tb_functions:
-            if function.fn_self is not None:
-                function.fn_self.owner = type
-
-            self.update_function_types(type_parameters, function, False)
-
-        functions = {function.name: function for function in self.tb_functions}
-
-        table = TraitTable(trait=self.tb_trait, functions=functions)
-        type.trait_tables.append(table)
-        return table
-
-    def add_type_parameter(
-        self, name: str, constraint: typing.Optional[AnalyzedType] = None
-    ) -> typing.Self:
-        self.parameters.append((name, constraint))
-        return self
-
-    def add_parameter(
-        self,
-        name: str,
-        type: typing.Union[AnalyzedType, str],
-        resolver: typing.Optional[typing.Callable[[AnalyzedType], AnalyzedType]] = None,
-    ) -> typing.Self:
-        if self.kind is not TypeBuilderKind.FUNCTION:
-            raise TypeError('add_parameter() is for functions')
-
-        if isinstance(type, str):
-            type = _UnknownTypeParameter(name=type, resolver=resolver)
-        elif resolver is not None:
-            raise ValueError('type must be a string to use a resolver')
-
-        self.fn_parameters.append(FunctionParameter(name=name, type=type))
-        return self
-
-    def add_return_type(
-        self,
-        type: typing.Union[str, AnalyzedType],
-        resolver: typing.Optional[typing.Callable[[AnalyzedType], AnalyzedType]] = None,
-    ) -> typing.Self:
-        if self.kind is not TypeBuilderKind.FUNCTION:
-            raise TypeError('add_return_type() is for functions')
-
-        if isinstance(type, str):
-            type = _UnknownTypeParameter(name=type, resolver=resolver)
-        elif resolver is not None:
-            raise ValueError('type must be a string to use a resolver')
-
-        self.fn_returns = type
-        return self
-
-    def add_function(self, function: FunctionType) -> typing.Self:
-        if self.kind is TypeBuilderKind.CLASS:
-            self.cls_functions.append(function)
-        elif self.kind is TypeBuilderKind.TRAIT:
-            self.tr_functions.append(function)
-        elif self.kind is TypeBuilderKind.TRAIT_TABLE:
-            self.tb_functions.append(function)
-        else:
-            raise TypeError('add_function() is for functions and traits')
-
-        return self
-
-    def add_attribute(
-        self,
-        name: str,
-        type: typing.Union[AnalyzedType, str],
-        resolver: typing.Optional[typing.Callable[[AnalyzedType], AnalyzedType]] = None,
-    ) -> typing.Self:
-        if self.kind is not TypeBuilderKind.CLASS:
-            raise TypeError('add_attribute() is for classes')
-
-        if isinstance(type, str):
-            type = _UnknownTypeParameter(name=name, resolver=resolver)
-        elif resolver is not None:
-            raise ValueError('type must be a string to use a resolver')
-
-        self.cls_attributes.append(ClassAttribute(name=name, type=type))
-        return self
-
-
-class BuiltinTypes:
-    # This is meant as a placeholder when the analyzer
-    # doesn't care about a type
-    ANY = TypeBuilder.new_type('Any').build_type()
-
-    NONE_TYPE = TypeBuilder.new_type('NoneType').build_type()
-    NONE = NONE_TYPE.to_instance()
-
-    BOOL = TypeBuilder.new_type('bool').build_type()
-    TRUE = BOOL.to_instance(True)
-    FALSE = BOOL.to_instance(False)
-
-    INT = TypeBuilder.new_type('int').build_type()
-    FLOAT = TypeBuilder.new_type('float').build_type()
-    COMPLEX = TypeBuilder.new_type('complex').build_type()
-    STR = TypeBuilder.new_type('str').build_type()
-    LIST = (
-        TypeBuilder.new_polymorphic_type('list')
-        .add_type_parameter('T')
-        .build_type()
-    )
-
-    DICT: PolymorphicType
-    SET: PolymorphicType
-
-
-def create_binary_operator(name: str, function: str) -> TypeTrait:
-    return (
-        TypeBuilder.new_trait(name)
-        .add_type_parameter('T')
-        .add_type_parameter('U')
-        .add_function(
-            TypeBuilder.new_function(function)
-            .add_parameter('self', 'Self')
-            .add_parameter('rhs', 'T')
-            .add_return_type('U')
-            .build_type(nested=True)
-        )
-        .build_type()
-    )
-
-
-def create_unary_operator(name: str, function: str) -> TypeTrait:
-    return (
-        TypeBuilder.new_trait(name)
-        .add_type_parameter('T')
-        .add_function(
-            TypeBuilder.new_function(function)
-            .add_parameter('self', 'Self')
-            .add_return_type('T')
-            .build_type(nested=True)
-        )
-        .build_type()
-    )
-
-
-class BuiltinTraits:
-    HASH = (
-        TypeBuilder.new_trait('Hash')
-        .add_function(
-            TypeBuilder.new_function('hash')
-            .add_parameter('self', 'Self')
-            .add_return_type(BuiltinTypes.STR)
-            .build_type(nested=True)
-        )
-        .build_type()
-    )
-
-    ITER = (
-        TypeBuilder.new_trait('Iter')
-        .add_type_parameter('T')
-        .add_function(
-            TypeBuilder.new_function('next')
-            .add_parameter('self', 'Self')
-            .add_return_type('T')
-            .build_type(nested=True)
-        )
-        .build_type()
-    )
-
-    ADD = create_binary_operator('Add', 'add')
-    SUB = create_binary_operator('Sub', 'sub')
-    MULT = create_binary_operator('Mult', 'mult')
-    MATMULT = create_binary_operator('Matmult', 'matmult')
-    DIV = create_binary_operator('Div', 'div')
-    MOD = create_binary_operator('Mod', 'mod')
-    POW = create_binary_operator('Pow', 'pow')
-    LSHIFT = create_binary_operator('LShift', 'lshift')
-    RSHIFT = create_binary_operator('RShift', 'rshift')
-    BITOR = create_binary_operator('BitOr', 'bitor')
-    BITXOR = create_binary_operator('BitXOr', 'bitxor')
-    BITAND = create_binary_operator('BitAnd', 'bitand')
-    FLOORDIV = create_binary_operator('FloorDiv', 'floordiv')
-
-    BINARY_OPERATORS = (
-        ADD,
-        SUB,
-        MULT,
-        MATMULT,
-        DIV,
-        MOD,
-        POW,
-        LSHIFT,
-        RSHIFT,
-        BITOR,
-        BITXOR,
-        BITAND,
-        FLOORDIV,
-    )
-
-    INVERT = create_unary_operator('Invert', 'invert')
-    UADD = create_unary_operator('UAdd', 'uadd')
-    USUB = create_unary_operator('USub', 'usub')
-
-    UNARY_OPERATORS = (
-        INVERT,
-        UADD,
-        USUB,
-    )
-
-
-BuiltinTypes.DICT = (
-    TypeBuilder.new_polymorphic_type('dict')
-    .add_type_parameter('K', BuiltinTraits.HASH)
-    .add_type_parameter('V')
-    .build_type()
-)
-BuiltinTypes.SET = (
-    TypeBuilder.new_polymorphic_type('set')
-    .add_type_parameter('T', BuiltinTraits.HASH)
-    .build_type()
-)
-
-
-
-def create_unary_table(
-    trait: TypeTrait,
-    type: AnalyzedType,
-    output: AnalyzedType,
-) -> TraitTable:
-    return (
-        TypeBuilder.new_trait_table(
-            trait.with_parameters([output])
-        )
-        .add_function(
-            TypeBuilder.new_function(trait.name.lower()) # XXX: Get the name elsewhere
-            .add_parameter('self', 'Self')
-            .add_return_type(type)
-            .build_type(nested=True)
-        )
-        .build_table(type)
-    )
-
-
-def create_binary_table(
-    trait: TypeTrait,
-    type: AnalyzedType,
-    rhs: AnalyzedType,
-    output: AnalyzedType,
-) -> TraitTable:
-    return (
-        TypeBuilder.new_trait_table(
-            trait.with_parameters([rhs, output])
-        )
-        .add_function(
-            TypeBuilder.new_function(trait.name.lower())
-            .add_parameter('self', 'Self')
-            .add_parameter('rhs', rhs)
-            .add_return_type(output)
-            .build_type(nested=True)
-        )
-        .build_table(type)
-    )
-
-
-def create_unary_tables(
-    traits: typing.Iterable[TypeTrait],
-    type: AnalyzedType,
-    output: AnalyzedType,
-) -> None:
-    for trait in traits:
-        create_unary_table(trait, type, output)
-
-
-def create_binary_tables(
-    traits: typing.Iterable[TypeTrait],
-    type: AnalyzedType,
-    rhs: AnalyzedType,
-    output: AnalyzedType,
-) -> None:
-    for trait in traits:
-        create_binary_table(trait, type, rhs, output)
-
-
-create_unary_tables(BuiltinTraits.UNARY_OPERATORS, BuiltinTypes.INT, BuiltinTypes.INT) # +int
-create_unary_tables((BuiltinTraits.UADD, BuiltinTraits.USUB), BuiltinTypes.FLOAT, BuiltinTypes.FLOAT) # +float
-
-create_binary_tables(
-    (
-        BuiltinTraits.ADD, # int + int
-        BuiltinTraits.SUB,
-        BuiltinTraits.MULT,
-        BuiltinTraits.DIV,
-        BuiltinTraits.MOD,
-        BuiltinTraits.POW,
-        BuiltinTraits.LSHIFT,
-        BuiltinTraits.RSHIFT,
-        BuiltinTraits.BITOR,
-        BuiltinTraits.BITXOR,
-        BuiltinTraits.BITAND,
-        BuiltinTraits.FLOORDIV,
-    ), 
-    BuiltinTypes.INT, BuiltinTypes.INT, BuiltinTypes.INT
-)
-create_binary_tables(
-    (
-        BuiltinTraits.ADD, # int + float
-        BuiltinTraits.SUB,
-        BuiltinTraits.MULT,
-        BuiltinTraits.DIV,
-        BuiltinTraits.MOD,
-        BuiltinTraits.POW,
-    ),
-    BuiltinTypes.INT, BuiltinTypes.FLOAT, BuiltinTypes.FLOAT
-)
-
-create_binary_tables(
-    (
-        BuiltinTraits.ADD, # float + float
-        BuiltinTraits.SUB,
-        BuiltinTraits.MULT,
-        BuiltinTraits.DIV,
-        BuiltinTraits.MOD,
-        BuiltinTraits.POW,
-    ),
-    BuiltinTypes.FLOAT, BuiltinTypes.FLOAT, BuiltinTypes.FLOAT
-)
-create_binary_tables(
-    (
-        BuiltinTraits.ADD, # float + int
-        BuiltinTraits.SUB,
-        BuiltinTraits.MULT,
-        BuiltinTraits.DIV,
-        BuiltinTraits.MOD,
-        BuiltinTraits.POW,
-    ),
-    BuiltinTypes.FLOAT, BuiltinTypes.INT, BuiltinTypes.FLOAT
-)
-
-
-elt_type = TypeParameter(name='T', owner=BuiltinTypes.INT)
-TypeBuilder.new_trait_table(
-    BuiltinTraits.ITER.with_parameters([elt_type])
-).add_function(
-    TypeBuilder.new_function('next')
-    .add_parameter('self', 'Self')
-    .add_return_type(elt_type)
-    .build_type()
-).build_table(BuiltinTypes.LIST)
+TypeOrInstance = typing.Union[
+    AnalyzedType,
+    InstanceOfType,
+]

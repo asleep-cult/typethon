@@ -3,14 +3,14 @@ from __future__ import annotations
 import attr
 import typing
 
-from .types import AnalyzedType, UNKNOWN
+from . import types
 
 
 @attr.s(kw_only=True, slots=True)
 class Symbol:
     # TODO: Should symbols keep a reference to the scope they were defined in?
     name: str = attr.ib()
-    type: AnalyzedType = attr.ib()
+    content: types.TypeOrInstance = attr.ib()
 
 
 class Scope:
@@ -27,6 +27,20 @@ class Scope:
 
         return symbol
 
+    def get_type(self, name: str) -> types.AnalyzedType:
+        symbol = self.get_symbol(name)
+        if not isinstance(symbol.content, types.AnalyzedType):
+            assert False, f'<{name} is not a type>'
+
+        return symbol.content
+
+    def get_instance(self, name: str) -> types.InstanceOfType:
+        symbol = self.get_symbol(name)
+        if not isinstance(symbol.content, types.InstanceOfType):
+            assert False, f'{name} is not an instance of a type'
+
+        return symbol.content
+
     def add_symbol(self, symbol: Symbol) -> None:
         self.symbols[symbol.name] = symbol
 
@@ -39,4 +53,4 @@ class Scope:
         return self.child_scopes[name]
 
 
-UNRESOLVED = Symbol(name='<unresolved symbol>', type=UNKNOWN)
+UNRESOLVED = Symbol(name='<unresolved symbol>', content=types.UNKNOWN)
