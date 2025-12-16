@@ -10,7 +10,7 @@ from . import types
 class Symbol:
     # TODO: Should symbols keep a reference to the scope they were defined in?
     name: str = attr.ib()
-    content: types.TypeOrInstance = attr.ib()
+    content: types.AnalysisUnit = attr.ib()
 
 
 class Scope:

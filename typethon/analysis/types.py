@@ -17,6 +17,9 @@ class AnalyzedType:
         return f'type({string})'
 
     def is_compatible_with(self, type: AnalyzedType) -> bool:
+        if self is UNKNOWN or type is UNKNOWN:
+            return False
+
         if self is ANY or type is ANY:
             return True
 
@@ -44,7 +47,7 @@ class AnalyzedType:
         assert False, f'<{self} has no attribute {name}>'
 
     def to_instance(self, value: typing.Any = None) -> InstanceOfType:
-        return InstanceOfType(name=self.name, type=self, known_value=value)
+        return InstanceOfType(type=self, known_value=value)
 
     def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
         return self
@@ -268,11 +271,12 @@ class SelfType(AnalyzedType):
 class TypeTrait(PolymorphicType):
     tr_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
 
-    def get_unbound_function(self, name: str) -> FunctionType:
+    def get_function(self, name: str) -> OwnedFunciton:
         if name not in self.tr_functions:
             raise ValueError(f'{self} has no function named {name}')
 
-        return self.tr_functions[name]
+        function = self.tr_functions[name]
+        return OwnedFunciton(function=function, owner=self)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -306,6 +310,11 @@ class FunctionType(PolymorphicType):
     def complete_propagation(self) -> None:
         self.propagated = True
 
+    def get_parameter_types(
+        self, owner: typing.Optional[PolymorphicType] = None,
+    ) -> typing.List[AnalyzedType]:
+        return [self.get_parameter_type(name, owner) for name in self.fn_parameters]
+
     def get_parameter_type(
         self,
         name: str,
@@ -334,6 +343,47 @@ class FunctionType(PolymorphicType):
 
 
 @attr.s(kw_only=True, slots=True)
+class OwnedFunciton:
+    function: FunctionType = attr.ib()
+    owner: PolymorphicType = attr.ib()
+
+    def get_return_type(
+        self, owner: typing.Optional[PolymorphicType] = None
+    ) -> AnalyzedType:
+        if owner is not None:
+            if not self.owner.is_compatible_with(owner):
+                raise ValueError(f'{self.owner} is incompatible with {owner}')
+
+        return self.function.get_return_type(self.owner)
+
+    def get_parameter_types(
+        self, owner: typing.Optional[PolymorphicType] = None,
+    ) -> typing.List[AnalyzedType]:
+        if owner is not None:
+            if not self.owner.is_compatible_with(owner):
+                raise ValueError(f'{self.owner} is incompatible with {owner}')
+
+        return self.function.get_parameter_types(owner)
+
+    def get_parameter_type(
+        self,
+        name: str,
+        owner: typing.Optional[PolymorphicType] = None,
+    ) -> AnalyzedType:
+        if owner is not None:
+            if not self.owner.is_compatible_with(owner):
+                raise ValueError(f'{self.owner} is incompatible with {owner}')
+
+        return self.function.get_parameter_type(name, self.owner)
+
+    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> OwnedFunciton:
+        return OwnedFunciton(
+            function=self.function.with_parameters(parameters),
+            owner=self.owner
+        )
+
+
+@attr.s(kw_only=True, slots=True)
 class ClassAttribute:
     name: str = attr.ib()
     type: AnalyzedType = attr.ib()
@@ -356,14 +406,21 @@ class ClassType(PolymorphicType):
         type = self.cls_attributes[name].type
         return type.bind_with_parameters(self)
 
-    def get_unbound_function(self, name: str) -> FunctionType:
+    def get_function(self, name: str) -> OwnedFunciton:
         if name not in self.cls_functions:
             raise ValueError(f'{self} has not attribute named {name}')
 
-        return self.cls_functions[name]
+        function = self.cls_functions[name]
+        return OwnedFunciton(function=function, owner=self)
 
 
-TypeOrInstance = typing.Union[
+FunctionLike = typing.Union[
+    FunctionType,
+    OwnedFunciton,  # TODO: This is impractical. OwnedFunction needs to be an actual type
+]
+
+AnalysisUnit = typing.Union[
     AnalyzedType,
     InstanceOfType,
+    FunctionLike,
 ]
