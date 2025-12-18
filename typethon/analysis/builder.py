@@ -519,7 +519,6 @@ create_binary_tables(
         Traits.ADD, # int + int
         Traits.SUB,
         Traits.MULT,
-        Traits.DIV,
         Traits.MOD,
         Traits.POW,
         Traits.LSHIFT,
@@ -531,6 +530,14 @@ create_binary_tables(
     ), 
     Types.INT, Types.INT, Types.INT
 )
+
+create_binary_table(
+    Traits.DIV,
+    Types.INT,
+    Types.INT,
+    Types.FLOAT,
+)
+
 create_binary_tables(
     (
         Traits.ADD, # int + float

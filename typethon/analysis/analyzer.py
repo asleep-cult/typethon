@@ -10,6 +10,10 @@ from ..syntax import ast
 from .scope import Scope, Symbol, UNRESOLVED
 
 T = typing.TypeVar('T', bound=ast.StatementNode)
+# XXX: Unknown proagates outwards, so any name that is defined as unknown
+# will result in an diagnostic error every time it is used anywhere,
+# which will also make the expression it is used in unknown and the error
+# messages will begin the multiply. This might not be ideal.
 
 
 class TypeAnalyzer:
@@ -50,7 +54,7 @@ class TypeAnalyzer:
         *format: str
     ) -> None:
         # TODO: Tell me why
-        message = '{0}: {1} is incompatible with {2}'.format(
+        message = '{0}: `{1}` is incompatible with `{2}`'.format(
             message, type1.get_string(), type2.get_string()
         )
         self.diagnostics.report_error(
@@ -241,7 +245,12 @@ class TypeAnalyzer:
             # for defining the type of T.
             for parameter in type.uninitialized_parameters():
                 if parameter.owner is not owner:
-                    assert False, f'<Use {type.name}(|T|)>'
+                    self.report_error(
+                        expression,
+                        '`{0}` cannot be used as an annotation because is it requires parameters',
+                        type.get_string(),
+                    )
+                    return type.with_parameters([types.UNKNOWN] * len(type.parameters))
 
         return type
 
@@ -265,7 +274,15 @@ class TypeAnalyzer:
 
                     return owner.fn_self
 
-                return scope.get_type(expression.value)
+                type = scope.get_type(expression.value)
+                if type is types.UNKNOWN:
+                    self.report_error(
+                        expression,
+                        'Symbol `{0}` is not defined',
+                        expression.value,
+                    )
+
+                return type
 
             case ast.TypeParameterNode():
                 type = scope.get_type(expression.name)
@@ -302,7 +319,7 @@ class TypeAnalyzer:
                 if not isinstance(callee, types.PolymorphicType):
                     self.report_error(
                         expression,
-                        'Cannot pass parameters to {0} because it is not polymorphic',
+                        'Cannot pass type parameters to `{0}` because it is not polymorphic',
                         callee.get_string(),
                     )
                     return types.UNKNOWN
@@ -310,10 +327,20 @@ class TypeAnalyzer:
                 if not callee.has_uninitialized_parameters():
                     self.report_error(
                         expression,
-                        'Cannot pass parameters to {0} because it has no uninitialized parameters',
+                        'Cannot pass type parameters to `{0}` because '
+                        'it has no uninitialized parameters',
                         callee.get_string(),
                     )
                     return types.UNKNOWN
+
+                if len(expression.args) != len(callee.parameters):
+                    self.report_error(
+                        expression,
+                        '`{0}` got too many parameters, expected {1}, got {2}',
+                        callee.get_string(),
+                        str(len(callee.parameters)),
+                        str(len(expression.args)),
+                    )
 
                 arguments: typing.List[types.AnalyzedType] = []
                 for arg in expression.args:
@@ -361,7 +388,7 @@ class TypeAnalyzer:
                             if not isinstance(ctx.outer_type, types.ClassType):
                                 self.report_error(
                                     statement.parameters[0],
-                                    'Function {0} uses unbound Self outside of class. '
+                                    'Function `{0}` uses unbound Self outside of class. '
                                     'Please bind Self using Self(T).',
                                     function.name,
                                 )
@@ -373,8 +400,8 @@ class TypeAnalyzer:
                         ):
                             self.report_error(
                                 statement.parameters[0],
-                                'Self in function {0} is bound to the wrong type. '
-                                'Expected {1}, got {2}',
+                                'Self in function `{0}` is bound to the wrong type. '
+                                'Expected `{1}`, got `{2}`',
                                 function.name,
                                 ctx.outer_type.get_string(),
                                 function.fn_self.owner.get_string()
@@ -412,24 +439,24 @@ class TypeAnalyzer:
                     if statement.value is not None:
                         assert isinstance(ctx.outer_type, types.FunctionType)
 
-                        value = self.analyze_type(scope, ctx, statement.value)
-                        if not isinstance(value, types.InstanceOfType):
+                        instance = self.analyze_type(scope, ctx, statement.value)
+                        if not isinstance(instance, types.InstanceOfType):
                             return self.report_error(
                                 statement,
-                                'Return must provide a value, not {0}',
-                                value.get_string(),
+                                '`{0}` is not a valid return value',
+                                instance.get_string(),
                             )
 
-                        if not ctx.outer_type.fn_returns.is_compatible_with(value.type):
+                        if not ctx.outer_type.fn_returns.is_compatible_with(instance.type):
                             return self.report_type_incompatibility(
                                 statement,
+                                instance.type,
                                 ctx.outer_type.fn_returns,
-                                value.type,
-                                'Incompatible return type in {0}',
+                                'Incompatible return type in `{0}`',
                                 ctx.outer_type.name,
                             )
 
-                        ctx.return_hook(value, statement)
+                        ctx.return_hook(instance, statement)
 
                 case ast.AssignNode():
                     value = self.analyze_type(scope, ctx, statement.value)
@@ -458,14 +485,14 @@ class TypeAnalyzer:
                     if trait_table is None:
                         return self.report_error(
                             statement,
-                            '{0} does not implement the Iter trait',
+                            '`{0}` does not implement the Iter trait',
                             iterator.type.get_string(),
                         )
 
                     if not isinstance(statement.target, ast.NameNode):
                         assert False, '<Non-name assign not implemented>'
 
-                    function = trait_table.functions['next']
+                    function = trait_table.get_function('next')
                     return_type = function.get_return_type()
 
                     symbol = Symbol(
@@ -605,10 +632,38 @@ class TypeAnalyzer:
                     trait.with_parameters([right.type, types.ANY])
                 )
                 if trait_table is None:
-                    assert False, '<The left expression does not implement add>'
+                    self.report_error(
+                        expression,
+                        '`{0}` does not implement the `{1}` trait for `{2}`',
+                        left.type.get_string(),
+                        trait.name,
+                        right.type.get_string(),
+                    )
+                    return types.UNKNOWN
 
-                function = trait_table.functions[name]
-                return function.get_return_type().to_instance()
+                function = trait_table.get_function(name)
+                lhs_type = function.get_return_type()
+
+                trait_table = right.type.get_trait_table(
+                    trait.with_parameters([left.type, types.ANY])
+                )
+                if trait_table is None:
+                    return lhs_type.to_instance()
+
+                function = trait_table.get_function(name)
+                rhs_type = function.get_return_type()
+
+                if not lhs_type.is_compatible_with(rhs_type):
+                    self.report_type_incompatibility(
+                        expression,
+                        lhs_type,
+                        rhs_type,
+                        'Incompatible return types for `{0}` trait',
+                        trait.name,
+                    )
+                    return types.UNKNOWN
+
+                return lhs_type.to_instance()
 
             case ast.UnaryOpNode():
                 operand = self.analyze_instance_type(scope, ctx, expression.operand)
@@ -626,21 +681,28 @@ class TypeAnalyzer:
                         trait = Traits.USUB
                         name = 'usub'
 
-                # XXX: This is essentially saying that the expression is polymorphic
-                # over the output type
                 trait_table = operand.type.get_trait_table(
                     trait.with_parameters([types.ANY])
                 )
                 if trait_table is None:
-                    assert False, '<The operand does not implement the operation>'
+                    self.report_error(
+                        expression,
+                        '`{0}` does not implement `{1}` trait',
+                        operand.type.get_string(),
+                        trait.name,
+                    )
+                    return types.UNKNOWN
 
-                function = trait_table.functions[name]
-                return function.get_return_type().to_instance()
+                function = trait_table.get_function(name)
+                instance = function.get_return_type().to_instance()
+
+                ctx.unary_op_hook(instance, expression)
+                return instance
 
             case ast.ConstantNode():
-                value = self.analyze_constant(expression)
-                ctx.constant_hook(value, expression)
-                return value
+                instance = self.analyze_constant(expression)
+                ctx.constant_hook(instance, expression)
+                return instance
 
             case ast.AttributeNode():
                 type = self.analyze_type(scope, ctx, expression.value)
@@ -653,8 +715,8 @@ class TypeAnalyzer:
             case ast.CallNode():
                 function = self.analyze_type(scope, ctx, expression.func)
                 match function:
-                    case types.FunctionType() | types.OwnedFunciton():
-                        value = self.analyze_function_call(scope, ctx, function, expression)
+                    case types.FunctionType():
+                        instance = self.analyze_function_call(scope, ctx, function, expression)
                     case types.PolymorphicType():
                         assert False, '<Not yet implemented>'
                     case types.AnalyzedType():
@@ -662,13 +724,17 @@ class TypeAnalyzer:
                     case types.InstanceOfType():
                         assert False, '<Cannot call a value>'
 
-                ctx.call_hook(value, expression)
-                return value
+                ctx.call_hook(instance, expression)
+                return instance
 
             case ast.NameNode():
                 symbol = scope.get_symbol(expression.value)
                 if symbol is UNRESOLVED:
-                    assert False, f'<{symbol.name} is unresolved>'
+                    self.report_error(
+                        expression,
+                        'Symbol `{0}` is not defined',
+                        symbol.name,
+                    )
 
                 ctx.name_hook(symbol.content, expression)
                 return symbol.content
@@ -691,7 +757,13 @@ class TypeAnalyzer:
                 if attribute.attr in type.cls_attributes:
                     return type.get_attribute(attribute.attr).to_instance()
 
-                assert False, f'<{type} has no attribute {attribute.attr}>'
+                self.report_error(
+                    attribute,
+                    '`{0}` has no attribute named `{1}`',
+                    type.get_string(),
+                    attribute.attr,
+                )
+                return types.UNKNOWN
             case types.FunctionType():
                 assert False, '<Cannot get function attribute>'
 
@@ -706,7 +778,12 @@ class TypeAnalyzer:
     ) -> types.InstanceOfType:
         type = self.analyze_type(scope, ctx, expression)
         if not isinstance(type, types.InstanceOfType):
-            assert False, f'<{type} is not allowed in this context>'
+            self.report_error(
+                expression,
+                '`{0}` is not valid in this context',
+                type.get_string(),
+            )
+            return types.UNKNOWN.to_instance()
 
         return type
 
@@ -743,19 +820,36 @@ class TypeAnalyzer:
         self,
         scope: Scope,
         ctx: AnalysisContext,
-        function: types.FunctionLike,
+        function: types.FunctionType,
         node: ast.CallNode,
     ) -> types.InstanceOfType:
+        # TODO: Give function type parameters based on the arguments passed
         parameters = function.get_parameter_types()
 
         for argument in node.args:
-            value = self.analyze_instance_type(scope, ctx, argument)
+            instance  = self.analyze_instance_type(scope, ctx, argument)
             if not parameters:
-                assert False, '<Got too many arguments>'
+                self.report_error(
+                    argument,
+                    '`{0}` received too many arguments, expected {1}, '
+                    'received {2}',
+                    function.name,
+                    str(len(function.fn_parameters)),
+                    str(len(node.args)),
+                )
+                break
 
             type = parameters.pop(0)
-            if not type.is_compatible_with(value.type):
-                assert False, '<Incompatible types>'
+            if not type.is_compatible_with(instance.type):
+                # TODO: What is the parameter name?
+                # fn_parameters is not technically ordered
+                self.report_type_incompatibility(
+                    argument,
+                    instance.type,
+                    type,
+                    'Incompatible type for parameter of `{0}`',
+                    function.name,
+                )
 
         return function.get_return_type().to_instance()
 

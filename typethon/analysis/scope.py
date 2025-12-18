@@ -30,14 +30,14 @@ class Scope:
     def get_type(self, name: str) -> types.AnalyzedType:
         symbol = self.get_symbol(name)
         if not isinstance(symbol.content, types.AnalyzedType):
-            assert False, f'<{name} is not a type>'
+            return types.UNKNOWN
 
         return symbol.content
 
     def get_instance(self, name: str) -> types.InstanceOfType:
         symbol = self.get_symbol(name)
         if not isinstance(symbol.content, types.InstanceOfType):
-            assert False, f'{name} is not an instance of a type'
+            return types.UNKNOWN.to_instance()
 
         return symbol.content
 

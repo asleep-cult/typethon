@@ -53,8 +53,8 @@ class AnalyzedType:
         return self
 
 
-UNKNOWN = AnalyzedType(name='unknown')
-ANY = AnalyzedType(name='any')
+UNKNOWN = AnalyzedType(name='unknown')  # Internal type compatible with nothing
+ANY = AnalyzedType(name='any')  # Internal type compatible with exerything
 
 
 @attr.s(kw_only=True, slots=True)
@@ -62,6 +62,16 @@ class TraitTable:
     trait: TypeTrait = attr.ib()
     owner: typing.Optional[PolymorphicType] = attr.ib(default=None, repr=str)
     functions: typing.Dict[str, FunctionType] = attr.ib()
+
+    def get_function(self, name: str) -> FunctionType:
+        if name not in self.functions:
+            raise ValueError(f'{self} has no function called {name}')
+
+        function = self.functions[name]
+        if self.owner is not None:
+            function = function.with_owner(self.owner)
+
+        return function
 
     def with_owner(self, type: PolymorphicType) -> TraitTable:
         return TraitTable(trait=self.trait, owner=type, functions=self.functions)
@@ -271,12 +281,12 @@ class SelfType(AnalyzedType):
 class TypeTrait(PolymorphicType):
     tr_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
 
-    def get_function(self, name: str) -> OwnedFunciton:
+    def get_function(self, name: str) -> FunctionType:
         if name not in self.tr_functions:
             raise ValueError(f'{self} has no function named {name}')
 
         function = self.tr_functions[name]
-        return OwnedFunciton(function=function, owner=self)
+        return function.with_owner(self)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -289,9 +299,12 @@ class FunctionParameter:
 
 @attr.s(kw_only=True, slots=True)
 class FunctionType(PolymorphicType):
-    # TODO: Consider adding a BoundFunctionType
     propagated: bool = attr.ib(default=True)
     # PolymorphicType fields must be filled regardless of propagation
+    owner: typing.Optional[PolymorphicType] = attr.ib(default=None)
+    # The following attributes are static after propagation and they can
+    # exist on multiple FunctionTypes (i.e. with_owner, with_parameters)
+    # Possibly with the exception of fn_self? which needs to be fixed
     fn_self: typing.Optional[SelfType] = attr.ib(default=None)
     fn_parameters: typing.Dict[str, FunctionParameter] = attr.ib(factory=dict)
     fn_returns: AnalyzedType = attr.ib(default=UNKNOWN)
@@ -310,16 +323,32 @@ class FunctionType(PolymorphicType):
     def complete_propagation(self) -> None:
         self.propagated = True
 
+    def check_owner_compatibility(self, owner: PolymorphicType) -> None:
+        # TODO: Figure out if fn_self and owner can be combined
+        if self.owner is not None:
+            if not self.owner.is_compatible_with(owner):
+                raise ValueError(f'Incompatible function owners: {owner}, {self.owner}')
+
     def get_parameter_types(
         self, owner: typing.Optional[PolymorphicType] = None,
     ) -> typing.List[AnalyzedType]:
+        if owner is not None:
+            self.check_owner_compatibility(owner)
+        else:
+            owner = self.owner
+
         return [self.get_parameter_type(name, owner) for name in self.fn_parameters]
 
     def get_parameter_type(
         self,
         name: str,
-        owner: typing.Optional[PolymorphicType]
+        owner: typing.Optional[PolymorphicType] = None,
     ) -> AnalyzedType:
+        if owner is not None:
+            self.check_owner_compatibility(owner)
+        else:
+            owner = self.owner
+
         if name not in self.fn_parameters:
             raise ValueError(f'{self} has no parameter named {name}')
 
@@ -335,51 +364,39 @@ class FunctionType(PolymorphicType):
         self,
         owner: typing.Optional[PolymorphicType] = None,
     ) -> AnalyzedType:
+        if owner is not None:
+            self.check_owner_compatibility(owner)
+        else:
+            owner = self.owner
+
         type = self.fn_returns.bind_with_parameters(self)
         if owner is not None:
             type = type.bind_with_parameters(owner)
 
         return type
 
+    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> FunctionType:
+        function = super().with_parameters(parameters)
 
-@attr.s(kw_only=True, slots=True)
-class OwnedFunciton:
-    function: FunctionType = attr.ib()
-    owner: PolymorphicType = attr.ib()
+        function.fn_self = self.fn_self
+        function.fn_parameters = self.fn_parameters
+        function.fn_returns = self.fn_returns
 
-    def get_return_type(
-        self, owner: typing.Optional[PolymorphicType] = None
-    ) -> AnalyzedType:
-        if owner is not None:
-            if not self.owner.is_compatible_with(owner):
-                raise ValueError(f'{self.owner} is incompatible with {owner}')
+        return function
 
-        return self.function.get_return_type(self.owner)
+    def with_owner(self, owner: PolymorphicType) -> FunctionType:
+        self.check_owner_compatibility(owner)
 
-    def get_parameter_types(
-        self, owner: typing.Optional[PolymorphicType] = None,
-    ) -> typing.List[AnalyzedType]:
-        if owner is not None:
-            if not self.owner.is_compatible_with(owner):
-                raise ValueError(f'{self.owner} is incompatible with {owner}')
-
-        return self.function.get_parameter_types(owner)
-
-    def get_parameter_type(
-        self,
-        name: str,
-        owner: typing.Optional[PolymorphicType] = None,
-    ) -> AnalyzedType:
-        if owner is not None:
-            if not self.owner.is_compatible_with(owner):
-                raise ValueError(f'{self.owner} is incompatible with {owner}')
-
-        return self.function.get_parameter_type(name, self.owner)
-
-    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> OwnedFunciton:
-        return OwnedFunciton(
-            function=self.function.with_parameters(parameters),
-            owner=self.owner
+        return FunctionType(
+            name=self.name,
+            trait_tables=self.trait_tables,
+            initial_type=self.initial_type,
+            parameters=self.parameters,
+            propagated=self.propagated,
+            owner=owner,
+            fn_self=self.fn_self,
+            fn_parameters=self.fn_parameters,
+            fn_returns=self.fn_returns,
         )
 
 
@@ -393,6 +410,8 @@ class ClassAttribute:
 @attr.s(kw_only=True, slots=True)
 class ClassType(PolymorphicType):
     propagated: bool = attr.ib(default=True)
+    # The following attributes are static after propagation and they can
+    # exist on multiple ClassTypes (i.e. with_parameters)
     cls_attributes: typing.Dict[str, ClassAttribute] = attr.ib(factory=dict)
     cls_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
 
@@ -406,21 +425,23 @@ class ClassType(PolymorphicType):
         type = self.cls_attributes[name].type
         return type.bind_with_parameters(self)
 
-    def get_function(self, name: str) -> OwnedFunciton:
+    def get_function(self, name: str) -> FunctionType:
         if name not in self.cls_functions:
             raise ValueError(f'{self} has not attribute named {name}')
 
         function = self.cls_functions[name]
-        return OwnedFunciton(function=function, owner=self)
+        return function.with_owner(self)
 
+    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> ClassType:
+        cls = super().with_parameters(parameters)
 
-FunctionLike = typing.Union[
-    FunctionType,
-    OwnedFunciton,  # TODO: This is impractical. OwnedFunction needs to be an actual type
-]
+        cls.cls_attributes = self.cls_attributes
+        cls.cls_functions = self.cls_functions
+        
+        return cls
+
 
 AnalysisUnit = typing.Union[
     AnalyzedType,
     InstanceOfType,
-    FunctionLike,
 ]
