@@ -50,6 +50,8 @@ class AnalyzedType:
         return InstanceOfType(type=self, known_value=value)
 
     def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
+        # Called when a PolymorphicType wants us to replace our references to
+        # their TypeParameters with its GivenTypeParameters
         return self
 
 
@@ -166,7 +168,7 @@ class GivenTypeParameter(AnalyzedType):
         elif not isinstance(self.type, TypeParameter):
             assert False, f'<{self.parameter.name} is already {self.type}>'
 
-        innter_parameter = GivenTypeParameter(
+        inner_parameter = GivenTypeParameter(
             name=f'{self.name}@{type.name}',
             parameter=self.type,
             type=type,
@@ -174,8 +176,11 @@ class GivenTypeParameter(AnalyzedType):
         return GivenTypeParameter(
             name=self.name,
             parameter=self.parameter,
-            type=innter_parameter,
+            type=inner_parameter,
         )
+
+    def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
+        return self.get_actual_type().bind_with_parameters(type)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -269,6 +274,10 @@ class PolymorphicType(AnalyzedType):
             name=self.name,
             parameters=given_parameters,
         )
+
+    def bind_with_parameters(self, type: PolymorphicType) -> typing.Self:
+        parameters = [parameter.bind_with_parameters(type) for parameter in self.parameters]
+        return self.with_parameters(parameters)
 
 
 @attr.s(kw_only=True, slots=True)

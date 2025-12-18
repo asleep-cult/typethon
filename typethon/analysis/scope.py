@@ -20,6 +20,9 @@ class Scope:
 
         self.child_scopes: typing.Dict[str, Scope] = {}
 
+    def has_symbol(self, name: str) -> bool:
+        return name in self.symbols
+
     def get_symbol(self, name: str) -> Symbol:
         symbol = self.symbols.get(name, UNRESOLVED)
         if symbol is UNRESOLVED and self.parent_scope is not None:

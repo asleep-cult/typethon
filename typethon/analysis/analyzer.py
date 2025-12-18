@@ -71,8 +71,8 @@ class TypeAnalyzer:
             ('complex', Types.COMPLEX),
             ('str', Types.STR),
             ('list', Types.LIST),
-            #('dict', Types.DICT),
-            #('set', Types.SET),
+            ('dict', Types.DICT),
+            ('set', Types.SET),
         )
 
         for name, type in builtins:
@@ -88,16 +88,18 @@ class TypeAnalyzer:
         for statement in statements:
             if isinstance(statement, ast.FunctionDefNode):
                 type = types.FunctionType(propagated=False, name=statement.name)
+                symbol = Symbol(name=statement.name, content=type.to_instance())
                 parameters = self.walk_function_parameters(statement)
 
             elif isinstance(statement, ast.ClassDefNode):
                 type = types.ClassType(propagated=False, name=statement.name)
+                symbol = Symbol(name=statement.name, content=type)
                 parameters = self.walk_class_parameters(statement)
 
             else:
                 continue
 
-            scope.add_symbol(Symbol(name=statement.name, content=type))
+            scope.add_symbol(symbol)
             child_scope = scope.create_child_scope(statement.name)
 
             for parameter in parameters:
@@ -170,7 +172,9 @@ class TypeAnalyzer:
         for statement in statements:
             match statement:
                 case ast.FunctionDefNode():
-                    function = scope.get_type(statement.name)
+                    instance = scope.get_instance(statement.name)
+
+                    function = instance.type
                     assert isinstance(function, types.FunctionType)
 
                     function_scope = scope.get_child_scope(statement.name)
@@ -179,7 +183,7 @@ class TypeAnalyzer:
                         if parameter.annotation is None:
                             self.report_error(
                                 parameter,
-                                'Parameter {0} in {1} is missing an annotation',
+                                'Parameter `{0}` in `{1}` is missing an annotation',
                                 parameter.name,
                                 function.name,
                             )
@@ -195,14 +199,19 @@ class TypeAnalyzer:
                             types.FunctionParameter(name=parameter.name, type=type)
                         )
 
-                    if statement.returns is None:
-                        assert False, f'<Please provide return value>'
+                    if statement.returns is not None:
+                        function.fn_returns = self.evaluate_annotation(
+                            function_scope,
+                            statement.returns,
+                            function,
+                        )
+                    else:
+                        self.report_error(
+                            statement,
+                            '`{0}` is missing a return type annotation',
+                            function.name
+                        )
 
-                    function.fn_returns = self.evaluate_annotation(
-                        function_scope,
-                        statement.returns,
-                        function,
-                    )
                     function.complete_propagation()
 
                     if statement.body is not None:
@@ -236,7 +245,7 @@ class TypeAnalyzer:
         self,
         scope: Scope,
         expression: ast.TypeExpressionNode,
-        owner: types.AnalyzedType,
+        owner: typing.Optional[types.AnalyzedType],
     ) -> types.AnalyzedType:
         type = self.evaluate_type_expression(scope, expression, owner)
 
@@ -274,15 +283,23 @@ class TypeAnalyzer:
 
                     return owner.fn_self
 
-                type = scope.get_type(expression.value)
-                if type is types.UNKNOWN:
+                symbol = scope.get_symbol(expression.value)
+                if symbol is UNRESOLVED:
                     self.report_error(
                         expression,
                         'Symbol `{0}` is not defined',
                         expression.value,
                     )
 
-                return type
+                if not isinstance(symbol.content, types.AnalyzedType):
+                    self.report_error(
+                        expression,
+                        '`{0}` is not a type',
+                        expression.value,
+                    )
+                    return types.UNKNOWN
+
+                return symbol.content
 
             case ast.TypeParameterNode():
                 type = scope.get_type(expression.name)
@@ -322,7 +339,7 @@ class TypeAnalyzer:
                         'Cannot pass type parameters to `{0}` because it is not polymorphic',
                         callee.get_string(),
                     )
-                    return types.UNKNOWN
+                    return callee
 
                 if not callee.has_uninitialized_parameters():
                     self.report_error(
@@ -331,21 +348,34 @@ class TypeAnalyzer:
                         'it has no uninitialized parameters',
                         callee.get_string(),
                     )
-                    return types.UNKNOWN
-
-                if len(expression.args) != len(callee.parameters):
-                    self.report_error(
-                        expression,
-                        '`{0}` got too many parameters, expected {1}, got {2}',
-                        callee.get_string(),
-                        str(len(callee.parameters)),
-                        str(len(expression.args)),
-                    )
+                    return callee
 
                 arguments: typing.List[types.AnalyzedType] = []
                 for arg in expression.args:
                     argument = self.evaluate_type_expression(scope, arg, owner)
                     arguments.append(argument)
+
+                if len(arguments) > len(callee.parameters):
+                    self.report_error(
+                        expression,
+                        '`{0}` got too many parameters, expected {1}, got {2}',
+                        callee.get_string(),
+                        str(len(callee.parameters)),
+                        str(len(arguments)),
+                    )
+                    arguments = arguments[:len(callee.parameters)]
+
+                elif len(arguments) < len(expression.args):
+                    self.report_error(
+                        expression,
+                        '`{0}` got too few parameters, expected {1}, got {2}',
+                        callee.get_string(),
+                        str(len(callee.parameters)),
+                        str(len(arguments)),
+                    )
+
+                    while len(arguments) < len(expression.args):
+                        arguments.append(types.UNKNOWN)
 
                 return callee.with_parameters(arguments)
 
@@ -377,7 +407,9 @@ class TypeAnalyzer:
             match statement:
                 case ast.FunctionDefNode() if statement.body is not None:
                     function_scope = scope.get_child_scope(statement.name)
-                    function = scope.get_type(statement.name)
+
+                    instance = scope.get_instance(statement.name)
+                    function = instance.type
                     assert (
                         isinstance(function, types.FunctionType)
                         and function.propagated
@@ -459,20 +491,20 @@ class TypeAnalyzer:
                         ctx.return_hook(instance, statement)
 
                 case ast.AssignNode():
-                    value = self.analyze_type(scope, ctx, statement.value)
-                    self.analyze_assignment(scope, statement, value)
-                    ctx.assign_hook(value, statement)
+                    instance = self.analyze_instance_type(scope, ctx, statement.value)
+                    self.analyze_assignment(scope, statement, instance)
+                    ctx.assign_hook(instance, statement)
 
                 case ast.AugAssignNode():
-                    value = self.analyze_type(scope, ctx, statement.value)
-                    self.analyze_aug_assignment(scope, statement, value)
-                    ctx.aug_assign_hook(value, statement)
+                    instance = self.analyze_instance_type(scope, ctx, statement.value)
+                    self.analyze_aug_assignment(scope, statement, instance)
+                    ctx.aug_assign_hook(instance, statement)
 
                 case ast.AnnAssignNode():
                     if statement.value is not None:
-                        value = self.analyze_type(scope, ctx, statement.value)
-                        self.analyze_ann_assignment(scope, statement, value)
-                        ctx.ann_assign_hook(value, statement)
+                        instance = self.analyze_instance_type(scope, ctx, statement.value)
+                        self.analyze_ann_assignment(scope, statement, instance, ctx.outer_type)
+                        ctx.ann_assign_hook(instance, statement)
 
                 case ast.ForNode():
                     initial_flags = ctx.flags
@@ -495,11 +527,11 @@ class TypeAnalyzer:
                     function = trait_table.get_function('next')
                     return_type = function.get_return_type()
 
-                    symbol = Symbol(
-                        name=statement.target.value,
-                        content=return_type.to_instance()
+                    self.assign_to_name(
+                        scope,
+                        statement.target,
+                        return_type.to_instance()
                     )
-                    scope.add_symbol(symbol)
 
                     self.analyze_types(scope, ctx, statement.body)
                     ctx.flags = initial_flags
@@ -540,25 +572,52 @@ class TypeAnalyzer:
 
                     ctx.continue_hook(statement)
 
+    def assign_to_name(
+        self,
+        scope: Scope,
+        node: ast.NameNode,
+        instance: types.InstanceOfType,
+    ) -> None:
+        if scope.has_symbol(node.value):
+            symbol = scope.get_symbol(node.value)
+            if not isinstance(symbol.content, types.InstanceOfType):
+                self.report_error(
+                    node,
+                    '`{0}` was previously defined as a type in this scope',
+                    node.value,
+                ) 
+            else:
+                type = symbol.content.type
+                if not type.is_compatible_with(instance.type):
+                    self.report_type_incompatibility(
+                        node,
+                        instance.type,
+                        type,
+                        '`{0}` cannot be assigned `{1}`',
+                        instance.type.get_string(),
+                        node.value,
+                    )
+        else:
+            scope.add_symbol(Symbol(name=node.value, content=instance))
+
     def analyze_assignment(
         self,
         scope: Scope,
         assignment: ast.AssignNode,
-        value: types.AnalyzedType,
+        instance: types.InstanceOfType,
     ) -> None:
         for target in assignment.targets:
             if not isinstance(target, ast.NameNode):
                 # TODO: Allow unpacking, the parser needs fixing here as well
                 assert False, 'Non-variable assignment implemented'
 
-            # TODO: check for type coherency
-            scope.add_symbol(Symbol(name=target.value, content=value))
+            self.assign_to_name(scope, target, instance)
 
     def analyze_aug_assignment(
         self,
         scope: Scope,
         assignment: ast.AugAssignNode,
-        value: types.AnalyzedType,
+        instance: types.InstanceOfType,
     ) -> None:
         assert False, '<Aug assignment is not implemented>'
 
@@ -566,9 +625,30 @@ class TypeAnalyzer:
         self,
         scope: Scope,
         assignment: ast.AnnAssignNode,
-        value: types.AnalyzedType,
+        instance: types.InstanceOfType,
+        owner: typing.Optional[types.AnalyzedType],
     ) -> None:
-        assert False, '<Ann assignment is not implemented>'
+        # TODO: Just how strict should scoping and assignment types be?
+        # Do we want to allow narrowing on Symbols within certain scopes
+        # or force pattern matching with new assignments?
+        if not isinstance(assignment.target, ast.NameNode):
+            assert False, 'Non-variable assignment not implemented'
+
+        type = self.evaluate_annotation(
+            scope,
+            assignment.annotation,
+            owner,
+        )
+        if not type.is_compatible_with(instance.type):
+            self.report_type_incompatibility(
+                assignment,
+                instance.type,
+                type,
+                'Assignment to `{0}` does not match the annotation',
+                assignment.target.value,
+            )
+
+        self.assign_to_name(scope, assignment.target, type.to_instance())
 
     def analyze_type(
         self,
@@ -705,27 +785,23 @@ class TypeAnalyzer:
                 return instance
 
             case ast.AttributeNode():
-                type = self.analyze_type(scope, ctx, expression.value)
-                match type:
-                    case types.AnalyzedType():
-                        return type.access_attribute(type.name)
-                    case types.InstanceOfType():
-                        return self.analyze_attribute(type.type, expression)
+                unit = self.analyze_type(scope, ctx, expression.value)
+                return self.analyze_attribute(unit, expression)
 
             case ast.CallNode():
-                function = self.analyze_type(scope, ctx, expression.func)
-                match function:
+                unit = self.analyze_type(scope, ctx, expression.func)
+                match unit:
                     case types.FunctionType():
-                        instance = self.analyze_function_call(scope, ctx, function, expression)
+                        assert False, '<Cannot call a function type>'
                     case types.PolymorphicType():
                         assert False, '<Not yet implemented>'
                     case types.AnalyzedType():
                         assert False, '<Cannot call this type>'
                     case types.InstanceOfType():
-                        assert False, '<Cannot call a value>'
-
-                ctx.call_hook(instance, expression)
-                return instance
+                        if isinstance(unit.type, types.FunctionType):
+                            return self.analyze_function_call(scope, ctx, unit.type, expression)
+                        else:
+                            assert False, '<Cannot call a value>'
 
             case ast.NameNode():
                 symbol = scope.get_symbol(expression.value)
@@ -746,9 +822,19 @@ class TypeAnalyzer:
 
     def analyze_attribute(
         self,
-        type: types.AnalyzedType,
+        unit: types.AnalysisUnit,
         attribute: ast.AttributeNode,
     ) -> types.AnalysisUnit:
+        if not isinstance(unit, types.InstanceOfType):
+            self.report_error(
+                attribute,
+                'Cannot get attribute `{0}` on `{1}` because it is not an instance',
+                unit.get_string(),
+                attribute.attr,
+            )
+            return types.UNKNOWN
+
+        type = unit.type
         match type:
             case types.ClassType():
                 if attribute.attr in type.cls_functions:
@@ -767,8 +853,13 @@ class TypeAnalyzer:
             case types.FunctionType():
                 assert False, '<Cannot get function attribute>'
 
-            case types.AnalyzedType():
-                assert False, '<Cannot get attribute on type>'
+        self.report_error(
+            attribute,
+            '`{0}` has no attribute `{1}`',
+            type.get_string(),
+            attribute.attr,
+        )
+        return types.UNKNOWN
 
     def analyze_instance_type(
         self,
@@ -799,7 +890,7 @@ class TypeAnalyzer:
                 return Types.NONE
 
             case ast.ConstantType.ELLIPSIS:
-                assert False, '<TODO>'
+                assert False, '<TODO>'  # XXX: Does this really need to exist...
 
             case ast.ConstantType.INTEGER:
                 assert isinstance(constant, ast.IntegerNode)
