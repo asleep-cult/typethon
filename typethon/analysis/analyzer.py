@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import typing
+# import prettyprinter
 
 from . import types
 from .builder import Types, Traits
@@ -225,6 +226,9 @@ class TypeAnalyzer:
 
                     assignments = self.filter_statements(statement.body, ast.AnnAssignNode)
                     for assignment in assignments:
+                        if not isinstance(assignment.target, ast.NameNode):
+                            assert False, '<Not implemented>'
+
                         type = self.evaluate_type_expression(
                             class_scope, assignment.annotation, cls,
                         )
@@ -907,6 +911,36 @@ class TypeAnalyzer:
             case ast.ConstantType.STRING | ast.ConstantType.BYTES:
                 assert False, '<TODO>'
 
+    def type_parameters_from_arguments(
+        self,
+        function: types.FunctionType,
+        arguments: typing.List[types.InstanceOfType],
+    ) -> typing.List[typing.Tuple[types.TypeParameter, types.AnalyzedType]]:
+        parameter_map: typing.List[typing.Tuple[types.TypeParameter, types.AnalyzedType]] = []
+
+        for parameter, argument in zip(function.fn_parameters.values(), arguments):
+            if isinstance(parameter.type, types.TypeParameter):
+                # Given a function f(x: |T|), f(U) gives {T: U}
+                parameter_map.append((parameter.type, argument.type))
+            elif isinstance(parameter.type, types.PolymorphicType):
+                # Given a function f(x: T(|U|)), f(T(V)) gives {U: V}
+                if (
+                    not isinstance(argument.type, types.PolymorphicType)
+                    or parameter.type.get_initial_type() is not argument.type.get_initial_type()
+                ):
+                    # There is a type incompatibility, we will report it later
+                    continue
+
+                mapped_parameters = zip(
+                    parameter.type.given_parameters,
+                    argument.type.given_parameters,
+                )
+                for parameter, given_parameter in mapped_parameters:
+                    if isinstance(parameter, types.TypeParameter):
+                        parameter_map.append((parameter, given_parameter))
+
+        return parameter_map
+
     def analyze_function_call(
         self,
         scope: Scope,
@@ -914,14 +948,44 @@ class TypeAnalyzer:
         function: types.FunctionType,
         node: ast.CallNode,
     ) -> types.InstanceOfType:
-        # TODO: Give function type parameters based on the arguments passed
-        parameters = function.get_parameter_types()
+        arguments = [self.analyze_instance_type(scope, ctx, argument) for argument in node.args]
 
-        for argument in node.args:
-            instance  = self.analyze_instance_type(scope, ctx, argument)
-            if not parameters:
+        parameter_map = self.type_parameters_from_arguments(function, arguments)
+        parameters: typing.List[types.AnalyzedType] = []
+
+        for parameter in function.parameters:
+            mapped = [type for param, type in parameter_map if param is parameter]
+
+            if not mapped:
                 self.report_error(
-                    argument,
+                    node,
+                    'Unable to resolve type parameter `{0}` of `{1}`',
+                    parameter.name,
+                    function.name
+                )
+                parameters.append(types.UNKNOWN)
+                continue
+
+            for type in mapped[1:]:
+                if not type.is_compatible_with(mapped[0]):
+                    self.report_type_incompatibility(
+                        node,
+                        type,
+                        mapped[0],
+                        'Resolved types for parameter `{0}` of `{1}` are different',
+                        parameter.name,
+                        function.name
+                    )
+
+            parameters.append(mapped[0])
+
+        function = function.with_parameters(parameters)
+        parameter_types = function.get_parameter_types()
+
+        for i, instance in enumerate(arguments):
+            if not parameter_types:
+                self.report_error(
+                    node.args[i],
                     '`{0}` received too many arguments, expected {1}, '
                     'received {2}',
                     function.name,
@@ -930,12 +994,12 @@ class TypeAnalyzer:
                 )
                 break
 
-            type = parameters.pop(0)
+            type = parameter_types.pop(0)
             if not type.is_compatible_with(instance.type):
                 # TODO: What is the parameter name?
                 # fn_parameters is not technically ordered
                 self.report_type_incompatibility(
-                    argument,
+                    node.args[i],
                     instance.type,
                     type,
                     'Incompatible type for parameter of `{0}`',

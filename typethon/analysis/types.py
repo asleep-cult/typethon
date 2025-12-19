@@ -109,86 +109,21 @@ class TypeParameter(AnalyzedType):
         return f'|{name}|'        
 
     def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
-        for parameter in type.parameters:
-            if not isinstance(parameter, GivenTypeParameter):
-                raise ValueError(f'{type} is missing a paramater for {parameter}')
+        for parameter, given_type in type.map_given_parameters():
+            if parameter is self:
+                return given_type
 
-            resolved = parameter.resolve_for(self)
-            if resolved is not None:
-                return resolved
-
-        # No overlap between this parameter and the given parameters on type
         return self
-
-
-@attr.s(kw_only=True, slots=True)
-class GivenTypeParameter(AnalyzedType):
-    # This class is resursively instantiated so that the original
-    # type parameter is always on top.
-    parameter: TypeParameter = attr.ib()
-    type: typing.Union[
-        GivenTypeParameter,
-        TypeParameter,
-        AnalyzedType,
-    ] = attr.ib()
-
-    def is_compatible_with(self, type: AnalyzedType) -> bool:
-        if (
-            not isinstance(type, GivenTypeParameter)
-            or self.parameter is not type.parameter
-        ):
-            return False
-
-        return self.type.is_compatible_with(type.type)
-
-    def get_actual_type(self) -> AnalyzedType:
-        if not isinstance(self.type, GivenTypeParameter):
-            return self.type
-
-        return self.type.get_actual_type()
-
-    def resolve_for(self, parameter: TypeParameter) -> typing.Optional[AnalyzedType]:
-        if self.parameter is parameter:
-            if isinstance(self.type, GivenTypeParameter):
-                return self.type.get_actual_type()
-            else:
-                return self.type
-
-        if isinstance(self.type, GivenTypeParameter):
-            return self.type.resolve_for(parameter)
-
-    def with_type(self, type: AnalyzedType) -> GivenTypeParameter:
-        if isinstance(self.type, GivenTypeParameter):
-            return GivenTypeParameter(
-                name=self.name,
-                parameter=self.parameter,
-                type=self.type.with_type(type),
-            )
-
-        elif not isinstance(self.type, TypeParameter):
-            assert False, f'<{self.parameter.name} is already {self.type}>'
-
-        inner_parameter = GivenTypeParameter(
-            name=f'{self.name}@{type.name}',
-            parameter=self.type,
-            type=type,
-        )
-        return GivenTypeParameter(
-            name=self.name,
-            parameter=self.parameter,
-            type=inner_parameter,
-        )
-
-    def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
-        return self.get_actual_type().bind_with_parameters(type)
 
 
 @attr.s(kw_only=True, slots=True)
 class PolymorphicType(AnalyzedType):
     initial_type: typing.Optional[typing.Self] = attr.ib(default=None, repr=False)
-    parameters: typing.List[
-        typing.Union[TypeParameter, GivenTypeParameter]
-    ] = attr.ib(factory=list)
+    parameters: typing.List[TypeParameter] = attr.ib(factory=list)
+    given_parameters: typing.List[AnalyzedType] = attr.ib(factory=list)
+
+    def map_given_parameters(self) -> typing.Iterator[typing.Tuple[TypeParameter, AnalyzedType]]:
+        return zip(self.parameters, self.given_parameters)
 
     def add_trait_table(self, trait_table: TraitTable) -> None:
         initial_type = self.get_initial_type()
@@ -226,57 +161,40 @@ class PolymorphicType(AnalyzedType):
     def has_uninitialized_parameters(self) -> bool:
         return any(self.uninitialized_parameters())
 
-    def all_parameters_given(self) -> bool:
-        return all(isinstance(parameter, GivenTypeParameter) for parameter in self.parameters)
-
     def uninitialized_parameters(self) -> typing.Generator[TypeParameter]:
-        for parameter in self.parameters:
-            match parameter:
-                case TypeParameter():
+        if not self.given_parameters:
+            yield from self.parameters
+        else:
+            for parameter in self.given_parameters:
+                if isinstance(parameter, TypeParameter):
                     yield parameter
-                case GivenTypeParameter():
-                    type = parameter.get_actual_type()
-                    if isinstance(type, TypeParameter):
-                        yield type
 
     def with_parameters(self, parameters: typing.List[AnalyzedType]) -> typing.Self:
         initial_type = self.get_initial_type()
         if len(parameters) != len(initial_type.parameters):
             raise ValueError(
-                'Expected {0} parameters, reveived {1}'.format(
+                'Expected {0} parameter(s), reveived {1}'.format(
                     len(initial_type.parameters), len(parameters)
                 )
             )
 
-        given_parameters: typing.List[GivenTypeParameter] = []
-
-        for parameter, given_parameter in zip(self.parameters, parameters):
+        for parameter in parameters:
             if (
-                isinstance(given_parameter, PolymorphicType)
-                and given_parameter.has_uninitialized_parameters()
+                isinstance(parameter, PolymorphicType)
+                and parameter.has_uninitialized_parameters()
             ):
-                raise ValueError(f'Received an uninitialized parameter in {given_parameter}')
-
-            if isinstance(parameter, GivenTypeParameter):
-                new_parameter = parameter.with_type(given_parameter)
-            else:
-                new_parameter = GivenTypeParameter(
-                    name=f'{parameter.name}@{given_parameter.name}',
-                    parameter=parameter,
-                    type=given_parameter,
-                )
-
-            given_parameters.append(new_parameter)
+                raise ValueError(f'Received an uninitialized parameter in {parameters}')
 
         cls = type(self)
         return cls(
             initial_type=initial_type,
             name=self.name,
-            parameters=given_parameters,
+            parameters=self.parameters,
+            given_parameters=parameters,
         )
 
-    def bind_with_parameters(self, type: PolymorphicType) -> typing.Self:
-        parameters = [parameter.bind_with_parameters(type) for parameter in self.parameters]
+    def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
+        parameters = [parameter.bind_with_parameters(type) for parameter in self.given_parameters]
         return self.with_parameters(parameters)
 
 
@@ -341,11 +259,6 @@ class FunctionType(PolymorphicType):
     def get_parameter_types(
         self, owner: typing.Optional[PolymorphicType] = None,
     ) -> typing.List[AnalyzedType]:
-        if owner is not None:
-            self.check_owner_compatibility(owner)
-        else:
-            owner = self.owner
-
         return [self.get_parameter_type(name, owner) for name in self.fn_parameters]
 
     def get_parameter_type(
