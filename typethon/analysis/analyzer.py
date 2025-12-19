@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import typing
-# import prettyprinter
+import prettyprinter
 
 from . import types
-from .builder import Types, Ops, Traits
+from .builder import Types, Ops, Traits, DEBUG
 from .context import AnalysisContext, ContextFlags
 from ..diagnostics import DiagnosticReporter
 from ..syntax import ast
@@ -74,6 +74,7 @@ class TypeAnalyzer:
             ('list', Types.LIST),
             ('dict', Types.DICT),
             ('set', Types.SET),
+            ('debug', DEBUG.to_instance()),
         )
 
         for name, type in builtins:
@@ -483,7 +484,7 @@ class TypeAnalyzer:
                                 instance.get_string(),
                             )
 
-                        if not ctx.outer_type.fn_returns.is_compatible_with(instance.type):
+                        if not instance.type.is_compatible_with(ctx.outer_type.fn_returns):
                             return self.report_type_incompatibility(
                                 statement,
                                 instance.type,
@@ -592,7 +593,7 @@ class TypeAnalyzer:
                 ) 
             else:
                 type = symbol.content.type
-                if not type.is_compatible_with(instance.type):
+                if not instance.type.is_compatible_with(type):
                     self.report_type_incompatibility(
                         node,
                         instance.type,
@@ -643,7 +644,7 @@ class TypeAnalyzer:
             assignment.annotation,
             owner,
         )
-        if not type.is_compatible_with(instance.type):
+        if not instance.type.is_compatible_with(type):
             self.report_type_incompatibility(
                 assignment,
                 instance.type,
@@ -950,6 +951,10 @@ class TypeAnalyzer:
     ) -> types.InstanceOfType:
         arguments = [self.analyze_instance_type(scope, ctx, argument) for argument in node.args]
 
+        if function is DEBUG:
+            prettyprinter.cpprint(arguments)
+            return Types.NONE
+
         parameter_map = self.type_parameters_from_arguments(function, arguments)
         parameters: typing.List[types.AnalyzedType] = []
 
@@ -995,7 +1000,7 @@ class TypeAnalyzer:
                 break
 
             type = parameter_types.pop(0)
-            if not type.is_compatible_with(instance.type):
+            if not instance.type.is_compatible_with(type):
                 # TODO: What is the parameter name?
                 # fn_parameters is not technically ordered
                 self.report_type_incompatibility(

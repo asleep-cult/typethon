@@ -17,6 +17,9 @@ class AnalyzedType:
         return f'type({string})'
 
     def is_compatible_with(self, type: AnalyzedType) -> bool:
+        # NOTE: This is not communitive and must be used with care
+        # Specifically, type.is_compatible_with(trait) will work,
+        # trait.is_compatible_with(type) will not. 
         if self is UNKNOWN or type is UNKNOWN:
             return False
 
@@ -232,7 +235,7 @@ class TypeTrait(PolymorphicType):
             return True
 
         if not isinstance(type, TypeTrait):
-            return type.get_trait_implementation(self) is not None
+            return False
 
         if self.get_initial_type() is not type.get_initial_type():
             return False

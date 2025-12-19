@@ -304,3 +304,5 @@ TypeBuilder.add_all_traits(
 Types.LIST.add_trait_implementation(
     Iter.with_parameters([Types.LIST.parameters[0]])
 )
+
+DEBUG = TypeBuilder.new_function('debug', returns=Types.NONE_TYPE)
