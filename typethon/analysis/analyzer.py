@@ -369,7 +369,7 @@ class TypeAnalyzer:
                     )
                     arguments = arguments[:len(callee.parameters)]
 
-                elif len(arguments) < len(expression.args):
+                elif len(arguments) < len(callee.parameters):
                     self.report_error(
                         expression,
                         '`{0}` got too few parameters, expected {1}, got {2}',
@@ -378,7 +378,7 @@ class TypeAnalyzer:
                         str(len(arguments)),
                     )
 
-                    while len(arguments) < len(expression.args):
+                    while len(arguments) < len(callee.parameters):
                         arguments.append(types.UNKNOWN)
 
                 return callee.with_parameters(arguments)
@@ -1005,6 +1005,16 @@ class TypeAnalyzer:
                     'Incompatible type for parameter of `{0}`',
                     function.name,
                 )
+
+        if parameter_types:
+            self.report_error(
+                node,
+                '`{0}` received too few arguments, expected {1}, '
+                'received {2}',
+                function.name,
+                str(len(function.fn_parameters)),
+                str(len(node.args)),
+            )
 
         return function.get_return_type().to_instance()
 

@@ -142,7 +142,7 @@ class PolymorphicType(AnalyzedType):
         if self.get_initial_type() is not type.get_initial_type():
             return False
 
-        parameters = zip(self.parameters, type.parameters)
+        parameters = zip(self.given_parameters, type.given_parameters)
         for parameter1, parameter2 in parameters:
             if not parameter1.is_compatible_with(parameter2):
                 return False
@@ -150,8 +150,11 @@ class PolymorphicType(AnalyzedType):
         return True
 
     def get_string(self, *, top_level: bool = True) -> str:
+        if not self.given_parameters:
+            return self.name
+
         parameters = ', '.join(
-            parameter.get_string(top_level=False) for parameter in self.parameters
+            parameter.get_string(top_level=False) for parameter in self.given_parameters
         )
         return f'{self.name}({parameters})'
 
