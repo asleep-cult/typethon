@@ -4,7 +4,7 @@ import typing
 # import prettyprinter
 
 from . import types
-from .builder import Types, Traits
+from .builder import Types, Ops, Traits
 from .context import AnalysisContext, ContextFlags
 from ..diagnostics import DiagnosticReporter
 from ..syntax import ast
@@ -515,10 +515,10 @@ class TypeAnalyzer:
                     ctx.flags |= ContextFlags.ALLOW_LOOP_CONTROL
 
                     iterator = self.analyze_instance_type(scope, ctx, statement.iterator)
-                    trait_table = iterator.type.get_trait_table(
+                    implementation = iterator.type.get_trait_implementation(
                         Traits.ITER.with_parameters([types.ANY])
                     )
-                    if trait_table is None:
+                    if implementation is None:
                         return self.report_error(
                             statement,
                             '`{0}` does not implement the Iter trait',
@@ -528,7 +528,7 @@ class TypeAnalyzer:
                     if not isinstance(statement.target, ast.NameNode):
                         assert False, '<Non-name assign not implemented>'
 
-                    function = trait_table.get_function('next')
+                    function = implementation.get_function('next')
                     return_type = function.get_return_type()
 
                     self.assign_to_name(
@@ -662,7 +662,7 @@ class TypeAnalyzer:
     ) -> types.AnalysisUnit:
         match expression:
             case ast.BoolOpNode():
-                operands = [self.analyze_type(scope, ctx, operand) for operand in expression.values]
+                operands = [self.analyze_instance_type(scope, ctx, operand) for operand in expression.values]
 
                 type = Types.BOOL.to_instance()
                 ctx.bool_op_hook(type, expression)
@@ -673,49 +673,49 @@ class TypeAnalyzer:
 
                 match expression.op:
                     case ast.Operator.ADD:
-                        trait = Traits.ADD
+                        trait = Ops.ADD
                         name = 'add'
                     case ast.Operator.SUB:
-                        trait = Traits.SUB
+                        trait = Ops.SUB
                         name = 'sub'
                     case ast.Operator.MULT:
-                        trait = Traits.MULT
+                        trait = Ops.MULT
                         name = 'mult'
                     case ast.Operator.MATMULT:
-                        trait = Traits.MATMULT
+                        trait = Ops.MATMULT
                         name = 'matmult'
                     case ast.Operator.DIV:
-                        trait = Traits.DIV
+                        trait = Ops.DIV
                         name = 'div'
                     case ast.Operator.MOD:
-                        trait = Traits.MOD
+                        trait = Ops.MOD
                         name = 'mod'
                     case ast.Operator.POW:
-                        trait = Traits.POW
+                        trait = Ops.POW
                         name = 'pow'
                     case ast.Operator.LSHIFT:
-                        trait = Traits.LSHIFT
+                        trait = Ops.LSHIFT
                         name = 'lshift'
                     case ast.Operator.RSHIFT:
-                        trait = Traits.RSHIFT
+                        trait = Ops.RSHIFT
                         name = 'rshift'
                     case ast.Operator.BITOR:
-                        trait = Traits.BITOR
+                        trait = Ops.BITOR
                         name = 'bitor'
                     case ast.Operator.BITXOR:
-                        trait = Traits.BITXOR
+                        trait = Ops.BITXOR
                         name = 'bitxor'
                     case ast.Operator.BITAND:
-                        trait = Traits.BITAND
+                        trait = Ops.BITAND
                         name = 'bitand'
                     case ast.Operator.FLOORDIV:
-                        trait = Traits.FLOORDIV
+                        trait = Ops.FLOORDIV
                         name = 'floordiv'
 
-                trait_table = left.type.get_trait_table(
+                implementation = left.type.get_trait_implementation(
                     trait.with_parameters([right.type, types.ANY])
                 )
-                if trait_table is None:
+                if implementation is None:
                     self.report_error(
                         expression,
                         '`{0}` does not implement the `{1}` trait for `{2}`',
@@ -725,16 +725,16 @@ class TypeAnalyzer:
                     )
                     return types.UNKNOWN
 
-                function = trait_table.get_function(name)
+                function = implementation.get_function(name)
                 lhs_type = function.get_return_type()
 
-                trait_table = right.type.get_trait_table(
+                implementation = right.type.get_trait_implementation(
                     trait.with_parameters([left.type, types.ANY])
                 )
-                if trait_table is None:
+                if implementation is None:
                     return lhs_type.to_instance()
 
-                function = trait_table.get_function(name)
+                function = implementation.get_function(name)
                 rhs_type = function.get_return_type()
 
                 if not lhs_type.is_compatible_with(rhs_type):
@@ -754,21 +754,21 @@ class TypeAnalyzer:
 
                 match expression.op:
                     case ast.UnaryOperator.INVERT:
-                        trait = Traits.INVERT
+                        trait = Ops.INVERT
                         name = 'invert'
                     case ast.UnaryOperator.NOT:
                         return Types.BOOL.to_instance()
                     case ast.UnaryOperator.UADD:
-                        trait = Traits.UADD
+                        trait = Ops.UADD
                         name = 'uadd'
                     case ast.UnaryOperator.USUB:
-                        trait = Traits.USUB
+                        trait = Ops.USUB
                         name = 'usub'
 
-                trait_table = operand.type.get_trait_table(
+                implementation = operand.type.get_trait_implementation(
                     trait.with_parameters([types.ANY])
                 )
-                if trait_table is None:
+                if implementation is None:
                     self.report_error(
                         expression,
                         '`{0}` does not implement `{1}` trait',
@@ -777,7 +777,7 @@ class TypeAnalyzer:
                     )
                     return types.UNKNOWN
 
-                function = trait_table.get_function(name)
+                function = implementation.get_function(name)
                 instance = function.get_return_type().to_instance()
 
                 ctx.unary_op_hook(instance, expression)

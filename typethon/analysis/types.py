@@ -10,7 +10,7 @@ import typing
 @attr.s(kw_only=True, slots=True, hash=True)
 class AnalyzedType:
     name: str = attr.ib()
-    trait_tables: typing.List[TraitTable] = attr.ib(factory=list, repr=False)
+    trait_implementations: typing.List[TypeTrait] = attr.ib(factory=list, repr=False)
 
     def __str__(self) -> str:
         string = self.get_string()
@@ -23,22 +23,24 @@ class AnalyzedType:
         if self is ANY or type is ANY:
             return True
 
+        if isinstance(type, TypeTrait):
+            return self.get_trait_implementation(type) is not None
+
         return self is type
 
-    def add_trait_table(self, trait_table: TraitTable) -> None:
-        # The implementation functions for traits are stored on each type
-        # in the form of a TraitTable which holds a mapping of functions
-        # along with the trait it is implementing. To find a TraitTable
-        # for a specific trait, we iterate over each one and return the first
-        # table the whos trait is compatible with the trait we are looking
-        # for. Since traits can be polymorphic, this means checking whether
-        # each parameter for both traits are compatible.
-        self.trait_tables.append(trait_table)
+    def add_trait_implementation(self, trait: TypeTrait) -> None:
+        if trait.has_uninitialized_parameters():
+            raise ValueError(f'{trait} has uninitialized parameters')
 
-    def get_trait_table(self, trait: TypeTrait) -> typing.Optional[TraitTable]:
-        for table in self.trait_tables:
-            if table.trait.is_compatible_with(trait):
-                return table
+        self.trait_implementations.append(trait)
+
+    def get_trait_implementation(self, trait: TypeTrait) -> typing.Optional[TypeTrait]:
+        if trait.has_uninitialized_parameters():
+            raise ValueError(f'{trait} has uninitialized parameters')
+
+        for implementation in self.trait_implementations:
+            if implementation.is_compatible_with(trait):
+                return implementation
 
     def get_string(self, *, top_level: bool = True) -> str:
         return str(self.name)
@@ -60,26 +62,6 @@ ANY = AnalyzedType(name='any')  # Internal type compatible with exerything
 
 
 @attr.s(kw_only=True, slots=True)
-class TraitTable:
-    trait: TypeTrait = attr.ib()
-    owner: typing.Optional[PolymorphicType] = attr.ib(default=None, repr=str)
-    functions: typing.Dict[str, FunctionType] = attr.ib()
-
-    def get_function(self, name: str) -> FunctionType:
-        if name not in self.functions:
-            raise ValueError(f'{self} has no function called {name}')
-
-        function = self.functions[name]
-        if self.owner is not None:
-            function = function.with_owner(self.owner)
-
-        return function
-
-    def with_owner(self, type: PolymorphicType) -> TraitTable:
-        return TraitTable(trait=self.trait, owner=type, functions=self.functions)
-
-
-@attr.s(kw_only=True, slots=True)
 class UnionType(AnalyzedType):
     # XXX: This will probably be a compiler only type
     types: typing.List[AnalyzedType] = attr.ib(factory=list)
@@ -93,7 +75,7 @@ class InstanceOfType:
 
 @attr.s(kw_only=True, slots=True, hash=True)
 class TypeParameter(AnalyzedType):
-    owner: AnalyzedType = attr.ib(default=UNKNOWN, eq=False, repr=False)  # False because of recursion
+    owner: AnalyzedType = attr.ib(default=UNKNOWN, eq=False, repr=False)
     constraint: typing.Optional[AnalyzedType] = attr.ib(default=None)
 
     def get_string(self, *, top_level: bool = True) -> str:
@@ -125,21 +107,52 @@ class PolymorphicType(AnalyzedType):
     def map_given_parameters(self) -> typing.Iterator[typing.Tuple[TypeParameter, AnalyzedType]]:
         return zip(self.parameters, self.given_parameters)
 
-    def add_trait_table(self, trait_table: TraitTable) -> None:
-        initial_type = self.get_initial_type()
-        initial_type.trait_tables.append(trait_table)
+    def add_trait_implementation(self, trait: TypeTrait) -> None:
+        for parameter in trait.uninitialized_parameters():
+            # TODO: Do we need to re-map given_parameters to parameters???
+            if (
+                parameter not in self.parameters
+                and parameter not in self.given_parameters
+            ):
+                raise ValueError(f'{trait} has foreign uninitialized parameter {parameter}')
 
-    def get_trait_table(self, trait: TypeTrait) -> typing.Optional[TraitTable]:
         initial_type = self.get_initial_type()
-        for table in initial_type.trait_tables:
-            if table.trait.is_compatible_with(trait):
-                return table.with_owner(self)
+        initial_type.trait_implementations.append(trait)
+
+    def get_trait_implementation(self, trait: TypeTrait) -> typing.Optional[TypeTrait]:
+        for parameter in trait.uninitialized_parameters():
+            if (
+                parameter not in self.parameters
+                and parameter not in self.given_parameters
+            ):
+                raise ValueError(f'{trait} has foreign uninitialized parameter {parameter}')
+
+        initial_type = self.get_initial_type()
+        for implementation in initial_type.trait_implementations:
+            if implementation.get_initial_type() is not trait.get_initial_type():
+                continue
+
+            bound_trait = implementation.bind_with_parameters(self)
+            if bound_trait.is_compatible_with(trait):
+                return bound_trait
 
     def is_compatible_with(self, type: AnalyzedType) -> bool:
+        if type is UNKNOWN:
+            return False
+
+        if type is ANY:
+            return True
+
+        if isinstance(type, TypeTrait):
+            return self.get_trait_implementation(type) is not None
+
         if not isinstance(type, PolymorphicType):
             return False
 
         if self.get_initial_type() is not type.get_initial_type():
+            return False
+
+        if len(self.given_parameters) != len(type.given_parameters):
             return False
 
         parameters = zip(self.given_parameters, type.given_parameters)
@@ -196,7 +209,7 @@ class PolymorphicType(AnalyzedType):
             given_parameters=parameters,
         )
 
-    def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
+    def bind_with_parameters(self, type: PolymorphicType) -> typing.Self:
         parameters = [parameter.bind_with_parameters(type) for parameter in self.given_parameters]
         return self.with_parameters(parameters)
 
@@ -211,12 +224,40 @@ class SelfType(AnalyzedType):
 class TypeTrait(PolymorphicType):
     tr_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
 
+    def is_compatible_with(self, type: AnalyzedType) -> bool:
+        if type is UNKNOWN:
+            return False
+
+        if type is ANY:
+            return True
+
+        if not isinstance(type, TypeTrait):
+            return type.get_trait_implementation(self) is not None
+
+        if self.get_initial_type() is not type.get_initial_type():
+            return False
+
+        if len(self.given_parameters) != len(type.given_parameters):
+            return False
+
+        parameters = zip(self.given_parameters, type.given_parameters)
+        for parameter1, parameter2 in parameters:
+            if not parameter1.is_compatible_with(parameter2):
+                return False
+
+        return True
+
     def get_function(self, name: str) -> FunctionType:
         if name not in self.tr_functions:
             raise ValueError(f'{self} has no function named {name}')
 
         function = self.tr_functions[name]
         return function.with_owner(self)
+
+    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> TypeTrait:
+        trait = super().with_parameters(parameters)
+        trait.tr_functions = self.tr_functions
+        return trait
 
 
 @attr.s(kw_only=True, slots=True)
@@ -314,7 +355,6 @@ class FunctionType(PolymorphicType):
 
         return FunctionType(
             name=self.name,
-            trait_tables=self.trait_tables,
             initial_type=self.initial_type,
             parameters=self.parameters,
             propagated=self.propagated,
