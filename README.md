@@ -279,6 +279,26 @@ def concatenate({map1, map2}: HashMap|K, V|) -> HashMap(K, V)
 # be valid (although I cant imagine why anyone would ever do this):
 for {x, y} in numbers: ...
 
+# Alternative syntax to consider
+
+# A semicolon:
+def concatenate((map1; map2): HashMap|K, V|) -> HashMap(K, V)
+
+# Wrap around annotation (makes more sense)
+:x, y, z: int
+# x: int, y: int, z: int
+
+# For class attributes:
+class Rectangle:
+    :height, width: int
+
+# For function parameters:
+def add(:lhs, rhs: int) -> int:
+    return lhs + rhs
+
+# The concatenate example:
+def concatenate(:map1, map2: HashMap|K, V|) -> HashMap(K, V)
+
 # 12. While on the topic of for loops, I have been considering 
 # allowing multiple iterators in for loops to avoid the long winded
 # zip() function. For example:
