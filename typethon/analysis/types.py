@@ -3,11 +3,16 @@ from __future__ import annotations
 import attr
 import typing
 
-# TODO: __eq__ needs to resolve resursion issues
-# that arise from cyclic references
+
+# TODO: Some get_string might result in resursion error
+# (if the type is improperly initialized, such as if a function
+# has a parameter type that is itself)
+# NOTE: These functions will happily raise an exception if something
+# appears broken to pinpoint hidden bugs. (Fixing errors is not our
+# responsibility, we'd rather die catastrophically...)
 
 
-@attr.s(kw_only=True, slots=True, hash=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class AnalyzedType:
     name: str = attr.ib()
     trait_implementations: typing.List[TypeTrait] = attr.ib(factory=list, repr=False)
@@ -56,7 +61,7 @@ class AnalyzedType:
 
     def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
         # Called when a PolymorphicType wants us to replace our references to
-        # their TypeParameters with its GivenTypeParameters
+        # their parameters with their given_parameters
         return self
 
 
@@ -64,34 +69,30 @@ UNKNOWN = AnalyzedType(name='unknown')  # Internal type compatible with nothing
 ANY = AnalyzedType(name='any')  # Internal type compatible with exerything
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class UnionType(AnalyzedType):
     # XXX: This will probably be a compiler only type
     types: typing.List[AnalyzedType] = attr.ib(factory=list)
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class InstanceOfType:
     type: AnalyzedType = attr.ib()
     known_value: typing.Any = attr.ib()
 
 
-@attr.s(kw_only=True, slots=True, hash=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class TypeParameter(AnalyzedType):
     owner: AnalyzedType = attr.ib(default=UNKNOWN, eq=False, repr=False)
     constraint: typing.Optional[AnalyzedType] = attr.ib(default=None)
 
     def get_string(self, *, top_level: bool = True) -> str:
-        if top_level:
-            owner = self.owner.get_string(top_level=False)
-            name = f'{self.name}@{owner}'
-        else:
-            name = self.name
+        name = f'{self.name}@{self.owner.name}'
 
         if self.constraint is not None:
             return f'|{name}: {self.constraint}|'
 
-        return f'|{name}|'        
+        return f'|{name}|'
 
     def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
         for parameter, given_type in type.map_given_parameters():
@@ -101,7 +102,7 @@ class TypeParameter(AnalyzedType):
         return self
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class PolymorphicType(AnalyzedType):
     initial_type: typing.Optional[typing.Self] = attr.ib(default=None, repr=False)
     parameters: typing.List[TypeParameter] = attr.ib(factory=list)
@@ -117,7 +118,7 @@ class PolymorphicType(AnalyzedType):
                 parameter not in self.parameters
                 and parameter not in self.given_parameters
             ):
-                raise ValueError(f'{trait} has foreign uninitialized parameter {parameter}')
+                raise ValueError(f'{trait} has a foreign uninitialized parameter {parameter}')
 
         initial_type = self.get_initial_type()
         initial_type.trait_implementations.append(trait)
@@ -128,7 +129,7 @@ class PolymorphicType(AnalyzedType):
                 parameter not in self.parameters
                 and parameter not in self.given_parameters
             ):
-                raise ValueError(f'{trait} has foreign uninitialized parameter {parameter}')
+                raise ValueError(f'{trait} has a foreign uninitialized parameter {parameter}')
 
         initial_type = self.get_initial_type()
         for implementation in initial_type.trait_implementations:
@@ -217,13 +218,13 @@ class PolymorphicType(AnalyzedType):
         return self.with_parameters(parameters)
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class SelfType(AnalyzedType):
     name: str = attr.ib(default='Self', init=False)
     owner: AnalyzedType = attr.ib(default=UNKNOWN, repr=str)
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class TypeTrait(PolymorphicType):
     tr_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
 
@@ -263,7 +264,7 @@ class TypeTrait(PolymorphicType):
         return trait
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class FunctionParameter:
     name: str = attr.ib()
     type: AnalyzedType = attr.ib()
@@ -271,7 +272,7 @@ class FunctionParameter:
     # kw_only, etc.
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class FunctionType(PolymorphicType):
     propagated: bool = attr.ib(default=True)
     # PolymorphicType fields must be filled regardless of propagation
@@ -368,14 +369,14 @@ class FunctionType(PolymorphicType):
         )
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class ClassAttribute:
     name: str = attr.ib()
     type: AnalyzedType = attr.ib()
     # TODO: default?, kw_only?
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s(kw_only=True, slots=True, eq=False)
 class ClassType(PolymorphicType):
     propagated: bool = attr.ib(default=True)
     # The following attributes are static after propagation and they can
@@ -386,7 +387,10 @@ class ClassType(PolymorphicType):
     def complete_propagation(self) -> None:
         self.propagated = True
 
-    def get_attribute(self, name: str) -> AnalyzedType:
+    def get_attribute_types(self) -> typing.List[AnalyzedType]:
+        return [self.get_attribute_type(name) for name in self.cls_attributes]
+
+    def get_attribute_type(self, name: str) -> AnalyzedType:
         if name not in self.cls_attributes:
             raise ValueError(f'{self} has no attribute named {name}')
 

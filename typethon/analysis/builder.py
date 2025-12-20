@@ -253,9 +253,18 @@ class Iter:
     next = TypeBuilder.new_function('next', self=self_type, returns=next_type)
 
 
+@TypeBuilder.trait_from_class('Index')
+class Index:
+    self_type = TypeBuilder.new_self_type()
+    index_type = TypeBuilder.new_type_parameter('T')
+    value_type = TypeBuilder.new_type_parameter('V')
+    get_item = TypeBuilder.new_function('get_item', self=self_type, index=index_type, returns=value_type)
+
+
 class Traits:
     HASH = Hash
     ITER = Iter
+    INDEX = Index
 
 
 TypeBuilder.add_all_traits(
@@ -301,8 +310,10 @@ TypeBuilder.add_all_traits(
     Ops.POW.with_parameters([Types.INT, Types.FLOAT]),
 )
 
-Types.LIST.add_trait_implementation(
-    Iter.with_parameters([Types.LIST.parameters[0]])
+TypeBuilder.add_all_traits(
+    Types.LIST,
+    Iter.with_parameters([Types.LIST.parameters[0]]),
+    Index.with_parameters([Types.INT, Types.LIST.parameters[0]]),
 )
 
 DEBUG = TypeBuilder.new_function('debug', returns=Types.NONE_TYPE)

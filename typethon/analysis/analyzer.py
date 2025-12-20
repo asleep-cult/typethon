@@ -16,6 +16,13 @@ T = typing.TypeVar('T', bound=ast.StatementNode)
 # which will also make the expression it is used in unknown and the error
 # messages will begin the multiply. This might not be ideal.
 
+# TODO: All calls to get_trait_implementation could break if we do not
+# check for uninitialized parameters
+# In general, this really needs tests to find any edge cases
+# Sometimes we return UNKNOWN after reporting an error but it might be
+# more graceful to use UNKNOWN.to_instance() because it's often in areas
+# where only instances are valid
+
 
 class TypeAnalyzer:
     def __init__(
@@ -292,7 +299,7 @@ class TypeAnalyzer:
                 if symbol is UNRESOLVED:
                     self.report_error(
                         expression,
-                        'Symbol `{0}` is not defined',
+                        'Unresolved reference to symbol `{0}`',
                         expression.value,
                     )
 
@@ -624,7 +631,19 @@ class TypeAnalyzer:
         assignment: ast.AugAssignNode,
         instance: types.InstanceOfType,
     ) -> None:
-        assert False, '<Aug assignment is not implemented>'
+        if not isinstance(assignment.target, ast.NameNode):
+            assert False, '<Non-name assignment>'
+
+        target = scope.get_instance(assignment.target.value)
+        if target.type is types.UNKNOWN:
+            return self.report_error(
+                assignment,
+                'Unresolved reference to name `{0}`',
+                assignment.target.value,
+            )
+
+        result = self.analyze_binary_operation(assignment, target, instance)
+        self.assign_to_name(scope, assignment.target, result)
 
     def analyze_ann_assignment(
         self,
@@ -655,6 +674,90 @@ class TypeAnalyzer:
 
         self.assign_to_name(scope, assignment.target, type.to_instance())
 
+    def analyze_binary_operation(
+        self,
+        node: typing.Union[ast.BinaryOpNode, ast.AugAssignNode],
+        left: types.InstanceOfType,
+        right: types.InstanceOfType,
+    ) -> types.InstanceOfType:
+        match node.op:
+            case ast.Operator.ADD:
+                trait = Ops.ADD
+                name = 'add'
+            case ast.Operator.SUB:
+                trait = Ops.SUB
+                name = 'sub'
+            case ast.Operator.MULT:
+                trait = Ops.MULT
+                name = 'mult'
+            case ast.Operator.MATMULT:
+                trait = Ops.MATMULT
+                name = 'matmult'
+            case ast.Operator.DIV:
+                trait = Ops.DIV
+                name = 'div'
+            case ast.Operator.MOD:
+                trait = Ops.MOD
+                name = 'mod'
+            case ast.Operator.POW:
+                trait = Ops.POW
+                name = 'pow'
+            case ast.Operator.LSHIFT:
+                trait = Ops.LSHIFT
+                name = 'lshift'
+            case ast.Operator.RSHIFT:
+                trait = Ops.RSHIFT
+                name = 'rshift'
+            case ast.Operator.BITOR:
+                trait = Ops.BITOR
+                name = 'bitor'
+            case ast.Operator.BITXOR:
+                trait = Ops.BITXOR
+                name = 'bitxor'
+            case ast.Operator.BITAND:
+                trait = Ops.BITAND
+                name = 'bitand'
+            case ast.Operator.FLOORDIV:
+                trait = Ops.FLOORDIV
+                name = 'floordiv'
+
+        implementation = left.type.get_trait_implementation(
+            trait.with_parameters([right.type, types.ANY])
+        )
+        if implementation is None:
+            self.report_error(
+                node,
+                '`{0}` does not implement the `{1}` trait for `{2}`',
+                left.type.get_string(),
+                trait.name,
+                right.type.get_string(),
+            )
+            return types.UNKNOWN.to_instance()
+
+        function = implementation.get_function(name)
+        lhs_type = function.get_return_type()
+
+        implementation = right.type.get_trait_implementation(
+            trait.with_parameters([left.type, types.ANY])
+        )
+        if implementation is None:
+            return lhs_type.to_instance()
+
+        function = implementation.get_function(name)
+        rhs_type = function.get_return_type()
+
+        if not lhs_type.is_compatible_with(rhs_type):
+            self.report_type_incompatibility(
+                node,
+                lhs_type,
+                rhs_type,
+                'Incompatible types for `{0}` trait',
+                trait.name,
+            )
+            return types.UNKNOWN.to_instance()
+
+        return lhs_type.to_instance()
+
     def analyze_type(
         self,
         scope: Scope,
@@ -672,83 +775,7 @@ class TypeAnalyzer:
                 left = self.analyze_instance_type(scope, ctx, expression.left)
                 right = self.analyze_instance_type(scope, ctx, expression.right)
 
-                match expression.op:
-                    case ast.Operator.ADD:
-                        trait = Ops.ADD
-                        name = 'add'
-                    case ast.Operator.SUB:
-                        trait = Ops.SUB
-                        name = 'sub'
-                    case ast.Operator.MULT:
-                        trait = Ops.MULT
-                        name = 'mult'
-                    case ast.Operator.MATMULT:
-                        trait = Ops.MATMULT
-                        name = 'matmult'
-                    case ast.Operator.DIV:
-                        trait = Ops.DIV
-                        name = 'div'
-                    case ast.Operator.MOD:
-                        trait = Ops.MOD
-                        name = 'mod'
-                    case ast.Operator.POW:
-                        trait = Ops.POW
-                        name = 'pow'
-                    case ast.Operator.LSHIFT:
-                        trait = Ops.LSHIFT
-                        name = 'lshift'
-                    case ast.Operator.RSHIFT:
-                        trait = Ops.RSHIFT
-                        name = 'rshift'
-                    case ast.Operator.BITOR:
-                        trait = Ops.BITOR
-                        name = 'bitor'
-                    case ast.Operator.BITXOR:
-                        trait = Ops.BITXOR
-                        name = 'bitxor'
-                    case ast.Operator.BITAND:
-                        trait = Ops.BITAND
-                        name = 'bitand'
-                    case ast.Operator.FLOORDIV:
-                        trait = Ops.FLOORDIV
-                        name = 'floordiv'
-
-                implementation = left.type.get_trait_implementation(
-                    trait.with_parameters([right.type, types.ANY])
-                )
-                if implementation is None:
-                    self.report_error(
-                        expression,
-                        '`{0}` does not implement the `{1}` trait for `{2}`',
-                        left.type.get_string(),
-                        trait.name,
-                        right.type.get_string(),
-                    )
-                    return types.UNKNOWN
-
-                function = implementation.get_function(name)
-                lhs_type = function.get_return_type()
-
-                implementation = right.type.get_trait_implementation(
-                    trait.with_parameters([left.type, types.ANY])
-                )
-                if implementation is None:
-                    return lhs_type.to_instance()
-
-                function = implementation.get_function(name)
-                rhs_type = function.get_return_type()
-
-                if not lhs_type.is_compatible_with(rhs_type):
-                    self.report_type_incompatibility(
-                        expression,
-                        lhs_type,
-                        rhs_type,
-                        'Incompatible return types for `{0}` trait',
-                        trait.name,
-                    )
-                    return types.UNKNOWN
-
-                return lhs_type.to_instance()
+                return self.analyze_binary_operation(expression, left, right)
 
             case ast.UnaryOpNode():
                 operand = self.analyze_instance_type(scope, ctx, expression.operand)
@@ -793,11 +820,35 @@ class TypeAnalyzer:
                 unit = self.analyze_type(scope, ctx, expression.value)
                 return self.analyze_attribute(unit, expression)
 
+            case ast.SubscriptNode():
+                instance = self.analyze_instance_type(scope, ctx, expression.value)
+                slice = self.analyze_instance_type(scope, ctx, expression.slice)
+
+                implementation = instance.type.get_trait_implementation(
+                    Traits.INDEX.with_parameters([slice.type, types.ANY])
+                )
+                if implementation is None:
+                    self.report_error(
+                        expression,
+                        '`{0}` does not implement the Index trait for {1}',
+                        instance.type.get_string(),
+                        slice.type.get_string(),
+                    )
+                    return types.UNKNOWN
+
+                function = implementation.get_function('get_item')
+                instance = function.get_return_type().to_instance()
+
+                ctx.subscript_hook(instance, expression)
+                return instance
+
             case ast.CallNode():
                 unit = self.analyze_type(scope, ctx, expression.func)
                 match unit:
                     case types.FunctionType():
                         assert False, '<Cannot call a function type>'
+                    case types.ClassType():
+                        return self.analyze_class_initialization(scope, ctx, unit, expression)
                     case types.PolymorphicType():
                         assert False, '<Not yet implemented>'
                     case types.AnalyzedType():
@@ -813,7 +864,7 @@ class TypeAnalyzer:
                 if symbol is UNRESOLVED:
                     self.report_error(
                         expression,
-                        'Symbol `{0}` is not defined',
+                        'Unresolved reference to name `{0}`',
                         symbol.name,
                     )
 
@@ -846,7 +897,7 @@ class TypeAnalyzer:
                     return type.get_function(attribute.attr)
 
                 if attribute.attr in type.cls_attributes:
-                    return type.get_attribute(attribute.attr).to_instance()
+                    return type.get_attribute_type(attribute.attr).to_instance()
 
                 self.report_error(
                     attribute,
@@ -912,35 +963,69 @@ class TypeAnalyzer:
             case ast.ConstantType.STRING | ast.ConstantType.BYTES:
                 assert False, '<TODO>'
 
-    def type_parameters_from_arguments(
+    def resolve_type_parameters_from_arguments(
         self,
-        function: types.FunctionType,
+        node: ast.CallNode,
+        type: typing.Union[types.FunctionType, types.ClassType],
         arguments: typing.List[types.InstanceOfType],
-    ) -> typing.List[typing.Tuple[types.TypeParameter, types.AnalyzedType]]:
+    ) -> typing.List[types.AnalyzedType]:
         parameter_map: typing.List[typing.Tuple[types.TypeParameter, types.AnalyzedType]] = []
 
-        for parameter, argument in zip(function.fn_parameters.values(), arguments):
-            if isinstance(parameter.type, types.TypeParameter):
+        if isinstance(type, types.FunctionType):
+            required_parameters = type.fn_parameters.values()
+        else:
+            required_parameters = type.cls_attributes.values()
+
+        for required_parameter, argument in zip(required_parameters, arguments):
+            if isinstance(required_parameter.type, types.TypeParameter):
                 # Given a function f(x: |T|), f(U) gives {T: U}
-                parameter_map.append((parameter.type, argument.type))
-            elif isinstance(parameter.type, types.PolymorphicType):
+                parameter_map.append((required_parameter.type, argument.type))
+            elif isinstance(required_parameter.type, types.PolymorphicType):
                 # Given a function f(x: T(|U|)), f(T(V)) gives {U: V}
                 if (
                     not isinstance(argument.type, types.PolymorphicType)
-                    or parameter.type.get_initial_type() is not argument.type.get_initial_type()
+                    or required_parameter.type.get_initial_type() is not argument.type.get_initial_type()
                 ):
                     # There is a type incompatibility, we will report it later
                     continue
 
                 mapped_parameters = zip(
-                    parameter.type.given_parameters,
+                    required_parameter.type.given_parameters,
                     argument.type.given_parameters,
                 )
-                for parameter, given_parameter in mapped_parameters:
-                    if isinstance(parameter, types.TypeParameter):
-                        parameter_map.append((parameter, given_parameter))
+                for given_parameter1, given_parameter2 in mapped_parameters:
+                    if isinstance(given_parameter1, types.TypeParameter):
+                        parameter_map.append((given_parameter1, given_parameter2))
 
-        return parameter_map
+        parameters: typing.List[types.AnalyzedType] = []
+
+        for parameter in type.parameters:
+            mapped = [given_type for param, given_type in parameter_map if param is parameter]
+
+            if not mapped:
+                self.report_error(
+                    node,
+                    'Unable to resolve type parameter `{0}` of `{1}`',
+                    parameter.name,
+                    type.name
+                )
+                parameters.append(types.UNKNOWN)
+                continue
+
+            for given_type in mapped[1:]:
+                if not given_type.is_compatible_with(mapped[0]):
+                    self.report_type_incompatibility(
+                        node,
+                        given_type,
+                        mapped[0],
+                        'Resolved types for parameter `{0}` of `{1}` are different',
+                        parameter.name,
+                        type.name
+                    )
+
+            parameters.append(mapped[0])
+        
+        return parameters
 
     def analyze_function_call(
         self,
@@ -955,44 +1040,15 @@ class TypeAnalyzer:
             prettyprinter.cpprint(arguments)
             return Types.NONE
 
-        parameter_map = self.type_parameters_from_arguments(function, arguments)
-        parameters: typing.List[types.AnalyzedType] = []
-
-        for parameter in function.parameters:
-            mapped = [type for param, type in parameter_map if param is parameter]
-
-            if not mapped:
-                self.report_error(
-                    node,
-                    'Unable to resolve type parameter `{0}` of `{1}`',
-                    parameter.name,
-                    function.name
-                )
-                parameters.append(types.UNKNOWN)
-                continue
-
-            for type in mapped[1:]:
-                if not type.is_compatible_with(mapped[0]):
-                    self.report_type_incompatibility(
-                        node,
-                        type,
-                        mapped[0],
-                        'Resolved types for parameter `{0}` of `{1}` are different',
-                        parameter.name,
-                        function.name
-                    )
-
-            parameters.append(mapped[0])
-
+        parameters = self.resolve_type_parameters_from_arguments(node, function, arguments)
         function = function.with_parameters(parameters)
         parameter_types = function.get_parameter_types()
 
-        for i, instance in enumerate(arguments):
+        for arg, instance in zip(node.args, arguments):
             if not parameter_types:
                 self.report_error(
-                    node.args[i],
-                    '`{0}` received too many arguments, expected {1}, '
-                    'received {2}',
+                    arg,
+                    '`{0}` received too many arguments, expected {1}, received {2}',
                     function.name,
                     str(len(function.fn_parameters)),
                     str(len(node.args)),
@@ -1001,10 +1057,9 @@ class TypeAnalyzer:
 
             type = parameter_types.pop(0)
             if not instance.type.is_compatible_with(type):
-                # TODO: What is the parameter name?
-                # fn_parameters is not technically ordered
+                # TODO: What is it named??
                 self.report_type_incompatibility(
-                    node.args[i],
+                    arg,
                     instance.type,
                     type,
                     'Incompatible type for parameter of `{0}`',
@@ -1022,6 +1077,52 @@ class TypeAnalyzer:
             )
 
         return function.get_return_type().to_instance()
+
+    def analyze_class_initialization(
+        self,
+        scope: Scope,
+        ctx: AnalysisContext,
+        cls: types.ClassType,
+        node: ast.CallNode,
+    ) -> types.InstanceOfType:
+        arguments = [self.analyze_instance_type(scope, ctx, argument) for argument in node.args]
+
+        parameters = self.resolve_type_parameters_from_arguments(node, cls, arguments)
+        cls = cls.with_parameters(parameters)
+        attribute_types = cls.get_attribute_types()
+
+        for arg, instance in zip(node.args, arguments):
+            if not attribute_types:
+                self.report_error(
+                    arg,
+                    '`{0}` received too many arguments, expected {1}, got {2}',
+                    cls.name,
+                    str(len(cls.cls_attributes)),
+                    str(len(node.args)),
+                )
+                break
+
+            type = attribute_types.pop(0)
+            if not instance.type.is_compatible_with(type):
+                # TODO: What is it named??
+                self.report_type_incompatibility(
+                    arg,
+                    instance.type,
+                    type,
+                    'Incompatible type for parameter of `{0}`',
+                    cls.name,
+                )
+
+        if attribute_types:
+            self.report_error(
+                node,
+                '`{0}` received too few arguments, expected {1}, got {2}',
+                cls.name,
+                str(len(cls.cls_attributes)),
+                str(len(node.args)),
+            )
+
+        return cls.to_instance()
 
     def analyze_module(self) -> None:
         self.initialize_builtin_symbols()
