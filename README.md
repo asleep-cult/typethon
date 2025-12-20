@@ -225,4 +225,67 @@ result = match operator:
 
 # Not sure how the statement form will work but I want to avoid the deep nesting
 # that comes from indented case blocks.
+
+# 11. While imagining some examples, I realized that the type parameter syntax
+# is a burden when expressing that two things are of the same exact type.
+# For example, imagine you have some polymorphic type called HashMap and you
+# want to write a function that concatenates them:
+
+def concatenate(map1: HashMap|K, V|, map2: HashMap(K, V)) -> HashMap(K, V)
+
+# Here, map1 and map2 are of the same type, but they do not use the same
+# syntax, which is both confusing and aesthetically displeasing.
+# Before I continue, I would like to contrast this with something like:
+
+def set_item(map: HashMap|K, V|, key: K, value: V) -> None
+
+# In this instance, the type parameter syntax is actually very intuitive,
+# and it is clear that the key must be the key type of HashMap and the
+# value must be the value type.
+
+# Now, to make our concatenate function more intuitive, I am
+# considering a new syntax. I dont intend to use some generic form
+# (not a pun) such as def f|K, V|(map1: HashMap(K, V), map2: HashMap(K, V))
+# which in my opinion is too verbose an arguably a worse expression
+# of the function's behavior. Instead, my proposal consists of a new
+# target group syntax.
+
+# For simple assignments, it would look like this:
+{x, y, z} = 10
+# x = 10; y = 10, z = 10
+# (We would also remove the x = y = z = 10 syntax)
+
+# With an annotation:
+{x, y, z}: str = 'Target Group'
+
+# For class attributes:
+class Rectangle:
+    {height, width}: int
+
+# For function parameters:
+def add({lhs, rhs}: int) -> int:
+    return lhs + rhs
+
+# Finally, the concatenate example would look like this:
+def concatenate({map1, map2}: HashMap|K, V|) -> HashMap(K, V)
+
+# This would probably involve removing the set syntax as well
+# (oh well...) I am also certainly removing lists as targets.
+# The biggest problem with this syntax is it could easily
+# be confused with unpacking. It also adds plenty of unnecessary
+# complication, but at the same time, it's much cleaner syntactically.
+
+# For the sake of consistency, something like this would also
+# be valid (although I cant imagine why anyone would ever do this):
+for {x, y} in numbers: ...
+
+# 12. While on the topic of for loops, I have been considering 
+# allowing multiple iterators in for loops to avoid the long winded
+# zip() function. For example:
+
+for (
+    name in username if len(name) < 10,
+    user in users if len(user.name) < 10
+):
+    ...
 ```

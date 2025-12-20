@@ -64,6 +64,11 @@ class AnalyzedType:
         # their parameters with their given_parameters
         return self
 
+    def unbind_from_parameters(self, type: PolymorphicType) -> AnalyzedType:
+        # Called when a PolymorphicType wants us to revert our references to
+        # their given_parameters back to their parameters
+        return self
+
 
 UNKNOWN = AnalyzedType(name='unknown')  # Internal type compatible with nothing
 ANY = AnalyzedType(name='any')  # Internal type compatible with exerything
@@ -101,6 +106,13 @@ class TypeParameter(AnalyzedType):
 
         return self
 
+    def unbind_from_parameters(self, type: PolymorphicType) -> AnalyzedType:
+        for parameter, given_type in type.map_given_parameters():
+            if given_type is self:
+                return parameter
+
+        return self
+
 
 @attr.s(kw_only=True, slots=True, eq=False)
 class PolymorphicType(AnalyzedType):
@@ -112,12 +124,13 @@ class PolymorphicType(AnalyzedType):
         return zip(self.parameters, self.given_parameters)
 
     def add_trait_implementation(self, trait: TypeTrait) -> None:
+        # The trait might contain a TypeParameter from self.given_parameters;
+        # if so, change it back to the corresponding parameter in self.parameters
+        # because we are implementing it for the initial_type, not this specific instance
+        trait = trait.unbind_from_parameters(self)
+
         for parameter in trait.uninitialized_parameters():
-            # TODO: Do we need to re-map given_parameters to parameters???
-            if (
-                parameter not in self.parameters
-                and parameter not in self.given_parameters
-            ):
+            if parameter not in self.parameters:
                 raise ValueError(f'{trait} has a foreign uninitialized parameter {parameter}')
 
         initial_type = self.get_initial_type()
@@ -215,6 +228,10 @@ class PolymorphicType(AnalyzedType):
 
     def bind_with_parameters(self, type: PolymorphicType) -> typing.Self:
         parameters = [parameter.bind_with_parameters(type) for parameter in self.given_parameters]
+        return self.with_parameters(parameters)
+
+    def unbind_from_parameters(self, type: PolymorphicType) -> typing.Self:
+        parameters = [parameter.unbind_from_parameters(type) for parameter in self.given_parameters]
         return self.with_parameters(parameters)
 
 
