@@ -71,9 +71,8 @@ def get_item(items: |T: Indexable(int, |U|)|, index: int) -> U:
 # Alternatively, the for syntax can be used to for more complex constraints.
 # ^ (maybe?)
 
-def get_item(self, items: |T|, index: int) -> U
-(
-    Indexable(|U|) for T,
+def get_item(self, items: |T|, index: int) -> U with (
+    Index(int, |U|) for T,
 ):
     return items[index]
 
@@ -103,10 +102,7 @@ x = x.g()
 class Map:
     mapping: {|K|: |V|}
 
-    def get_item(self: Self, key: K) -> V
-    (
-        Indexable(K, V) for Self
-    ):
+    def get_item(self: Self, key: K) -> V with Index(K, V) for Self:
         return self.mapping[key]
 
 # I'm unsure how traits would be handled as of right now because:
@@ -128,7 +124,7 @@ def proto(foo: int) -> str
 # 2. Traits will probably look something like this
 
 trait Foo |T|:
-    def proto(self, foo: int) -> T
+    def proto(self: Self, foo: int) -> T
 
 # 3. There will probably be syntactic sugar for initializing a polymorphic type
 # with a polymorphic parameter to reduce clutter
@@ -214,6 +210,7 @@ users = apply((name) ::
 # expression, so it is inherently different from other statements
 # 3. The existing lambda syntax is so restrictive that the majority of reasonable
 # use cases are impossible without a function
+# 4. It doesn't even work for nested lambdas
 
 # 10. Match statements might become a complex expression. (They  will almost certainly
 # use else.)
@@ -248,43 +245,8 @@ def set_item(map: HashMap|K, V|, key: K, value: V) -> None
 # (not a pun) such as def f|K, V|(map1: HashMap(K, V), map2: HashMap(K, V))
 # which in my opinion is too verbose an arguably a worse expression
 # of the function's behavior. Instead, my proposal consists of a new
-# target group syntax.
+# "wrap around" annotation syntax.
 
-# For simple assignments, it would look like this:
-{x, y, z} = 10
-# x = 10; y = 10, z = 10
-# (We would also remove the x = y = z = 10 syntax)
-
-# With an annotation:
-{x, y, z}: str = 'Target Group'
-
-# For class attributes:
-class Rectangle:
-    {height, width}: int
-
-# For function parameters:
-def add({lhs, rhs}: int) -> int:
-    return lhs + rhs
-
-# Finally, the concatenate example would look like this:
-def concatenate({map1, map2}: HashMap|K, V|) -> HashMap(K, V)
-
-# This would probably involve removing the set syntax as well
-# (oh well...) I am also certainly removing lists as targets.
-# The biggest problem with this syntax is it could easily
-# be confused with unpacking. It also adds plenty of unnecessary
-# complication, but at the same time, it's much cleaner syntactically.
-
-# For the sake of consistency, something like this would also
-# be valid (although I cant imagine why anyone would ever do this):
-for {x, y} in numbers: ...
-
-# Alternative syntax to consider
-
-# A semicolon:
-def concatenate((map1; map2): HashMap|K, V|) -> HashMap(K, V)
-
-# Wrap around annotation (makes more sense)
 :x, y, z: int
 # x: int, y: int, z: int
 
@@ -299,9 +261,8 @@ def add(:lhs, rhs: int) -> int:
 # The concatenate example:
 def concatenate(:map1, map2: HashMap|K, V|) -> HashMap(K, V)
 
-# 12. While on the topic of for loops, I have been considering 
-# allowing multiple iterators in for loops to avoid the long winded
-# zip() function. For example:
+# 12. I have been considering  allowing multiple iterators in for loops
+# to avoid the long winded zip() function. For example:
 
 for (
     name in username if len(name) < 10,
