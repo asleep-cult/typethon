@@ -24,7 +24,8 @@ class AnalyzedType:
     def is_compatible_with(self, type: AnalyzedType) -> bool:
         # NOTE: This is not communitive and must be used with care
         # Specifically, type.is_compatible_with(trait) will work,
-        # trait.is_compatible_with(type) will not. 
+        # trait.is_compatible_with(type) will not.
+        # The behavior for UnionType is the same.
         if self is UNKNOWN or type is UNKNOWN:
             return False
 
@@ -33,6 +34,9 @@ class AnalyzedType:
 
         if isinstance(type, TypeTrait):
             return self.get_trait_implementation(type) is not None
+
+        if isinstance(type, UnionType):
+            return any(self.is_compatible_with(union_type) for union_type in type.types)
 
         return self is type
 
@@ -76,8 +80,30 @@ ANY = AnalyzedType(name='any')  # Internal type compatible with exerything
 
 @attr.s(kw_only=True, slots=True, eq=False)
 class UnionType(AnalyzedType):
-    # XXX: This will probably be a compiler only type
+    # NOTE: This is a compiler only type
+    name: str = attr.ib(init=False, default='<union>')
     types: typing.List[AnalyzedType] = attr.ib(factory=list)
+
+    def get_string(self, *, top_level: bool = True) -> str:
+        return ' or '.join(
+            type.get_string() for type in self.types
+        )
+
+    def is_compatible_with(self, type: AnalyzedType) -> bool:
+        if self is UNKNOWN or type is UNKNOWN:
+            return False
+
+        if self is ANY or type is ANY:
+            return True
+
+        if not isinstance(type, UnionType):
+            return False
+
+        for other_type in type.types:
+            if not any(self_type.is_compatible_with(other_type) for self_type in self.types):
+                return False
+
+        return True
 
 
 @attr.s(kw_only=True, slots=True, eq=False)

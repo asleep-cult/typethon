@@ -768,8 +768,11 @@ class TypeAnalyzer:
             case ast.BoolOpNode():
                 operands = [self.analyze_instance_type(scope, ctx, operand) for operand in expression.values]
 
-                type = Types.BOOL.to_instance()
-                ctx.bool_op_hook(type, expression)
+                type = self.unionize_multiple_types([operand.type for operand in operands])
+                instance = type.to_instance()
+
+                ctx.bool_op_hook(instance, expression)
+                return instance
 
             case ast.BinaryOpNode():
                 left = self.analyze_instance_type(scope, ctx, expression.left)
@@ -872,9 +875,49 @@ class TypeAnalyzer:
                 return symbol.content
 
             case ast.ListNode():
-                assert False, '<NotImplemented>'
+                elts = [self.analyze_instance_type(scope, ctx, elt) for elt in expression.elts]
+
+                if elts:
+                    elt_types = self.unionize_multiple_types([elt.type for elt in elts])
+                    instance = Types.LIST.with_parameters([elt_types]).to_instance()
+                else:
+                    # XXX: EHH? We dont want random lists that work with anything
+                    # floating around. We also dont want empty lists to be incompatible
+                    # with everything. We might need a new type that only works in one
+                    # direction. Such as AmgiguousType that wraps PolymorphicType and
+                    # PolymorphicType.is_compatible_with(AmgiguousType) is true,
+                    # AmgiguousType.is_compatible_with(PolymorphicType) is false
+                    instance = Types.LIST.with_parameters([types.ANY]).to_instance()
+
+                ctx.list_hook(instance, expression)
+                return instance
 
         assert False, f'<Unable to determine type of {expression}>'
+
+    def unionize_multiple_types(
+        self, type_list: typing.List[types.AnalyzedType]
+    ) -> types.AnalyzedType:
+        # NOTE: This will fail if type_list is empty.
+        flattened_types: typing.List[types.AnalyzedType] = []
+
+        # XXX: Maybe we just need to do this recursively, but it wont be a problem
+        # if every union is created with this function (I think?)
+        for type in type_list:
+            if isinstance(type, types.UnionType):
+                flattened_types.extend(type.types)
+            else:
+                flattened_types.append(type)
+
+        unique_types: typing.List[types.AnalyzedType] = [flattened_types[0]]
+
+        for type in flattened_types:
+            if not any(type.is_compatible_with(unique_type) for unique_type in unique_types):
+                unique_types.append(type)
+
+        if len(unique_types) > 1:
+            return types.UnionType(types=unique_types)
+
+        return unique_types[0]
 
     def analyze_attribute(
         self,
