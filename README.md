@@ -65,7 +65,7 @@ x = unbox_int(box) # type: int
 # to what will eventually become traits. The syntax |T: Trait| constrains
 # the type T to a Trait.
 
-def get_item(items: |T: Indexable(int, |U|)|, index: int) -> U:
+def get_item(items: |T: Index(int, |U|)|, index: int) -> U:
     return items[index]
 
 # Alternatively, the for syntax can be used to for more complex constraints.
@@ -245,31 +245,36 @@ def set_item(map: HashMap|K, V|, key: K, value: V) -> None
 # (not a pun) such as def f|K, V|(map1: HashMap(K, V), map2: HashMap(K, V))
 # which in my opinion is too verbose an arguably a worse expression
 # of the function's behavior. Instead, my proposal consists of a new
-# "wrap around" annotation syntax.
+# multi-target annotation syntax.
 
-:x, y, z: int
+x, y, z: int
 # x: int, y: int, z: int
 
 # For class attributes:
 class Rectangle:
-    :height, width: int
+    height, width: int
 
-# For function parameters:
-def add(:lhs, rhs: int) -> int:
+# The previous examples were asssignment annotations, function parameters
+# are similar. A parameter with no annotation uses the annotation of the
+# next parameter.
+def add(lhs, rhs: int) -> int:
     return lhs + rhs
 
-# The concatenate example:
-def concatenate(:map1, map2: HashMap|K, V|) -> HashMap(K, V)
+# An example with type parameters
+class Pair:
+    x, y: |T|
 
-# 12. There might be a way to state the value of an expression with
+def nest_pairs(pair1, pair2: Pair|T|) -> Pair(Pair(T)):
+    return Pair(Pair(pair1.x, pair2.x), Pair(pair1.y + pair2.y))
+
+# The concatenate example simply becomes:
+def concatenate(map1, map2: HashMap|K, V|) -> HashMap(K, V)
+
+# 12. There (wont) might be a way to state the value of an expression with
 # an annotation (similar to casting).
 
 # An empty list of integers
 ([]: [int])
-
-# Extending this to wrap-around annotations
-# Two empty lists of strings:
-(:[], []: [str])
 
 # 13. I have been considering  allowing multiple iterators in for loops
 # to avoid the long winded zip() function. For example:
