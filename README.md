@@ -22,6 +22,18 @@ will encourage alternative approaches in many areas. For example,
 it might not permit inheritance, exceptions will be handled differently,
 and there will probably be Rust-style traits.
 
+#### Progress
+* The pasrser has been completely implemented for regular Python code
+with special syntax for annotations and type parameters
+* Type checking has been implemented for most statements and expressions
+
+##### To-Do
+* Rewrite the parser to be more efficient and remove unused Python syntax
+* Create tests for the parser and type analyzer
+* Implement constraints for type parameters and the rest of type analysis
+* Decide on mutable/constant and reference semantics
+* Implement the compiler backend
+
 Here is what I've decided on so far:
 ```py
 # Parametric polymorphism is achieved through the use of |T|
@@ -29,8 +41,8 @@ Here is what I've decided on so far:
 
 # Classes, Functions, (and in the future, Traits) can be parametrically polymorphic
 # However, a class can only be polymorphic over an attribute, and functions
-# can only be polymorphic over an argument. A trait could be polymorphic over any
-# arbitrary type T.
+# can be polymorphic over an argument or the return value. A trait could be polymorphic
+# over any arbitrary type T.
 
 def identity(x: |T|) -> T:
     return x
@@ -65,20 +77,33 @@ x = unbox_int(box) # type: int
 # to what will eventually become traits. The syntax |T: Trait| constrains
 # the type T to a Trait.
 
-def get_item(items: |T: Index(int, |U|)|, index: int) -> U:
+def get_str_item(items: |T: Index(int, str)|, index: int) -> str:
     return items[index]
 
-# Alternatively, the for syntax can be used to for more complex constraints.
-# ^ (maybe?)
+# Type parameters cannot be nested within the constraint of another type
+# parameter. Instead, they must be defined and constrarined using the with/for
+# syntax.
 
-def get_item(self, items: |T|, index: int) -> U with (
-    Index(int, |U|) for T,
+def get_item(items: |T|, index: |U|) -> |V| with Index(U, V) for T:
+    return items[index]
+
+# In addition, the with/for syntax can contain new type parameters but they
+# cannot be used in the parameter-list for the sake of consistency.
+# (It should be defined in the parameter list instead.)
+
+def use_index(items: |T|) -> ValueTrait with (
+    Index|U: DefaultTrait, V: ValueTrait| for T
 ):
-    return items[index]
+    return items[U.default()].value()
 
-# The for syntax cannot constrain parameters that aren't already defined
-# in the function definition. (i.e. Indexable(|U|) for |T| would be invalid)
-# However, it can be used to extract the parameters from a polymorphic constraint.
+# If a function is polymorphic over it's return type, and it is not
+# used in any constraints, the caller must explicitly state the type.
+
+def new() -> |U|:
+    return U()
+
+items = new()  # Impossible to resolve U
+items: [int] = new()  # Works fine
 
 # The Self type is a special type used to define a function on a type.
 
@@ -210,7 +235,6 @@ users = apply((name) ::
 # expression, so it is inherently different from other statements
 # 3. The existing lambda syntax is so restrictive that the majority of reasonable
 # use cases are impossible without a function
-# 4. It doesn't even work for nested lambdas
 
 # 10. Match statements might become a complex expression. (They  will almost certainly
 # use else.)
@@ -265,7 +289,7 @@ class Pair:
     x, y: |T|
 
 def nest_pairs(pair1, pair2: Pair|T|) -> Pair(Pair(T)):
-    return Pair(Pair(pair1.x, pair2.x), Pair(pair1.y + pair2.y))
+    return Pair(Pair(pair1.x, pair2.x), Pair(pair1.y, pair2.y))
 
 # The concatenate example simply becomes:
 def concatenate(map1, map2: HashMap|K, V|) -> HashMap(K, V)
@@ -284,4 +308,16 @@ for (
     user in users if len(user.name) < 10
 ):
     ...
+
+# 14. Class attributes should just behave exactly like function parameters
+
+class Box(
+    value: |T|,
+)
+
+class Collection(
+    items: |T|,
+) with Index|U, V| for T
+
+# If functions get defaults, kwonly args, etc., classes do as well.
 ```
