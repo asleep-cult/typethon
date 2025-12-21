@@ -260,6 +260,24 @@ class PolymorphicType(AnalyzedType):
         parameters = [parameter.unbind_from_parameters(type) for parameter in self.given_parameters]
         return self.with_parameters(parameters)
 
+    def to_partially_unknown(self) -> PartiallyUnknownType:
+        return PartiallyUnknownType(type=self.get_initial_type())
+
+
+@attr.s(kw_only=True, slots=True, eq=False)
+class PartiallyUnknownType(AnalyzedType):
+    name: str = attr.ib(init=False, default='<partially unknown>')
+    type: PolymorphicType = attr.ib()
+
+    def is_compatible_with(self, type: AnalyzedType) -> bool:
+        if not isinstance(type, PolymorphicType):
+            return False
+
+        return self.type is type.get_initial_type()
+
+    def get_string(self, *, top_level: bool = True) -> str:
+        return f'partially-unknown ({self.type.name})'
+
 
 @attr.s(kw_only=True, slots=True, eq=False)
 class SelfType(AnalyzedType):

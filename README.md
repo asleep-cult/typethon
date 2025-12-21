@@ -261,7 +261,17 @@ def add(:lhs, rhs: int) -> int:
 # The concatenate example:
 def concatenate(:map1, map2: HashMap|K, V|) -> HashMap(K, V)
 
-# 12. I have been considering  allowing multiple iterators in for loops
+# 12. There might be a way to state the value of an expression with
+# an annotation (similar to casting).
+
+# An empty list of integers
+([]: [int])
+
+# Extending this to wrap-around annotations
+# Two empty lists of strings:
+(:[], []: [str])
+
+# 13. I have been considering  allowing multiple iterators in for loops
 # to avoid the long winded zip() function. For example:
 
 for (

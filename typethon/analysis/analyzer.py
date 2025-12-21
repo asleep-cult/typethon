@@ -881,13 +881,7 @@ class TypeAnalyzer:
                     elt_types = self.unionize_multiple_types([elt.type for elt in elts])
                     instance = Types.LIST.with_parameters([elt_types]).to_instance()
                 else:
-                    # XXX: EHH? We dont want random lists that work with anything
-                    # floating around. We also dont want empty lists to be incompatible
-                    # with everything. We might need a new type that only works in one
-                    # direction. Such as AmgiguousType that wraps PolymorphicType and
-                    # PolymorphicType.is_compatible_with(AmgiguousType) is true,
-                    # AmgiguousType.is_compatible_with(PolymorphicType) is false
-                    instance = Types.LIST.with_parameters([types.ANY]).to_instance()
+                    instance = Types.LIST.to_partially_unknown().to_instance()
 
                 ctx.list_hook(instance, expression)
                 return instance
@@ -1012,6 +1006,9 @@ class TypeAnalyzer:
         type: typing.Union[types.FunctionType, types.ClassType],
         arguments: typing.List[types.InstanceOfType],
     ) -> typing.List[types.AnalyzedType]:
+        # XXX: For a function such as f(x: [|T|]), f([]) -> T; will rightfully fail
+        # to resolve T, but it could potentially be resolved by using the outside
+        # context (i.e x: int = f([]) should resolve T to int).
         parameter_map: typing.List[typing.Tuple[types.TypeParameter, types.AnalyzedType]] = []
 
         if isinstance(type, types.FunctionType):
