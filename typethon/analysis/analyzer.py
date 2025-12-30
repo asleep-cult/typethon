@@ -7,7 +7,7 @@ from . import types
 from .builder import Types, Ops, Traits, DEBUG
 from .context import AnalysisContext, ContextFlags
 from ..diagnostics import DiagnosticReporter
-from ..syntax import ast
+from ..syntax.python import ast
 from .scope import Scope, Symbol, UNRESOLVED
 
 T = typing.TypeVar('T', bound=ast.StatementNode)

@@ -5,16 +5,21 @@ import typing
 
 import attr
 
+TokenKindT = typing.TypeVar('TokenKindT')
+KeywordT = typing.TypeVar('KeywordT', bound=enum.IntEnum)
 
-class TokenType(enum.Enum):
-    EOF = enum.auto()
-    NEWLINE = enum.auto()
+
+class TokenKind(enum.Enum):
+    KEYWORD = enum.auto()
     INDENT = enum.auto()
     DEDENT = enum.auto()
     IDENTIFIER = enum.auto()
     STRING = enum.auto()
     NUMBER = enum.auto()
     DIRECTIVE = enum.auto()
+
+    EOF = enum.auto()
+    NEWLINE = enum.auto()
 
     OPENPAREN = enum.auto()
     CLOSEPAREN = enum.auto()
@@ -66,41 +71,6 @@ class TokenType(enum.Enum):
     DOUBLESLASHEQUAL = enum.auto()
     ELLIPSIS = enum.auto()
 
-    FALSE = enum.auto()
-    NONE = enum.auto()
-    TRUE = enum.auto()
-    AND = enum.auto()
-    AS = enum.auto()
-    ASSERT = enum.auto()
-    ASYNC = enum.auto()
-    AWAIT = enum.auto()
-    BREAK = enum.auto()
-    CLASS = enum.auto()
-    CONTINUE = enum.auto()
-    DEF = enum.auto()
-    DEL = enum.auto()
-    ELIF = enum.auto()
-    ELSE = enum.auto()
-    EXCEPT = enum.auto()
-    FINALLY = enum.auto()
-    FOR = enum.auto()
-    FROM = enum.auto()
-    GLOBAL = enum.auto()
-    IF = enum.auto()
-    IMPORT = enum.auto()
-    IN = enum.auto()
-    IS = enum.auto()
-    LAMBDA = enum.auto()
-    NONLOCAL = enum.auto()
-    NOT = enum.auto()
-    OR = enum.auto()
-    PASS = enum.auto()
-    RAISE = enum.auto()
-    RETURN = enum.auto()
-    TRY = enum.auto()
-    WHILE = enum.auto()
-    WITH = enum.auto()
-    YIELD = enum.auto()
 
     EUNMATCHED = enum.auto()
     EINVALID = enum.auto()
@@ -136,89 +106,129 @@ class StringTokenFlags(enum.IntFlag):
     DUPLICATE_PREFIX = enum.auto()
 
 
-KEYWORDS = {
-    'False': TokenType.FALSE,
-    'None': TokenType.NONE,
-    'True': TokenType.TRUE,
-    'and': TokenType.AND,
-    'as': TokenType.AS,
-    'assert': TokenType.ASSERT,
-    'async': TokenType.ASYNC,
-    'await': TokenType.AWAIT,
-    'break': TokenType.BREAK,
-    'class': TokenType.CLASS,
-    'continue': TokenType.CONTINUE,
-    'def': TokenType.DEF,
-    'del': TokenType.DEL,
-    'elif': TokenType.ELIF,
-    'else': TokenType.ELSE,
-    'except': TokenType.EXCEPT,
-    'finally': TokenType.FINALLY,
-    'for': TokenType.FOR,
-    'from': TokenType.FROM,
-    'global': TokenType.GLOBAL,
-    'if': TokenType.IF,
-    'import': TokenType.IMPORT,
-    'in': TokenType.IN,
-    'is': TokenType.IS,
-    'lambda': TokenType.LAMBDA,
-    'nonlocal': TokenType.NONLOCAL,
-    'not': TokenType.NOT,
-    'or': TokenType.OR,
-    'pass': TokenType.PASS,
-    'raise': TokenType.RAISE,
-    'return': TokenType.RETURN,
-    'try': TokenType.TRY,
-    'while': TokenType.WHILE,
-    'with': TokenType.WITH,
-    'yield': TokenType.YIELD,
-}
-
-
 @attr.s(kw_only=True, slots=True)
-class Token:
-    type: typing.Any = attr.ib(eq=True)  # fix this
+class TokenData(typing.Generic[TokenKindT]):
+    kind: TokenKindT = attr.ib(eq=True)
     start: int = attr.ib(eq=False)
     end: int = attr.ib(eq=False)
 
+    def is_keyword(self, *kinds: typing.Any) -> bool:
+        return False
+
 
 @attr.s(kw_only=True, slots=True)
-class IdentifierToken(Token):
-    type: typing.Literal[TokenType.IDENTIFIER] = attr.ib(init=False, default=TokenType.IDENTIFIER)
+class KeywordToken(typing.Generic[KeywordT], TokenData[TokenKind.KEYWORD]):
+    kind: typing.Literal[TokenKind.KEYWORD] = attr.ib(init=False, default=TokenKind.KEYWORD)
+    keyword: KeywordT = attr.ib()
+
+    def is_keyword(self, *kinds: KeywordT) -> bool:
+        return self.keyword in kinds
+
+
+@attr.s(kw_only=True, slots=True)
+class IdentifierToken(TokenData[TokenKind.IDENTIFIER]):
+    kind: typing.Literal[TokenKind.IDENTIFIER] = attr.ib(init=False, default=TokenKind.IDENTIFIER)
     content: str = attr.ib(eq=True)
 
-    def get_keyword(self) -> typing.Optional[TokenType]:
-        return KEYWORDS.get(self.content)
-
 
 @attr.s(kw_only=True, slots=True)
-class NumberToken(Token):
-    type: typing.Literal[TokenType.NUMBER] = attr.ib(init=False, default=TokenType.NUMBER)
+class NumberToken(TokenData[TokenKind.NUMBER]):
+    kind: typing.Literal[TokenKind.NUMBER] = attr.ib(init=False, default=TokenKind.NUMBER)
     content: str = attr.ib(eq=True)
     flags: NumberTokenFlags = attr.ib(eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
-class StringToken(Token):
-    type: typing.Literal[TokenType.STRING] = attr.ib(init=False, default=TokenType.STRING)
+class StringToken(TokenData[TokenKind.STRING]):
+    kind: typing.Literal[TokenKind.STRING] = attr.ib(init=False, default=TokenKind.STRING)
     content: str = attr.ib(eq=True)
     flags: StringTokenFlags = attr.ib(eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
-class IndentToken(Token):
-    type: typing.Literal[TokenType.INDENT] = attr.ib(init=False, default=TokenType.INDENT)
+class IndentToken(TokenData[TokenKind.INDENT]):
+    kind: typing.Literal[TokenKind.INDENT] = attr.ib(init=False, default=TokenKind.INDENT)
     inconsistent: bool = attr.ib(default=False, eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
-class DedentToken(Token):
-    type: typing.Literal[TokenType.DEDENT] = attr.ib(init=False, default=TokenType.DEDENT)
+class DedentToken(TokenData[TokenKind.DEDENT]):
+    kind: typing.Literal[TokenKind.DEDENT] = attr.ib(init=False, default=TokenKind.DEDENT)
     inconsistent: bool = attr.ib(default=False, eq=False)
     diverges: bool = attr.ib(default=False, eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
-class DirectiveToken(Token):
-    type: typing.Literal[TokenType.DIRECTIVE] = attr.ib(init=False, default=TokenType.DIRECTIVE)
+class DirectiveToken(TokenData[TokenKind.DIRECTIVE]):
+    kind: typing.Literal[TokenKind.DIRECTIVE] = attr.ib(init=False, default=TokenKind.DIRECTIVE)
     content: str = attr.ib(eq=False)
+
+
+SimpleTokenKind =typing.Literal[
+    TokenKind.EOF,
+    TokenKind.NEWLINE,
+
+    TokenKind.OPENPAREN,
+    TokenKind.CLOSEPAREN,
+    TokenKind.OPENBRACKET,
+    TokenKind.CLOSEBRACKET,
+    TokenKind.OPENBRACE,
+    TokenKind.CLOSEBRACE,
+    TokenKind.COLON,
+    TokenKind.COMMA,
+    TokenKind.SEMICOLON,
+    TokenKind.DOT,
+    TokenKind.PLUS,
+    TokenKind.MINUS,
+    TokenKind.STAR,
+    TokenKind.AT,
+    TokenKind.SLASH,
+    TokenKind.VERTICALBAR,
+    TokenKind.AMPERSAND,
+    TokenKind.LTHAN,
+    TokenKind.GTHAN,
+    TokenKind.EQUAL,
+    TokenKind.PERCENT,
+    TokenKind.TILDE,
+    TokenKind.CIRCUMFLEX,
+
+    TokenKind.DOUBLESLASH,
+    TokenKind.EQEQUAL,
+    TokenKind.NOTEQUAL,
+    TokenKind.LTHANEQ,
+    TokenKind.GTHANEQ,
+    TokenKind.DOUBLELTHAN,
+    TokenKind.DOUBLEGTHAN,
+    TokenKind.DOUBLESTAR,
+    TokenKind.PLUSEQUAL,
+    TokenKind.MINUSEQUAL,
+    TokenKind.STAREQUAL,
+    TokenKind.SLASHEQUAL,
+    TokenKind.ATEQUAL,
+    TokenKind.PERCENTEQUAL,
+    TokenKind.AMPERSANDEQUAL,
+    TokenKind.VERTICALBAREQUAL,
+    TokenKind.CIRCUMFLEXEQUAL,
+    TokenKind.COLONEQUAL,
+    TokenKind.RARROW,
+
+    TokenKind.DOUBLELTHANEQUAL,
+    TokenKind.DOUBLEGTHANEQUAL,
+    TokenKind.DOUBLESTAREQUAL,
+    TokenKind.DOUBLESLASHEQUAL,
+    TokenKind.ELLIPSIS,
+
+    TokenKind.EUNMATCHED,
+    TokenKind.EINVALID,
+]
+
+Token = typing.Union[
+    TokenData[SimpleTokenKind],
+    KeywordToken[KeywordT],
+    IdentifierToken,
+    NumberToken,
+    StringToken,
+    IndentToken,
+    DedentToken,
+    DirectiveToken,
+]

@@ -1,2 +1,2 @@
-from .parser import *
+from .python.parser import *
 from .scanner import *

@@ -3,7 +3,7 @@ import typing
 import enum
 
 from . import types
-from ..syntax import ast
+from ..syntax.python import ast
 
 
 class ContextFlags(enum.IntFlag):
