@@ -550,6 +550,9 @@ class Scanner(typing.Generic[KeywordT]):
 
             return TokenKind.CIRCUMFLEX
 
+        elif char == '?':
+            return TokenKind.QUESTION
+
         return TokenKind.EINVALID
 
     def scan(self) -> Token[KeywordT]:

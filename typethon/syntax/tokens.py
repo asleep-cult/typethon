@@ -9,7 +9,9 @@ TokenKindT = typing.TypeVar('TokenKindT')
 KeywordT = typing.TypeVar('KeywordT', bound=enum.IntEnum)
 
 
-class TokenKind(enum.Enum):
+class TokenKind(enum.IntEnum):
+    EOF = enum.auto()
+
     KEYWORD = enum.auto()
     INDENT = enum.auto()
     DEDENT = enum.auto()
@@ -18,7 +20,6 @@ class TokenKind(enum.Enum):
     NUMBER = enum.auto()
     DIRECTIVE = enum.auto()
 
-    EOF = enum.auto()
     NEWLINE = enum.auto()
 
     OPENPAREN = enum.auto()
@@ -44,6 +45,7 @@ class TokenKind(enum.Enum):
     PERCENT = enum.auto()
     TILDE = enum.auto()
     CIRCUMFLEX = enum.auto()
+    QUESTION = enum.auto()
 
     DOUBLESLASH = enum.auto()
     EQEQUAL = enum.auto()
@@ -164,7 +166,7 @@ class DirectiveToken(TokenData[TokenKind.DIRECTIVE]):
     content: str = attr.ib(eq=False)
 
 
-SimpleTokenKind =typing.Literal[
+SimpleTokenKind = typing.Literal[
     TokenKind.EOF,
     TokenKind.NEWLINE,
 
@@ -191,6 +193,7 @@ SimpleTokenKind =typing.Literal[
     TokenKind.PERCENT,
     TokenKind.TILDE,
     TokenKind.CIRCUMFLEX,
+    TokenKind.QUESTION,
 
     TokenKind.DOUBLESLASH,
     TokenKind.EQEQUAL,
