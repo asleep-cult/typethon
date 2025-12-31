@@ -49,7 +49,7 @@ class Production:
     rhs: typing.List[Symbol] = attr.ib(factory=list, hash=False)
 
     def __str__(self) -> str:
-        parts: typing.List[str] = []
+        parts: typing.List[str] = [f'{self.lhs.name} ->']
         for symbol in self.rhs:
             if isinstance(symbol, NonterminalSymbol):
                 parts.append(symbol.name)

@@ -364,7 +364,6 @@ class Generator(typing.Generic[KeywordT]):
 
     def compute_closure(self, items: typing.Set[ParserItem]) -> typing.Set[ParserItem]:
         # https://web.cecs.pdx.edu/~harry/compilers/slides/SyntaxPart3.pdf
-        # items: {S -> * E EOF}
         result = items.copy()
 
         changed = True
@@ -408,8 +407,10 @@ class Generator(typing.Generic[KeywordT]):
         self.states.append(state)
         return state
 
-    def equivalent_state_exists(self, items: typing.Set[ParserItem]) -> bool:
-        return any(state.items == items for state in self.states)
+    def get_equivalent_state(self, items: typing.Set[ParserItem]) -> typing.Optional[ParserState]:
+        for state in self.states:
+            if state.items == items:
+                return state
 
     def dump_states(self) -> typing.List[str]:
         return [state.dump_state() for state in self.states]
@@ -428,10 +429,17 @@ class Generator(typing.Generic[KeywordT]):
                         continue
 
                     tempoaray_closure = self.compute_goto(state.items, current_symbol)
-                    if not self.equivalent_state_exists(tempoaray_closure):
+                    equivalent_state = self.get_equivalent_state(tempoaray_closure)
+                    if equivalent_state is None:
                         next_state = self.create_state(tempoaray_closure)
-                        self.transitions[current_symbol, state.id] = next_state.id
                         changed = True
+                    else:
+                        next_state = equivalent_state
+
+                    if (current_symbol, state.id) in self.transitions:
+                        assert self.transitions[current_symbol, state.id] == next_state.id
+
+                    self.transitions[current_symbol, state.id] = next_state.id
 
     def compute_tables(self, entrypoint: ParserItem) -> None:
         self.compute_canonical_collection({entrypoint})
@@ -455,6 +463,8 @@ class Generator(typing.Generic[KeywordT]):
                 transition = self.transitions.get((current_symbol, state.id))
                 if transition is not None:
                     self.table.add_shift(state.id, current_symbol, transition)
+                else:
+                    print(f'No transition exists for ({current_symbol}, {state.id})')
 
             for nonterminal in self.nonterminals.values():
                 transition = self.transitions.get((nonterminal, state.id))
