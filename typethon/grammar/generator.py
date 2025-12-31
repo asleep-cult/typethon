@@ -6,7 +6,6 @@ import typing
 import io
 
 from . import ast
-from .automaton import ActionTable, GotoTable, ActionKind
 from .symbols import (
     Production,
     TerminalSymbol,
@@ -64,10 +63,97 @@ class ParserState:
                 if isinstance(symbol, NonterminalSymbol):
                     writer.write(f'{symbol.name} ')
                 else:
-                    value = getattr(symbol.kind, 'name', symbol.kind)
-                    writer.write(f'{value!r} ')
+                    writer.write(f'{str(symbol)!r} ')
 
             writer.write('\n')
+
+        return writer.getvalue()
+
+
+class ActionKind(enum.IntEnum):
+    SHIFT = enum.auto()
+    REDUCE = enum.auto()
+    ACCEPT = enum.auto()
+    REJECT = enum.auto()
+
+
+class ParserTable:
+    def __init__(self) -> None:
+        self.actions: typing.Dict[
+            typing.Tuple[int, TerminalSymbol], typing.Tuple[ActionKind, int]
+        ] = {}
+        self.gotos: typing.Dict[typing.Tuple[int, NonterminalSymbol], int] = {}
+
+    def add_accept(self, state_id: int) -> None:
+        self.actions[state_id, EOF] = (ActionKind.ACCEPT, -1)
+
+    def add_shift(self, state_id: int, symbol: TerminalSymbol, next_id: int) -> None:
+        self.actions[state_id, symbol] = (ActionKind.SHIFT, next_id)
+
+    def add_reduce(self, state_id: int, symbol: TerminalSymbol, production_id: int) -> None:
+        self.actions[state_id, symbol] = (ActionKind.REDUCE, production_id)
+
+    def add_goto(self, state_id: int, symbol: NonterminalSymbol, destination_id: int) -> None:
+        self.gotos[state_id, symbol] = destination_id
+
+    def get_action(self, state_id: int, symbol: TerminalSymbol) -> typing.Optional[
+        typing.Tuple[ActionKind, int]
+    ]:
+        return self.actions.get((state_id, symbol))
+
+    def get_goto(self, state_id: int, symbol: NonterminalSymbol) -> typing.Optional[int]:
+        return self.gotos.get((state_id, symbol))
+
+    def dump_table(self, productions: typing.List[Production]) -> str:
+        grouped_tables: typing.Dict[
+            int, 
+            typing.Tuple[
+                typing.List[typing.Tuple[TerminalSymbol, ActionKind, int]],  # Actions
+                typing.List[typing.Tuple[NonterminalSymbol, int]],  # GOTOs
+            ]
+        ] = {}
+
+        for key, value in self.actions.items():
+            if key[0] not in grouped_tables:
+                grouped_tables[key[0]] = ([], [])
+
+            item = grouped_tables[key[0]]
+            actions = item[0]
+            actions.append((key[1], *value))
+
+        for key, value in self.gotos.items():
+            if key[0] not in grouped_tables:
+                grouped_tables[key[0]] = ([], [])
+
+            item = grouped_tables[key[0]]
+            gotos = item[1]
+            gotos.append((key[1], value))
+
+        writer = io.StringIO()
+
+        for state_id, item in grouped_tables.items():
+            writer.write(f'<state #{state_id}>\n')
+
+            actions = item[0]
+            writer.write(f'[ Actions: {len(actions)} ]\n')
+            for symbol, action, number in actions:
+                writer.write(f'  (for symbol {str(symbol)!r}) {action.name} ')
+
+                match action:
+                    case ActionKind.SHIFT:
+                        writer.write(f'-> state #{number}')
+                    case ActionKind.REDUCE:
+                        production = productions[number]
+                        writer.write(f'[production: {production}]')
+                
+                writer.write('\n')
+
+            gotos = item[1]
+            writer.write(f'[ GOTOs: {len(gotos)} ]\n')
+            for symbol, destination_id in gotos:
+                writer.write(f'  (for symbol {symbol.name}) -> state #{destination_id}\n')
+
+        writer.write('\n')
 
         return writer.getvalue()
 
@@ -76,12 +162,11 @@ class Generator(typing.Generic[KeywordT]):
     def __init__(self, rules: typing.List[ast.RuleNode[KeywordT]]) -> None:
         self.rules = rules
         self.nonterminals: typing.Dict[str, NonterminalSymbol] = {}
-        self.productions: typing.List[Production] = []
         self.epsilon_nonterminals: typing.Set[NonterminalSymbol] = set()
         self.first_sets: typing.Dict[NonterminalSymbol, typing.Set[TerminalSymbol]] = {}
 
-        self.action_table: ActionTable = {}
-        self.goto_table: GotoTable = {}
+        self.productions: typing.List[Production] = []
+        self.table = ParserTable()
 
         self.states: typing.List[ParserState] = []
         self.transitions: typing.Dict[typing.Tuple[Symbol, int], int] = {}
@@ -102,10 +187,6 @@ class Generator(typing.Generic[KeywordT]):
             production = Production(lhs=nonterminal)
             self.add_symbols_for_expression(production.rhs, item.expression)
             nonterminal.productions.append(production)
-
-    def propagate_productions(self) -> None:
-        for nonterminal in self.nonterminals.values():
-            self.productions.extend(nonterminal.productions)
 
     def add_symbols_for_expression(
         self,
@@ -349,34 +430,36 @@ class Generator(typing.Generic[KeywordT]):
                     tempoaray_closure = self.compute_goto(state.items, current_symbol)
                     if not self.equivalent_state_exists(tempoaray_closure):
                         next_state = self.create_state(tempoaray_closure)
-                        self.transitions[(current_symbol, state.id)] = next_state.id
+                        self.transitions[current_symbol, state.id] = next_state.id
                         changed = True
 
     def compute_tables(self, entrypoint: ParserItem) -> None:
-        self.propagate_productions()
         self.compute_canonical_collection({entrypoint})
+
+        for nonterminal in self.nonterminals.values():
+            self.productions.extend(nonterminal.productions)
 
         for state in self.states:
             for item in state.items:
                 current_symbol = item.current_symbol()
                 if current_symbol is None:
                     if item.production.lhs.entrypoint:
-                        self.action_table[(EOF, state.id)] = (ActionKind.ACCEPT, 0)
+                        self.table.add_accept(state.id)
                     else:
-                        production = self.productions.index(item.production)
-                        self.action_table[(item.lookahead, state.id)] = (ActionKind.REDUCE, production)
+                        production_id = self.productions.index(item.production)
+                        self.table.add_reduce(state.id, item.lookahead, production_id)
 
                 if not isinstance(current_symbol, TerminalSymbol):
                     continue
 
                 transition = self.transitions.get((current_symbol, state.id))
                 if transition is not None:
-                    self.action_table[(current_symbol, state.id)] = (ActionKind.SHIFT, transition)
+                    self.table.add_shift(state.id, current_symbol, transition)
 
             for nonterminal in self.nonterminals.values():
                 transition = self.transitions.get((nonterminal, state.id))
                 if transition is not None:
-                    self.goto_table[(nonterminal, state.id)] = transition
+                    self.table.add_goto(state.id, nonterminal, transition)
 
     def generate_symbols(self) -> None:
         self.initialize_nonterminals()

@@ -40,7 +40,7 @@ class TerminalSymbol:
     kind: int = attr.ib()
 
     def __str__(self) -> str:
-        return self.kind.name
+        return str(getattr(self.kind, 'name', self.kind))
 
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)

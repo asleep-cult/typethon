@@ -3,27 +3,23 @@ from __future__ import annotations
 import typing
 import enum
 
-from .symbols import TerminalSymbol, NonterminalSymbol, Production, EPSILON
+from .generator import ActionKind, ParserTable
+from .symbols import (
+    TerminalSymbol,
+    NonterminalSymbol,
+    Production,
+    EPSILON,
+)
 from ..syntax.scanner import Scanner
-from ..syntax.tokens import Token
+from ..syntax.tokens import Token, TokenKind
 
 KeywordT = typing.TypeVar('KeywordT', bound=enum.IntEnum)
 
 
-class ActionKind(enum.IntEnum):
-    SHIFT = enum.auto()
-    REDUCE = enum.auto()
-    ACCEPT = enum.auto()
-    REJECT = enum.auto()
-
-
-# TODO: Make ParseTables a stand alone type to symplify use, add a function to
-# dump the tables and add conflict mitigation.
+# TODO: Add conflict mitigation.
 # Figure out why the tables are not generating correctly.
 # Add a way to create an AST using the grammar
 # Reimplement parsers with new grammar
-ActionTable = typing.Dict[typing.Tuple[TerminalSymbol, int], typing.Tuple[ActionKind, int]]
-GotoTable = typing.Dict[typing.Tuple[NonterminalSymbol, int], int]
 
 
 class ParserAutomaton(typing.Generic[KeywordT]):
@@ -32,15 +28,13 @@ class ParserAutomaton(typing.Generic[KeywordT]):
         self,
         scanner: Scanner[KeywordT],
         productions: typing.List[Production],
-        action_table: ActionTable,
-        goto_table: GotoTable,
+        table: ParserTable,
     ) -> None:
         self.scanner = scanner
         self.productions = productions
-        self.action_table = action_table
-        self.goto_table = goto_table
+        self.table = table
 
-        self.lookahead: typing.Optional[TerminalSymbol] = None
+        self.tokens: typing.List[Token[KeywordT]] = []
         self.stack: typing.List[
             typing.Tuple[typing.Union[TerminalSymbol, NonterminalSymbol], int]
         ] = [(EPSILON, 0)]
@@ -48,34 +42,52 @@ class ParserAutomaton(typing.Generic[KeywordT]):
     def current_state(self) -> int:
         return self.stack[-1][1]
 
-    def next_terminal_symbol(self) -> TerminalSymbol:        
+    def current_symbol(self) -> TerminalSymbol:
+        if self.tokens:
+            token = self.tokens[0]
+        else:
+            token = self.scanner.scan()
+            self.tokens.append(token)
+
+        kind = token.keyword if token.kind is TokenKind.KEYWORD else token.kind
+        return TerminalSymbol(kind=kind)
+
+    def advance(self) -> None:
+        if not self.tokens:
+            assert False, f'<there are no tokens>'
+
+        self.tokens.pop(0)
+
+    def next_terminal_symbol(self) -> TerminalSymbol:
         token = self.scanner.scan()
         return TerminalSymbol(kind=token.kind)
 
     def next_action(self) -> None:
         current_state = self.current_state()
+        terminal_symbol = self.current_symbol()
 
-        if self.lookahead is not None:
-            terminal_symbol = self.lookahead
-        else:
-            terminal_symbol = self.next_terminal_symbol()
+        entry = self.table.get_action(current_state, terminal_symbol)
+        if entry is None:
+            assert False, f'<Action table has no entry for ({current_state, terminal_symbol})>'
 
-        print(f'Parser Automaton #1: {terminal_symbol=}, {current_state=}')
-        action, number = self.action_table[(terminal_symbol, current_state)]
-        print(f'Parser Automaton #2:, {action=!r}, {number=}')
-
+        action = entry[0]
         match action:
             case ActionKind.SHIFT:
-                self.lookahead = None
-                self.stack.append((terminal_symbol, number))
+                self.advance()
+                next_state = entry[1]
+                self.stack.append((terminal_symbol, next_state))
 
             case ActionKind.REDUCE:
-                production = self.productions[number]
+                production_id = entry[1]
+                production = self.productions[production_id]
 
                 del self.stack[len(production.rhs):]
                 current_state = self.current_state()
 
-                next_state = self.goto_table[(production.lhs, current_state)]
+                next_state = self.table.get_goto(current_state, production.lhs)
+                if next_state is None:
+                    assert False, f'<Goto table has no entry for ({current_state}, {production.lhs.name})>'
+
                 self.stack.append((production.lhs, next_state))
 
             case ActionKind.ACCEPT:
