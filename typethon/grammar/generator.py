@@ -3,9 +3,10 @@ from __future__ import annotations
 import attr
 import enum
 import typing
-from collections import defaultdict
+import io
 
 from . import ast
+from .automaton import ActionTable, GotoTable, ActionKind
 from .symbols import (
     Production,
     TerminalSymbol,
@@ -36,23 +37,54 @@ class ParserItem:
 
         parts.insert(self.position, '*')
         string = ' '.join(parts)
-        return f'[{self.production.lhs.name} -> {string}], {self.lookahead}'
+        return f'{self.production.lhs.name} -> {string}, ({self.lookahead})'
 
     def current_symbol(self) -> typing.Optional[Symbol]:
         if len(self.production.rhs) > self.position:
             return self.production.rhs[self.position]
 
 
+@attr.s(kw_only=True, slots=True)
+class ParserState:
+    id: int = attr.ib()
+    items: typing.Set[ParserItem] = attr.ib()
+
+    def dump_state(self) -> str:
+        writer = io.StringIO()
+        writer.write(f'<parser state #{self.id}>\n')
+
+        for i, item in enumerate(self.items):
+            writer.write(f'  ({i}., pos={item.position}, lookahead={item.lookahead}): ')
+            writer.write(f'{item.production.lhs.name} -> ')
+
+            for j, symbol in enumerate(item.production.rhs):
+                if j == item.position:
+                    writer.write(f'* ')
+
+                if isinstance(symbol, NonterminalSymbol):
+                    writer.write(f'{symbol.name} ')
+                else:
+                    value = getattr(symbol.kind, 'name', symbol.kind)
+                    writer.write(f'{value!r} ')
+
+            writer.write('\n')
+
+        return writer.getvalue()
+
+
 class Generator(typing.Generic[KeywordT]):
     def __init__(self, rules: typing.List[ast.RuleNode[KeywordT]]) -> None:
         self.rules = rules
         self.nonterminals: typing.Dict[str, NonterminalSymbol] = {}
+        self.productions: typing.List[Production] = []
         self.epsilon_nonterminals: typing.Set[NonterminalSymbol] = set()
         self.first_sets: typing.Dict[NonterminalSymbol, typing.Set[TerminalSymbol]] = {}
 
-        self.transitions: typing.Dict[
-            Symbol, typing.List[typing.Tuple[typing.Set[ParserItem], typing.Set[ParserItem]]]
-        ] = defaultdict(list)
+        self.action_table: ActionTable = {}
+        self.goto_table: GotoTable = {}
+
+        self.states: typing.List[ParserState] = []
+        self.transitions: typing.Dict[typing.Tuple[Symbol, int], int] = {}
 
     def initialize_nonterminals(self) -> None:
         for rule in self.rules:
@@ -70,6 +102,10 @@ class Generator(typing.Generic[KeywordT]):
             production = Production(lhs=nonterminal)
             self.add_symbols_for_expression(production.rhs, item.expression)
             nonterminal.productions.append(production)
+
+    def propagate_productions(self) -> None:
+        for nonterminal in self.nonterminals.values():
+            self.productions.extend(nonterminal.productions)
 
     def add_symbols_for_expression(
         self,
@@ -157,11 +193,11 @@ class Generator(typing.Generic[KeywordT]):
 
                 symbols.append(self.nonterminals[expression.value])
 
-    def compute_epsilon_nonterminals(self, nonterminals: typing.Set[NonterminalSymbol]) -> None:
+    def compute_epsilon_nonterminals(self) -> None:
         # First, add every nonterminal with at least one production containing epsilon
         for nonterminal in self.nonterminals.values():
             if any(EPSILON in production.rhs for production in nonterminal.productions):
-                nonterminals.add(nonterminal)
+                self.epsilon_nonterminals.add(nonterminal)
 
         changed = True
         while changed:
@@ -170,17 +206,17 @@ class Generator(typing.Generic[KeywordT]):
             for nonterminal in self.nonterminals.values():
                 # Next, add every nonterminal with at least one production such that all symbols
                 # in the production are already within the epsilon nonterminals set
-                if any(nonterminals.issuperset(production.rhs) for production in nonterminal.productions):
-                    changed = nonterminal not in nonterminals
-                    nonterminals.add(nonterminal)
+                if any(
+                    self.epsilon_nonterminals.issuperset(production.rhs)
+                    for production in nonterminal.productions
+                ):
+                    changed = nonterminal not in self.epsilon_nonterminals
+                    self.epsilon_nonterminals.add(nonterminal)
 
-    def compute_first_sets(
-        self,
-        first_sets: typing.Dict[NonterminalSymbol, typing.Set[TerminalSymbol]],
-    ) -> None:
+    def compute_first_sets(self) -> None:
         for nonterminal in self.nonterminals.values():
             first_set: typing.Set[TerminalSymbol] = set()
-            first_sets[nonterminal] = first_set
+            self.first_sets[nonterminal] = first_set
 
             for production in nonterminal.productions:
                 for symbol in production.rhs:
@@ -194,13 +230,13 @@ class Generator(typing.Generic[KeywordT]):
         while changed:
             changed = False
             for nonterminal in self.nonterminals.values():
-                first_set = first_sets[nonterminal]
+                first_set = self.first_sets[nonterminal]
 
                 for production in nonterminal.productions:
                     for symbol in production.rhs:
                         if isinstance(symbol, NonterminalSymbol):
                             length = len(first_set)
-                            first_set.update(first_sets[symbol])
+                            first_set.update(self.first_sets[symbol])
                             changed |= length != len(first_set)
 
                         if symbol not in self.epsilon_nonterminals:
@@ -286,32 +322,61 @@ class Generator(typing.Generic[KeywordT]):
 
         return self.compute_closure(result)
 
-    def generate_canonical_collection(
-        self,
-        entrypoint: typing.Set[ParserItem],
-    ) -> typing.List[typing.Set[ParserItem]]:
-        canonical_collection: typing.List[typing.Set[ParserItem]] = []
-        canonical_collection.append(self.compute_closure(entrypoint))
+    def create_state(self, items: typing.Set[ParserItem]) -> ParserState:
+        state = ParserState(id=len(self.states), items=items)
+        self.states.append(state)
+        return state
+
+    def equivalent_state_exists(self, items: typing.Set[ParserItem]) -> bool:
+        return any(state.items == items for state in self.states)
+
+    def dump_states(self) -> typing.List[str]:
+        return [state.dump_state() for state in self.states]
+
+    def compute_canonical_collection(self, entrypoint: typing.Set[ParserItem]) -> None:
+        self.create_state(self.compute_closure(entrypoint))
 
         changed = True
         while changed:
             changed = False
 
-            for collection in canonical_collection:
-                for item in collection:
+            for state in self.states:
+                for item in state.items:
                     current_symbol = item.current_symbol()
                     if current_symbol is None:
                         continue
 
-                    tempoaray_closure = self.compute_goto(collection, current_symbol)
-                    if tempoaray_closure not in canonical_collection:
-                        canonical_collection.append(tempoaray_closure)
-
-                        transitions = self.transitions[current_symbol]
-                        transitions.append((collection, tempoaray_closure))
+                    tempoaray_closure = self.compute_goto(state.items, current_symbol)
+                    if not self.equivalent_state_exists(tempoaray_closure):
+                        next_state = self.create_state(tempoaray_closure)
+                        self.transitions[(current_symbol, state.id)] = next_state.id
                         changed = True
 
-        return canonical_collection
+    def compute_tables(self, entrypoint: ParserItem) -> None:
+        self.propagate_productions()
+        self.compute_canonical_collection({entrypoint})
+
+        for state in self.states:
+            for item in state.items:
+                current_symbol = item.current_symbol()
+                if current_symbol is None:
+                    if item.production.lhs.entrypoint:
+                        self.action_table[(EOF, state.id)] = (ActionKind.ACCEPT, 0)
+                    else:
+                        production = self.productions.index(item.production)
+                        self.action_table[(item.lookahead, state.id)] = (ActionKind.REDUCE, production)
+
+                if not isinstance(current_symbol, TerminalSymbol):
+                    continue
+
+                transition = self.transitions.get((current_symbol, state.id))
+                if transition is not None:
+                    self.action_table[(current_symbol, state.id)] = (ActionKind.SHIFT, transition)
+
+            for nonterminal in self.nonterminals.values():
+                transition = self.transitions.get((nonterminal, state.id))
+                if transition is not None:
+                    self.goto_table[(nonterminal, state.id)] = transition
 
     def generate_symbols(self) -> None:
         self.initialize_nonterminals()
