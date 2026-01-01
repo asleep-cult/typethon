@@ -46,6 +46,9 @@ class ParserItem:
         if len(self.production.rhs) > self.position:
             return self.production.rhs[self.position]
 
+    def is_epsilon(self) -> bool:
+        return self.production.rhs[0] == EPSILON
+
 
 @attr.s(kw_only=True, slots=True)
 class ParserState:
@@ -291,6 +294,10 @@ class Generator(typing.Generic[KeywordT]):
                 # | epsilon
                 empty_production = Production(lhs=nonterminal, rhs=[EPSILON])
                 nonterminal.productions.append(empty_production)
+                # | expr
+                production = Production(lhs=nonterminal, rhs=[])
+                self.add_symbols_for_expression(production.rhs, expression.expression)
+                nonterminal.productions.append(production)
                 # | nonterminal expr
                 production = Production(lhs=nonterminal, rhs=[nonterminal])
                 self.add_symbols_for_expression(production.rhs, expression.expression)
@@ -303,6 +310,10 @@ class Generator(typing.Generic[KeywordT]):
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 symbols.append(nonterminal)
+                # | expr
+                production = Production(lhs=nonterminal, rhs=[])
+                self.add_symbols_for_expression(production.rhs, expression.expression)
+                nonterminal.productions.append(production)
                 # | nonterminal expr
                 production = Production(lhs=nonterminal, rhs=[nonterminal])
                 self.add_symbols_for_expression(production.rhs, expression.expression)
@@ -344,10 +355,10 @@ class Generator(typing.Generic[KeywordT]):
                     self.add_symbols_for_expression(symbols, expression)
 
             case ast.KeywordNode():
-                symbols.append(TerminalSymbol(kind=expression.keyword))
+                symbols.append(TerminalSymbol(kind=expression.keyword.name))
 
             case ast.TokenNode():
-                symbols.append(TerminalSymbol(kind=expression.kind))
+                symbols.append(TerminalSymbol(kind=expression.kind.name))
 
             case ast.NameNode():
                 if expression.value not in self.nonterminals:
@@ -448,12 +459,14 @@ class Generator(typing.Generic[KeywordT]):
 
     def compute_closure(self, items: typing.Set[ParserItem]) -> typing.Set[ParserItem]:
         # https://web.cecs.pdx.edu/~harry/compilers/slides/SyntaxPart3.pdf
+        # Given a set of items, this function creates a new set of items such that
+        # all items whose current state is at a nonterminal symbol has a new item
+        # for each production in that nonterminal
         result = items.copy()
 
         changed = True
         while changed:
             changed = False
-            length = len(result)
 
             for item in result.copy():
                 current_symbol = item.current_symbol()
@@ -463,21 +476,25 @@ class Generator(typing.Generic[KeywordT]):
                 for production in current_symbol.productions:
                     if production.rhs == [EPSILON]:
                         inner_item = ParserItem(
-                            production=item.production,
-                            position=item.position + 1,
-                            lookahead=item.lookahead,
+                            production=production,
+                            position=0,
+                            lookahead=EPSILON,
                         )
-                        result.add(inner_item)
                         continue
 
                     trailing_symbols = item.production.rhs[item.position + 1:]
                     trailing_symbols.append(item.lookahead)
+
                     first_lookahead = self.get_first_set(trailing_symbols)
                     for lookahead in first_lookahead:
-                        inner_item = ParserItem(production=production, position=0, lookahead=lookahead)
+                        inner_item = ParserItem(
+                            production=production,
+                            position=0,
+                            lookahead=lookahead,
+                        )
+                        length = len(result)
                         result.add(inner_item)
-
-            changed = length != len(result)
+                        changed |= length != len(result)
 
         return result
 
@@ -517,7 +534,25 @@ class Generator(typing.Generic[KeywordT]):
             changed = False
 
             for state in self.states:
-                for item in state.items:
+                for item in state.items.copy():
+                    if item.is_epsilon():
+                        # When we encounter an item where item.is_epsilon() is true,
+                        # we remove the item. This is for the non-epsilon case,
+                        # i.e where the nonterminal is actually present.
+                        # Next, we can create a duplicate state and remove all items
+                        # with the same nonterminal. This is for the epsilon case,
+                        # i.e where the nonterminal is NOT present.
+                        state.items.remove(item)
+
+                        copied_state = state.items.copy()
+                        for inner_item in state.items:
+                            if inner_item.production.lhs == item.production.lhs:
+                                copied_state.remove(inner_item)
+
+                        next_state = self.create_state(copied_state)
+                        print('epsilon state', next_state.id)
+                        continue
+
                     current_symbol = item.current_symbol()
                     if current_symbol is None:
                         continue

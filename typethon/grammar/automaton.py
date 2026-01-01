@@ -51,7 +51,7 @@ class ParserAutomaton(typing.Generic[KeywordT]):
             self.tokens.append(token)
 
         kind = token.keyword if token.kind is TokenKind.KEYWORD else token.kind
-        return TerminalSymbol(kind=kind)
+        return TerminalSymbol(kind=kind.name)
 
     def advance(self) -> None:
         if not self.tokens:

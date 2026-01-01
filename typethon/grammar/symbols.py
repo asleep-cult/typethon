@@ -4,8 +4,6 @@ import attr
 import enum
 import typing
 
-from ..syntax.tokens import TokenKind
-
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True, repr=False)
 class NonterminalSymbol:
@@ -32,15 +30,15 @@ class NonterminalSymbol:
 
 
 class TerminalKind(enum.IntEnum):
-    EPSILON = enum.auto()
+    EPSILON = -1
 
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
 class TerminalSymbol:
-    kind: int = attr.ib()
+    kind: str = attr.ib()
 
     def __str__(self) -> str:
-        return str(getattr(self.kind, 'name', self.kind))
+        return self.kind
 
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
@@ -59,7 +57,7 @@ class Production:
         return ' '.join(parts)
 
 
-EPSILON = TerminalSymbol(kind=TerminalKind.EPSILON)
-EOF = TerminalSymbol(kind=TokenKind.EOF)
+EPSILON = TerminalSymbol(kind='EPSILON')
+EOF = TerminalSymbol(kind='EOF')
 
 Symbol = typing.Union[NonterminalSymbol, TerminalSymbol]
