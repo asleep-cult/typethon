@@ -25,9 +25,10 @@ ExpressionT = typing.TypeVar('ExpressionT', bound=ast.ExpressionNode[typing.Any]
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
 class ParserItem:
-    production: Production = attr.ib(repr=False)
+    production: Production = attr.ib()
     position: int = attr.ib()
     lookahead: TerminalSymbol = attr.ib()
+    transition: typing.Optional[int] = attr.ib(eq=False, default=None)
 
     def __str__(self) -> str:
         parts: typing.List[str] = []
@@ -45,9 +46,6 @@ class ParserItem:
     def current_symbol(self) -> typing.Optional[Symbol]:
         if len(self.production.rhs) > self.position:
             return self.production.rhs[self.position]
-
-    def is_epsilon(self) -> bool:
-        return self.production.rhs[0] == EPSILON
 
 
 @attr.s(kw_only=True, slots=True)
@@ -248,7 +246,9 @@ class ParserTable:
         return writer.getvalue()
 
 
-class Generator(typing.Generic[KeywordT]):
+# XXX: I might want to make these types generic over TerminalSymbol.kind
+# TODO: Fix star and optional do not work for the zero case
+class ParserTableGenerator(typing.Generic[KeywordT]):
     def __init__(self, rules: typing.List[ast.RuleNode[KeywordT]]) -> None:
         self.rules = rules
         self.nonterminals: typing.Dict[str, NonterminalSymbol] = {}
@@ -256,10 +256,7 @@ class Generator(typing.Generic[KeywordT]):
         self.first_sets: typing.Dict[NonterminalSymbol, typing.Set[TerminalSymbol]] = {}
 
         self.productions: typing.List[Production] = []
-        self.table = ParserTable()
-
         self.states: typing.List[ParserState] = []
-        self.transitions: typing.Dict[typing.Tuple[Symbol, int], int] = {}
 
     def initialize_nonterminals(self) -> None:
         for rule in self.rules:
@@ -269,6 +266,10 @@ class Generator(typing.Generic[KeywordT]):
     def initialize_productions(self) -> None:
         for rule in self.rules:
             self.initialize_productions_for_rule(rule)
+
+    def generate_symbols(self) -> None:
+        self.initialize_nonterminals()
+        self.initialize_productions()
 
     def initialize_productions_for_rule(self, rule: ast.RuleNode[KeywordT]) -> None:
         nonterminal = self.nonterminals[rule.name]
@@ -295,7 +296,7 @@ class Generator(typing.Generic[KeywordT]):
                 empty_production = Production(lhs=nonterminal, rhs=[EPSILON])
                 nonterminal.productions.append(empty_production)
                 # | expr
-                production = Production(lhs=nonterminal, rhs=[])
+                production = Production(lhs=nonterminal)
                 self.add_symbols_for_expression(production.rhs, expression.expression)
                 nonterminal.productions.append(production)
                 # | nonterminal expr
@@ -311,7 +312,7 @@ class Generator(typing.Generic[KeywordT]):
                 self.nonterminals[nonterminal.name] = nonterminal
                 symbols.append(nonterminal)
                 # | expr
-                production = Production(lhs=nonterminal, rhs=[])
+                production = Production(lhs=nonterminal)
                 self.add_symbols_for_expression(production.rhs, expression.expression)
                 nonterminal.productions.append(production)
                 # | nonterminal expr
@@ -425,37 +426,12 @@ class Generator(typing.Generic[KeywordT]):
                 result.update(self.first_sets[symbol])
 
             if (
-                symbol is not EPSILON
+                symbol != EPSILON
                 and symbol not in self.epsilon_nonterminals
             ):
                 break
 
         return result
-
-    def compute_follow_set(self, follow: typing.Set[TerminalSymbol], symbol: Symbol) -> None:
-        if (
-            isinstance(symbol, NonterminalSymbol)
-            and symbol.entrypoint
-        ):
-            follow.add(EOF)
-
-        for nonterminal in self.nonterminals.values():
-            for production in nonterminal.productions:
-                if symbol not in production.rhs:
-                    continue
-
-                index = production.rhs.index(symbol)
-                if len(production.rhs) > index + 1:
-                    following_symbol = production.rhs[index + 1]
-                    first_rhsi = self.get_first_set([following_symbol])
-
-                    if EPSILON in first_rhsi:
-                        first_rhsi.remove(EPSILON)
-                        self.compute_follow_set(follow, nonterminal)
-
-                    follow.update(first_rhsi)
-                else:
-                    self.compute_follow_set(follow, nonterminal)
 
     def compute_closure(self, items: typing.Set[ParserItem]) -> typing.Set[ParserItem]:
         # https://web.cecs.pdx.edu/~harry/compilers/slides/SyntaxPart3.pdf
@@ -474,19 +450,14 @@ class Generator(typing.Generic[KeywordT]):
                     continue
 
                 for production in current_symbol.productions:
-                    if production.rhs == [EPSILON]:
-                        inner_item = ParserItem(
-                            production=production,
-                            position=0,
-                            lookahead=EPSILON,
-                        )
-                        continue
-
                     trailing_symbols = item.production.rhs[item.position + 1:]
                     trailing_symbols.append(item.lookahead)
 
                     first_lookahead = self.get_first_set(trailing_symbols)
                     for lookahead in first_lookahead:
+                        if lookahead == EPSILON:
+                            continue
+
                         inner_item = ParserItem(
                             production=production,
                             position=0,
@@ -503,7 +474,7 @@ class Generator(typing.Generic[KeywordT]):
 
         for item in closure:
             current_symbol = item.current_symbol()
-            if current_symbol is symbol:
+            if current_symbol == symbol:
                 updated_item = ParserItem(
                     production=item.production,
                     position=item.position + 1,
@@ -534,25 +505,7 @@ class Generator(typing.Generic[KeywordT]):
             changed = False
 
             for state in self.states:
-                for item in state.items.copy():
-                    if item.is_epsilon():
-                        # When we encounter an item where item.is_epsilon() is true,
-                        # we remove the item. This is for the non-epsilon case,
-                        # i.e where the nonterminal is actually present.
-                        # Next, we can create a duplicate state and remove all items
-                        # with the same nonterminal. This is for the epsilon case,
-                        # i.e where the nonterminal is NOT present.
-                        state.items.remove(item)
-
-                        copied_state = state.items.copy()
-                        for inner_item in state.items:
-                            if inner_item.production.lhs == item.production.lhs:
-                                copied_state.remove(inner_item)
-
-                        next_state = self.create_state(copied_state)
-                        print('epsilon state', next_state.id)
-                        continue
-
+                for item in state.items:
                     current_symbol = item.current_symbol()
                     if current_symbol is None:
                         continue
@@ -565,25 +518,26 @@ class Generator(typing.Generic[KeywordT]):
                     else:
                         next_state = equivalent_state
 
-                    transition = self.transitions.get((current_symbol, state.id))
-                    if transition is not None:
-                        if transition != next_state.id:
-                            raise ParserGeneratorError(
-                                'Encountered an impossible conflict while trying to '
-                                'set transition state #{0}, symbol {1} to {2}. '
-                                'The transition is already set to {3}.'.format(
-                                    state.id,
-                                    current_symbol,
-                                    next_state.id,
-                                    transition,
-                                )
+                    if (
+                        item.transition is not None
+                        and item.transition != next_state.id
+                    ):
+                        raise ParserGeneratorError(
+                            'Encountered an impossible conflict while trying to '
+                            'set transition state #{0}, symbol {1} to {2}. '
+                            'The transition is already set to {3}.'.format(
+                                state.id,
+                                current_symbol,
+                                next_state.id,
+                                item.transition,
                             )
-                    else:
-                        changed = True
+                        )
 
-                    self.transitions[current_symbol, state.id] = next_state.id
+                    item.transition = next_state.id
 
-    def compute_tables(self, entrypoint: ParserItem) -> None:
+    def compute_tables(self, entrypoint: ParserItem) -> ParserTable:
+        table = ParserTable()
+
         self.compute_canonical_collection(entrypoint)
 
         for nonterminal in self.nonterminals.values():
@@ -594,23 +548,52 @@ class Generator(typing.Generic[KeywordT]):
                 current_symbol = item.current_symbol()
                 if current_symbol is None:
                     if item.production.lhs.entrypoint:
-                        self.table.add_accept(state.id)
+                        table.add_accept(state.id)
                     else:
                         production_id = self.productions.index(item.production)
-                        self.table.add_reduce(state.id, item.lookahead, production_id)
+                        table.add_reduce(state.id, item.lookahead, production_id)
 
                 if not isinstance(current_symbol, TerminalSymbol):
                     continue
 
-                transition = self.transitions.get((current_symbol, state.id))
-                if transition is not None:
-                    self.table.add_shift(state.id, current_symbol, transition)
+                if item.transition is not None:
+                    if current_symbol == EPSILON:
+                        shift_symbol = item.lookahead
+                    else:
+                        shift_symbol = current_symbol
+
+                    table.add_shift(state.id, shift_symbol, item.transition)
 
             for nonterminal in self.nonterminals.values():
-                transition = self.transitions.get((nonterminal, state.id))
-                if transition is not None:
-                    self.table.add_goto(state.id, nonterminal, transition)
+                for item in state.items:
+                    if item.current_symbol() == nonterminal and item.transition is not None:
+                        table.add_goto(state.id, nonterminal, item.transition)
 
-    def generate_symbols(self) -> None:
-        self.initialize_nonterminals()
-        self.initialize_productions()
+        for state in self.states:
+            if not any(state_id == state.id for state_id, _ in table.actions):
+                raise ParserGeneratorError(f'State #{state.id} has no actions')
+
+        return table
+
+    def generate(self) -> typing.Dict[str, ParserTable]:
+        self.generate_symbols()
+        self.compute_epsilon_nonterminals()
+        self.compute_first_sets()
+
+        tables: typing.Dict[str, ParserTable] = {}
+        for nonterminal in self.nonterminals.values():
+            if nonterminal.entrypoint:
+                if len(nonterminal.productions) != 1:
+                    raise ParserGeneratorError(
+                        f'Grammar entrypoint {nonterminal.name!r} has more than one production'
+                    )
+            
+                production = nonterminal.productions[0]
+                item = ParserItem(production=production, position=0, lookahead=EOF)
+                table = self.compute_tables(item)
+                tables[nonterminal.name] = table
+
+        if not tables:
+            raise ParserGeneratorError('The grammar has no entrypoint')
+
+        return tables

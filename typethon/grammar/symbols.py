@@ -11,10 +11,13 @@ class NonterminalSymbol:
     entrypoint: bool = attr.ib(default=False)
     productions: typing.List[Production] = attr.ib(factory=list, hash=False)
 
+    def __repr__(self) -> str:
+        return self.name
+
     def __str__(self) -> str:
         return f'nonterminal-symbol: {self.name}'
 
-    def __repr__(self) -> str:
+    def dump_nonterminal(self) -> str:
         parts = [f'<nonterminal-symbol: {self.name}>:']
         for production in self.productions:
             string = '  | '
@@ -46,7 +49,7 @@ class Production:
     lhs: NonterminalSymbol = attr.ib()
     rhs: typing.List[Symbol] = attr.ib(factory=list, hash=False)
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         parts: typing.List[str] = [f'{self.lhs.name} ->']
         for symbol in self.rhs:
             if isinstance(symbol, NonterminalSymbol):
