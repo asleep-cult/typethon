@@ -1,0 +1,6 @@
+class ParserGeneratorError(Exception):
+    ...
+
+
+class ParserAutomatonError(Exception):
+    ...

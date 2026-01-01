@@ -4,8 +4,10 @@ import attr
 import enum
 import typing
 import io
+import logging
 
 from . import ast
+from .exceptions import ParserGeneratorError
 from .symbols import (
     Production,
     TerminalSymbol,
@@ -14,6 +16,8 @@ from .symbols import (
     EPSILON,
     EOF,
 )
+
+logger = logging.getLogger(__name__)
 
 KeywordT = typing.TypeVar('KeywordT', bound=enum.IntEnum)
 ExpressionT = typing.TypeVar('ExpressionT', bound=ast.ExpressionNode[typing.Any])
@@ -85,15 +89,98 @@ class ParserTable:
         self.gotos: typing.Dict[typing.Tuple[int, NonterminalSymbol], int] = {}
 
     def add_accept(self, state_id: int) -> None:
+        existing_entry = self.actions.get((state_id, EOF))
+        if (
+            existing_entry is not None
+            and existing_entry != (ActionKind.ACCEPT, -1)
+        ):
+            raise ParserGeneratorError(
+                'Encountered an impossible conflict while trying to add '
+                'an ACCEPT action for state #{0}: {1}'.format(state_id, existing_entry)
+            )
+
         self.actions[state_id, EOF] = (ActionKind.ACCEPT, -1)
 
     def add_shift(self, state_id: int, symbol: TerminalSymbol, next_id: int) -> None:
+        existing_entry = self.actions.get((state_id, symbol))
+        if (
+            existing_entry is not None
+            and existing_entry != (ActionKind.SHIFT, next_id)
+        ):
+            if existing_entry[0] is ActionKind.REDUCE:
+                logger.info(
+                    'Encountered a SHIFT/REDUCE conflict while adding '
+                    'a SHIFT to state #%s in state #%s, symbol %s. Replacing '
+                    'the REDUCE action. NOTE: The REDUCE action was for '
+                    'a production with the id %s.',
+                    next_id,
+                    state_id,
+                    symbol,
+                    existing_entry[1],
+                )
+            else:
+                raise ParserGeneratorError(
+                    'Encountered an impossible conflict while trying to add '
+                    'a SHIFT to state {0} in state #{1}, symbol {2}: {3}'
+                    .format(
+                        next_id,
+                        state_id,
+                        symbol,
+                        existing_entry,
+                    )
+                )
+
         self.actions[state_id, symbol] = (ActionKind.SHIFT, next_id)
 
     def add_reduce(self, state_id: int, symbol: TerminalSymbol, production_id: int) -> None:
+        existing_entry = self.actions.get((state_id, symbol))
+        if (
+            existing_entry is not None
+            and existing_entry != (ActionKind.REDUCE, production_id)
+        ):
+            if existing_entry[0] is ActionKind.SHIFT:
+                logger.info(
+                    'Encountered a SHIFT/REDUCE conflict while adding '
+                    'a REDUCE for a production with the id %s in state '
+                    '#%s, symbol %s. Defaulting to SHIFT instead. NOTE: The SHIFT '
+                    'action goes to state #%s',
+                    production_id,
+                    state_id,
+                    symbol,
+                    existing_entry[1],
+                )
+                return
+            else:
+                raise ParserGeneratorError(
+                    'Encountered an impossible conflict while trying to add '
+                    'a REDUCE action for a production with the id {0} in '
+                    'state #{1}, symbol {2}: {3}'.format(
+                        production_id,
+                        state_id,
+                        symbol,
+                        existing_entry,
+                    )
+                )
+
         self.actions[state_id, symbol] = (ActionKind.REDUCE, production_id)
 
     def add_goto(self, state_id: int, symbol: NonterminalSymbol, destination_id: int) -> None:
+        existing_entry = self.gotos.get((state_id, symbol))
+        if (
+            existing_entry is not None
+            and existing_entry != destination_id
+        ):
+            raise ParserGeneratorError(
+                'Encountered impossible conflict while trying to add '
+                'an entry to add an entry to the goto table state #{0}, '
+                'symbol {1}, destination: state #{2}: {3}'.format(
+                    state_id,
+                    symbol,
+                    destination_id,
+                    existing_entry,
+                )
+            )
+
         self.gotos[state_id, symbol] = destination_id
 
     def get_action(self, state_id: int, symbol: TerminalSymbol) -> typing.Optional[
@@ -201,15 +288,12 @@ class Generator(typing.Generic[KeywordT]):
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 symbols.append(nonterminal)
-                # | ()
+                # | epsilon
                 empty_production = Production(lhs=nonterminal, rhs=[EPSILON])
                 nonterminal.productions.append(empty_production)
-                # | expr
-                production = Production(lhs=nonterminal)
-                self.add_symbols_for_expression(production.rhs, expression.expression)
-                nonterminal.productions.append(production)
-                # | nonterminal
+                # | nonterminal expr
                 production = Production(lhs=nonterminal, rhs=[nonterminal])
+                self.add_symbols_for_expression(production.rhs, expression.expression)
                 nonterminal.productions.append(production)
 
             case ast.PlusNode():
@@ -219,12 +303,9 @@ class Generator(typing.Generic[KeywordT]):
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 symbols.append(nonterminal)
-                # | expr
-                production = Production(lhs=nonterminal)
-                self.add_symbols_for_expression(production.rhs, expression.expression)
-                nonterminal.productions.append(production)
-                # | nonterminal
+                # | nonterminal expr
                 production = Production(lhs=nonterminal, rhs=[nonterminal])
+                self.add_symbols_for_expression(production.rhs, expression.expression)
                 nonterminal.productions.append(production)
 
             case ast.OptionalNode():
@@ -234,7 +315,7 @@ class Generator(typing.Generic[KeywordT]):
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 symbols.append(nonterminal)
-                # | ()
+                # | epsilon
                 empty_production = Production(lhs=nonterminal, rhs=[EPSILON])
                 nonterminal.productions.append(empty_production)
                 # | expr
@@ -332,7 +413,10 @@ class Generator(typing.Generic[KeywordT]):
             else:
                 result.update(self.first_sets[symbol])
 
-            if symbol not in self.epsilon_nonterminals:
+            if (
+                symbol is not EPSILON
+                and symbol not in self.epsilon_nonterminals
+            ):
                 break
 
         return result
@@ -369,21 +453,31 @@ class Generator(typing.Generic[KeywordT]):
         changed = True
         while changed:
             changed = False
+            length = len(result)
+
             for item in result.copy():
                 current_symbol = item.current_symbol()
                 if not isinstance(current_symbol, NonterminalSymbol):
                     continue
 
                 for production in current_symbol.productions:
+                    if production.rhs == [EPSILON]:
+                        inner_item = ParserItem(
+                            production=item.production,
+                            position=item.position + 1,
+                            lookahead=item.lookahead,
+                        )
+                        result.add(inner_item)
+                        continue
+
                     trailing_symbols = item.production.rhs[item.position + 1:]
                     trailing_symbols.append(item.lookahead)
-
                     first_lookahead = self.get_first_set(trailing_symbols)
                     for lookahead in first_lookahead:
                         inner_item = ParserItem(production=production, position=0, lookahead=lookahead)
-                        length = len(result)
                         result.add(inner_item)
-                        changed |= length != len(result)
+
+            changed = length != len(result)
 
         return result
 
@@ -415,8 +509,8 @@ class Generator(typing.Generic[KeywordT]):
     def dump_states(self) -> typing.List[str]:
         return [state.dump_state() for state in self.states]
 
-    def compute_canonical_collection(self, entrypoint: typing.Set[ParserItem]) -> None:
-        self.create_state(self.compute_closure(entrypoint))
+    def compute_canonical_collection(self, entrypoint: ParserItem) -> None:
+        self.create_state(self.compute_closure({entrypoint}))
 
         changed = True
         while changed:
@@ -436,13 +530,26 @@ class Generator(typing.Generic[KeywordT]):
                     else:
                         next_state = equivalent_state
 
-                    if (current_symbol, state.id) in self.transitions:
-                        assert self.transitions[current_symbol, state.id] == next_state.id
+                    transition = self.transitions.get((current_symbol, state.id))
+                    if transition is not None:
+                        if transition != next_state.id:
+                            raise ParserGeneratorError(
+                                'Encountered an impossible conflict while trying to '
+                                'set transition state #{0}, symbol {1} to {2}. '
+                                'The transition is already set to {3}.'.format(
+                                    state.id,
+                                    current_symbol,
+                                    next_state.id,
+                                    transition,
+                                )
+                            )
+                    else:
+                        changed = True
 
                     self.transitions[current_symbol, state.id] = next_state.id
 
     def compute_tables(self, entrypoint: ParserItem) -> None:
-        self.compute_canonical_collection({entrypoint})
+        self.compute_canonical_collection(entrypoint)
 
         for nonterminal in self.nonterminals.values():
             self.productions.extend(nonterminal.productions)
@@ -463,8 +570,6 @@ class Generator(typing.Generic[KeywordT]):
                 transition = self.transitions.get((current_symbol, state.id))
                 if transition is not None:
                     self.table.add_shift(state.id, current_symbol, transition)
-                else:
-                    print(f'No transition exists for ({current_symbol}, {state.id})')
 
             for nonterminal in self.nonterminals.values():
                 transition = self.transitions.get((nonterminal, state.id))

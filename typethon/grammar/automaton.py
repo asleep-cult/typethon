@@ -18,9 +18,7 @@ logger = logging.getLogger(__name__)
 
 KeywordT = typing.TypeVar('KeywordT', bound=enum.IntEnum)
 
-# TODO: Add conflict mitigation.
-# Figure out why the tables are not generating correctly.
-# Add a way to create an AST using the grammar
+# TODO: Add a way to create an AST using the grammar
 # Reimplement parsers with new grammar
 
 
@@ -36,6 +34,7 @@ class ParserAutomaton(typing.Generic[KeywordT]):
         self.productions = productions
         self.table = table
 
+        self.accepted = False
         self.tokens: typing.List[Token[KeywordT]] = []
         self.stack: typing.List[
             typing.Tuple[typing.Union[TerminalSymbol, NonterminalSymbol], int]
@@ -59,10 +58,6 @@ class ParserAutomaton(typing.Generic[KeywordT]):
             assert False, f'<there are no tokens>'
 
         self.tokens.pop(0)
-
-    def next_terminal_symbol(self) -> TerminalSymbol:
-        token = self.scanner.scan()
-        return TerminalSymbol(kind=token.kind)
 
     def next_action(self) -> None:
         current_state = self.current_state()
@@ -98,7 +93,11 @@ class ParserAutomaton(typing.Generic[KeywordT]):
                 self.stack.append((production.lhs, next_state))
 
             case ActionKind.ACCEPT:
-                print('Accepted')
+                self.accepted = True
 
             case ActionKind.REJECT:
-                raise ValueError(f'Invalid syntax: {terminal_symbol!r}')
+                assert False, 'Unused'
+
+    def parse(self) -> None:
+        while not self.accepted:
+            self.next_action()
