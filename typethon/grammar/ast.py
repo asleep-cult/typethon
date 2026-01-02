@@ -6,7 +6,8 @@ import enum
 
 from ..syntax import tokens
 
-KeywordT = typing.TypeVar('KeywordT', bound=enum.IntEnum)
+TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
+KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -16,52 +17,52 @@ class Node:
 
 
 @attr.s(kw_only=True, slots=True)
-class RuleNode(typing.Generic[KeywordT], Node):
+class RuleNode(typing.Generic[TokenKindT, KeywordKindT], Node):
     name: str = attr.ib()
     entrypoint: bool = attr.ib()
-    items: typing.List[RuleItemNode[KeywordT]] = attr.ib()
+    items: typing.List[RuleItemNode[TokenKindT, KeywordKindT]] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class RuleItemNode(typing.Generic[KeywordT], Node):
-    expression: ExpressionNode[KeywordT] = attr.ib()
+class RuleItemNode(typing.Generic[TokenKindT, KeywordKindT], Node):
+    expression: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
     action: typing.Optional[str] = attr.ib(default=None)
 
 
 @attr.s(kw_only=True, slots=True)
-class StarNode(typing.Generic[KeywordT], Node):
-    expression: ExpressionNode[KeywordT] = attr.ib()
+class StarNode(typing.Generic[TokenKindT, KeywordKindT], Node):
+    expression: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class PlusNode(typing.Generic[KeywordT], Node):
-    expression: ExpressionNode[KeywordT] = attr.ib()
+class PlusNode(typing.Generic[TokenKindT, KeywordKindT], Node):
+    expression: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class OptionalNode(typing.Generic[KeywordT], Node):
-    expression: ExpressionNode[KeywordT] = attr.ib()
+class OptionalNode(typing.Generic[TokenKindT, KeywordKindT], Node):
+    expression: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class AlternativeNode(typing.Generic[KeywordT], Node):
-    lhs: ExpressionNode[KeywordT] = attr.ib()
-    rhs: ExpressionNode[KeywordT] = attr.ib()
+class AlternativeNode(typing.Generic[TokenKindT, KeywordKindT], Node):
+    lhs: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
+    rhs: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class GroupNode(typing.Generic[KeywordT], Node):
-    expressions: typing.List[ExpressionNode[KeywordT]] = attr.ib()
+class GroupNode(typing.Generic[TokenKindT, KeywordKindT], Node):
+    expressions: typing.List[ExpressionNode[TokenKindT, KeywordKindT]] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class TokenNode(Node):
-    kind: tokens.TokenKind = attr.ib()
+class TokenNode(typing.Generic[TokenKindT], Node):
+    kind: TokenKindT = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class KeywordNode(typing.Generic[KeywordT], Node):
-    keyword: KeywordT = attr.ib()
+class KeywordNode(typing.Generic[KeywordKindT], Node):
+    keyword: KeywordKindT = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -70,12 +71,13 @@ class NameNode(Node):
 
 
 ExpressionNode = typing.Union[
-    StarNode[KeywordT],
-    PlusNode[KeywordT],
-    OptionalNode[KeywordT],
-    AlternativeNode[KeywordT],
-    GroupNode[KeywordT],
-    KeywordNode[KeywordT],
-    TokenNode,
+    StarNode[TokenKindT, KeywordKindT],
+    PlusNode[TokenKindT, KeywordKindT],
+    OptionalNode[TokenKindT, KeywordKindT],
+    AlternativeNode[TokenKindT, KeywordKindT],
+    GroupNode[TokenKindT, KeywordKindT],
+    KeywordNode[KeywordKindT],
+    TokenNode[TokenKindT],
+    TokenNode[tokens.StdTokenKind],
     NameNode,
 ]

@@ -4,12 +4,17 @@ import attr
 import enum
 import typing
 
+from ..syntax.tokens import StdTokenKind
+
+TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
+KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
+
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True, repr=False)
-class NonterminalSymbol:
+class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
     name: str = attr.ib(hash=True)
     entrypoint: bool = attr.ib(default=False)
-    productions: typing.List[Production] = attr.ib(factory=list, hash=False)
+    productions: typing.List[Production[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
 
     def __repr__(self) -> str:
         return self.name
@@ -32,22 +37,27 @@ class NonterminalSymbol:
         return '\n'.join(parts)
 
 
-class TerminalKind(enum.IntEnum):
-    EPSILON = -1
+class EpsilonTerminalKind(enum.Enum):
+    EPSILON = 0
 
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
-class TerminalSymbol:
-    kind: str = attr.ib()
+class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
+    kind: typing.Union[
+        TokenKindT,
+        KeywordKindT,
+        StdTokenKind,
+        typing.Literal[EpsilonTerminalKind.EPSILON],
+    ] = attr.ib()
 
     def __str__(self) -> str:
-        return self.kind
+        return str(self.kind)
 
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
-class Production:
-    lhs: NonterminalSymbol = attr.ib()
-    rhs: typing.List[Symbol] = attr.ib(factory=list, hash=False)
+class Production(typing.Generic[TokenKindT, KeywordKindT]):
+    lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib()
+    rhs: typing.List[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
 
     def __repr__(self) -> str:
         parts: typing.List[str] = [f'{self.lhs.name} ->']
@@ -60,7 +70,10 @@ class Production:
         return ' '.join(parts)
 
 
-EPSILON = TerminalSymbol(kind='EPSILON')
-EOF = TerminalSymbol(kind='EOF')
+EPSILON = TerminalSymbol[typing.Any, typing.Any](kind=EpsilonTerminalKind.EPSILON)
+EOF = TerminalSymbol[typing.Any, typing.Any](kind=StdTokenKind.EOF)
 
-Symbol = typing.Union[NonterminalSymbol, TerminalSymbol]
+Symbol = typing.Union[
+    NonterminalSymbol[TokenKindT, KeywordKindT],
+    TerminalSymbol[TokenKindT, KeywordKindT]
+]

@@ -6,20 +6,26 @@ from .tokens import (
     DirectiveToken,
     IdentifierToken,
     IndentToken,
-    KeywordToken,
     NumberToken,
     NumberTokenFlags,
+    KeywordMap,
     SimpleTokenKind,
     StringToken,
     StringTokenFlags,
     Token,
+    TokenMap,
     TokenData,
-    TokenKind,
+    StdTokenKind,
 )
 
 __all__ = ('Scanner',)
 
-KeywordT = typing.TypeVar('KeywordT', bound=enum.IntEnum)
+TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
+KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
+
+TokenLookupTable = typing.Dict[
+    str, typing.Tuple['TokenLookupTable[TokenKindT]', typing.Optional[TokenKindT]]
+]
 
 EOF = '\0'
 TABSIZE = 8
@@ -68,20 +74,55 @@ def is_binary(char: str) -> bool:
     return char in '01'
 
 
-class Scanner(typing.Generic[KeywordT]):
+class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
         self,
         source: str,
-        keywords: typing.Dict[str, KeywordT],
+        *,
+        tokens: TokenMap[TokenKindT],
+        keywords: KeywordMap[KeywordKindT],
+        matched_tokens: typing.Dict[TokenKindT, TokenKindT],
     ) -> None:
         self.source = source
-        self.keywords = keywords
         self.position = 0
 
+        self.tokens = self.create_lookup_table(dict(tokens))
+        self.keywords = dict(keywords)
+
+        self.matched_tokens = matched_tokens
+        self.matched_tokens_inverse: typing.Dict[TokenKindT, TokenKindT] = {}
+        for opening_token, closing_token in matched_tokens.items():
+            self.matched_tokens_inverse[closing_token] = opening_token
+
         self.is_newline = False
-        self.parenstack: typing.List[TokenKind] = []
+        self.match_stack: typing.List[TokenKindT] = []
         self.indentstack: typing.List[typing.Tuple[int, int]] = [(0, 0)]
         self.indents: typing.List[typing.Union[IndentToken, DedentToken]] = []
+
+    def create_lookup_table(
+        self, tokens: typing.Dict[str, TokenKindT]
+    ) -> TokenLookupTable[TokenKindT]:
+        table: TokenLookupTable[TokenKindT] = {}
+
+        for token, kind in tokens.items():
+            current_table = table
+
+            for character in token[:-1]:
+                if character not in current_table:
+                    current_table[character] = ({}, None)
+
+                current_table = current_table[character][0]
+
+            character = token[-1]
+            if character not in current_table:
+                current_table[character] = ({}, kind)
+            else:
+                existing_entry = current_table[character]
+                assert existing_entry[1] is None
+
+                current_table[character] = (existing_entry[0], kind)
+
+        return table
 
     def is_eof(self) -> bool:
         return self.position >= len(self.source)
@@ -191,7 +232,7 @@ class Scanner(typing.Generic[KeywordT]):
 
         self.is_newline = False
 
-    def identifier_or_string(self) -> Token[KeywordT]:
+    def identifier_or_string(self) -> Token[TokenKindT, KeywordKindT]:
         start = self.position
 
         char = self.consume_char()
@@ -217,7 +258,7 @@ class Scanner(typing.Generic[KeywordT]):
 
         keyword = self.keywords.get(content)
         if keyword is not None:
-            return KeywordToken(start=start, end=self.position, keyword=keyword)
+            return TokenData(kind=keyword, start=start, end=self.position)
 
         return IdentifierToken(start=start, end=self.position, content=content)
 
@@ -295,17 +336,17 @@ class Scanner(typing.Generic[KeywordT]):
         content = self.source[start:self.position]
         return NumberToken(start=start, end=self.position, content=content, flags=flags)
 
-    def newline(self) -> typing.Optional[Token[KeywordT]]:
+    def newline(self) -> typing.Optional[Token[TokenKindT, KeywordKindT]]:
         start = self.position
 
         char = self.consume_char()
         assert char == '\n'
 
-        if self.is_newline or self.parenstack:
+        if self.is_newline or self.match_stack:
             return None
 
         self.is_newline = True
-        return TokenData(kind=TokenKind.NEWLINE, start=start, end=self.position)
+        return TokenData(kind=StdTokenKind.NEWLINE, start=start, end=self.position)
 
     def string(self, *, flags: StringTokenFlags = StringTokenFlags.NONE) -> StringToken:
         start = self.position
@@ -362,200 +403,39 @@ class Scanner(typing.Generic[KeywordT]):
         content = comment[directive_start + 1:directive_end]
         return DirectiveToken(start=start, end=self.position, content=content)
 
-    def token(self) -> SimpleTokenKind:
-        char = self.consume_char()
+    def token(self) -> typing.Union[
+        TokenKindT,
+        typing.Literal[StdTokenKind.EINVALID, StdTokenKind.EUNMATCHED]
+    ]:
+        current_table = self.tokens
+        current_kind = StdTokenKind.EINVALID
 
-        if char == '(':
-            self.parenstack.append(TokenKind.OPENPAREN)
-            return TokenKind.OPENPAREN
+        while True:
+            char = self.peek_char()
+            entry = current_table.get(char)
 
-        elif char == ')':
-            if not self.parenstack or self.parenstack.pop() is not TokenKind.OPENPAREN:
-                return TokenKind.EUNMATCHED
-
-            return TokenKind.CLOSEPAREN
-
-        elif char == '[':
-            self.parenstack.append(TokenKind.OPENBRACKET)
-            return TokenKind.OPENBRACKET
-
-        elif char == ']':
-            if not self.parenstack or self.parenstack.pop() is not TokenKind.OPENBRACKET:
-                return TokenKind.EUNMATCHED
-
-            return TokenKind.CLOSEBRACKET
-
-        elif char == '{':
-            self.parenstack.append(TokenKind.OPENBRACE)
-            return TokenKind.OPENBRACE
-
-        elif char == '}':
-            if not self.parenstack or self.parenstack.pop() is not TokenKind.OPENBRACE:
-                return TokenKind.EUNMATCHED
-
-            return TokenKind.CLOSEBRACE
-
-        elif char == ':':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.COLONEQUAL
-
-            return TokenKind.COLON
-
-        elif char == ',':
-            return TokenKind.COMMA
-
-        elif char == ';':
-            return TokenKind.SEMICOLON
-
-        elif char == '.':
-            if self.peek_char() == '.':
+            if entry is not None:
                 self.consume_char()
 
-                if self.peek_char() == '.':
-                    self.consume_char()
-                    return TokenKind.ELLIPSIS
+                current_table = entry[0]
+                if entry[1] is not None:
+                    current_kind = entry[1]
+            else:
+                if current_kind in self.matched_tokens:
+                    self.match_stack.append(current_kind)
+                elif current_kind in self.matched_tokens_inverse:
+                    if not self.match_stack:
+                        return StdTokenKind.EUNMATCHED
 
-            return TokenKind.DOT
+                    opening_token = self.match_stack[-1]
+                    if opening_token is not self.matched_tokens_inverse[current_kind]:
+                        return StdTokenKind.EUNMATCHED
 
-        elif char == '+':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.PLUSEQUAL
+                    del self.match_stack[-1]
 
-            return TokenKind.PLUS
+                return current_kind
 
-        elif char == '-':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.MINUSEQUAL
-
-            elif self.peek_char() == '>':
-                self.consume_char()
-                return TokenKind.RARROW
-
-            return TokenKind.MINUS
-
-        elif char == '*':
-            if self.peek_char() == '*':
-                self.consume_char()
-
-                if self.peek_char() == '=':
-                    self.consume_char()
-                    return TokenKind.DOUBLESTAREQUAL
-
-                return TokenKind.DOUBLESTAR
-
-            elif self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.STAREQUAL
-
-            return TokenKind.STAR
-
-        elif char == '@':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.ATEQUAL
-
-            return TokenKind.AT
-
-        elif char == '/':
-            if self.peek_char() == '/':
-                self.consume_char()
-
-                if self.peek_char() == '=':
-                    self.consume_char()
-                    return TokenKind.DOUBLESLASHEQUAL
-
-                return TokenKind.DOUBLESLASH
-
-            elif self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.SLASHEQUAL
-
-            return TokenKind.SLASH
-
-        elif char == '|':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.VERTICALBAREQUAL
-
-            return TokenKind.VERTICALBAR
-
-        elif char == '&':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.AMPERSANDEQUAL
-
-            return TokenKind.AMPERSAND
-
-        elif char == '<':
-            if self.peek_char() == '<':
-                self.consume_char()
-
-                if self.peek_char() == '=':
-                    self.consume_char()
-                    return TokenKind.DOUBLELTHANEQUAL
-
-                return TokenKind.DOUBLELTHAN
-
-            elif self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.LTHANEQ
-
-            return TokenKind.LTHAN
-
-        elif char == '>':
-            if self.peek_char() == '>':
-                self.consume_char()
-
-                if self.consume_char() == '=':
-                    self.consume_char()
-                    return TokenKind.DOUBLEGTHANEQUAL
-
-                return TokenKind.DOUBLEGTHAN
-
-            elif self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.GTHANEQ
-
-            return TokenKind.GTHAN
-
-        elif char == '=':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.EQEQUAL
-
-            return TokenKind.EQUAL
-
-        elif char == '!':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.NOTEQUAL
-
-        elif char == '%':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.PERCENTEQUAL
-
-            return TokenKind.PERCENT
-
-        elif char == '~':
-            return TokenKind.TILDE
-
-        elif char == '^':
-            if self.peek_char() == '=':
-                self.consume_char()
-                return TokenKind.CIRCUMFLEXEQUAL
-
-            return TokenKind.CIRCUMFLEX
-
-        elif char == '?':
-            return TokenKind.QUESTION
-
-        return TokenKind.EINVALID
-
-    def scan(self) -> Token[KeywordT]:
+    def scan(self) -> Token[TokenKindT, KeywordKindT]:
         while True:
             if self.is_newline:
                 self.scan_indentation()
@@ -566,7 +446,7 @@ class Scanner(typing.Generic[KeywordT]):
             self.consume_while(is_whitespace)
 
             if self.is_eof():
-                return TokenData(kind=TokenKind.EOF, start=self.position, end=self.position)
+                return TokenData(kind=StdTokenKind.EOF, start=self.position, end=self.position)
 
             start = self.position
             char = self.peek_char()
@@ -600,7 +480,7 @@ class Scanner(typing.Generic[KeywordT]):
                     return self.number()
 
             kind = self.token()
-            if kind is TokenKind.EINVALID:
+            if kind is StdTokenKind.EINVALID:
                 self.consume_while(lambda char: not is_whitespace(char))
 
             return TokenData(kind=kind, start=start, end=self.position)

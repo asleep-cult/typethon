@@ -4,54 +4,47 @@ import typing
 import enum
 import logging
 
+from .frozen import FrozenSymbol
 from .generator import ActionKind, ParserTable
-from .symbols import (
-    TerminalSymbol,
-    NonterminalSymbol,
-    Production,
-    EPSILON,
-)
 from ..syntax.scanner import Scanner
-from ..syntax.tokens import Token, TokenKind
+from ..syntax.tokens import Token
 
 logger = logging.getLogger(__name__)
 
-KeywordT = typing.TypeVar('KeywordT', bound=enum.IntEnum)
+TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
+KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
 # TODO: Add a way to create an AST using the grammar
 # Reimplement parsers with new grammar
 
 
-class ParserAutomaton(typing.Generic[KeywordT]):
+class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
     # https://www.cs.uaf.edu/~chappell/class/2023_spr/cs331/lect/cs331-20230220-shiftred.pdf
     def __init__(
         self,
-        scanner: Scanner[KeywordT],
-        productions: typing.List[Production],
-        table: ParserTable,
+        scanner: Scanner[TokenKindT, KeywordKindT],
+        table: ParserTable[TokenKindT, KeywordKindT],
     ) -> None:
         self.scanner = scanner
-        self.productions = productions
         self.table = table
 
         self.accepted = False
-        self.tokens: typing.List[Token[KeywordT]] = []
+        self.tokens: typing.List[Token[TokenKindT, KeywordKindT]] = []
         self.stack: typing.List[
-            typing.Tuple[typing.Union[TerminalSymbol, NonterminalSymbol], int]
-        ] = [(EPSILON, 0)]
+            typing.Tuple[typing.Optional[FrozenSymbol], int]
+        ] = [(None, 0)]
 
     def current_state(self) -> int:
         return self.stack[-1][1]
 
-    def current_symbol(self) -> TerminalSymbol:
+    def current_symbol(self) -> FrozenSymbol:
         if self.tokens:
             token = self.tokens[0]
         else:
             token = self.scanner.scan()
             self.tokens.append(token)
 
-        kind = token.keyword if token.kind is TokenKind.KEYWORD else token.kind
-        return TerminalSymbol(kind=kind.name)
+        return self.table.frozen_symbols.get_frozen_terminal(token.kind)
 
     def advance(self) -> None:
         if not self.tokens:
@@ -79,18 +72,19 @@ class ParserAutomaton(typing.Generic[KeywordT]):
 
             case ActionKind.REDUCE:
                 production_id = entry[1]
-                production = self.productions[production_id]
+                frozen_production = self.table.frozen_symbols.frozen_productions[production_id]
 
-                del self.stack[-len(production.rhs):]
+                del self.stack[-frozen_production.rhs_length:]
                 current_state = self.current_state()
-                logger.debug('REDUCE BY %s, STACK STATE: %s', production, current_state)
+                logger.debug('REDUCE BY %s, STACK STATE: %s', frozen_production.id, current_state)
 
-                next_state = self.table.get_goto(current_state, production.lhs)
+                frozen_lhs = frozen_production.get_lhs()
+                next_state = self.table.get_goto(current_state, frozen_lhs)
                 if next_state is None:
-                    assert False, f'<Goto table has no entry for ({current_state}, {production.lhs.name})>'
+                    assert False, f'<Goto table has no entry for ({current_state}, {frozen_production})>'
 
                 logger.debug('GOTO %s', next_state)
-                self.stack.append((production.lhs, next_state))
+                self.stack.append((frozen_lhs, next_state))
 
             case ActionKind.ACCEPT:
                 self.accepted = True

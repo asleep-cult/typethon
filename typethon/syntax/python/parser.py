@@ -8,7 +8,7 @@ import attr
 
 from . import ast
 from ..tokens import (
-    TokenKind,
+    StdTokenKind,
     Token as TokenT,
     StringTokenFlags,
     NumberTokenFlags,
@@ -125,9 +125,9 @@ class Parser:
 
         while True:
             token = parser.stream.peek_token()
-            if token.kind is TokenKind.NEWLINE:
+            if token.kind is StdTokenKind.NEWLINE:
                 parser.stream.consume_token()
-            elif token.kind is TokenKind.EOF:
+            elif token.kind is StdTokenKind.EOF:
                 return expressions
             else:
                 assert False, '<Expected (NEWLINE, EOF)>'
@@ -155,7 +155,7 @@ class Parser:
             self.stream = stream
 
     @contextlib.contextmanager
-    def lookahead(self, *kinds: TokenKind, negative: bool = False) -> typing.Iterator[Alternative]:
+    def lookahead(self, *kinds: StdTokenKind, negative: bool = False) -> typing.Iterator[Alternative]:
         with self.alternative() as alternative:
             yield alternative
 
@@ -172,7 +172,7 @@ class Parser:
     def optional_lookahead(
         self,
         function: typing.Callable[[], ReturnT],
-        *kinds: TokenKind,
+        *kinds: StdTokenKind,
         negative: bool = False,
     ) -> typing.Optional[ReturnT]:
         result = None
@@ -191,7 +191,7 @@ class Parser:
             statements.extend(body)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.EOF:
+        if token.kind is not StdTokenKind.EOF:
             assert False, '<Expected EOF>'
 
         self.stream.consume_token()
@@ -226,7 +226,7 @@ class Parser:
     ) -> typing.Union[ast.StatementNode, typing.List[ast.StatementNode]]:
         token = self.stream.peek_token()
 
-        if token.kind is TokenKind.KEYWORD:
+        if token.kind is StdTokenKind.KEYWORD:
             match token.keyword:
                 case KeywordKind.ASYNC:
                     return self.async_statement()
@@ -245,25 +245,25 @@ class Parser:
                 case KeywordKind.WITH:
                     return self.with_statement()
 
-        elif token.kind is TokenKind.AT:
+        elif token.kind is StdTokenKind.AT:
             return self.decorated_statement()
 
         return self.simple_statements()
 
     def block(self) -> typing.List[ast.StatementNode]:
         token = self.stream.peek_token()
-        if token.kind is TokenKind.NEWLINE:
+        if token.kind is StdTokenKind.NEWLINE:
             self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.INDENT:
+            if token.kind is not StdTokenKind.INDENT:
                 assert False, '<Expected INDENT>'
 
             self.stream.consume_token()
             statements = self.statements()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.DEDENT:
+            if token.kind is not StdTokenKind.DEDENT:
                 assert False, '<Expected DEDENT>'
 
             self.stream.consume_token()
@@ -280,7 +280,7 @@ class Parser:
         assert async_token.is_keyword(KeywordKind.ASYNC)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.KEYWORD:
+        if token.kind is not StdTokenKind.KEYWORD:
             assert False, '<Expected Keyword After Async>'
 
         if decorators is not None:
@@ -312,7 +312,7 @@ class Parser:
             startpos = token.start
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.IDENTIFIER:
+        if token.kind is not StdTokenKind.IDENTIFIER:
             assert False, '<Expected IDENTIFIER>'
 
         self.stream.consume_token()
@@ -328,7 +328,7 @@ class Parser:
         arguments: typing.List[ast.KeywordArgumentNode] = []
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.OPENPAREN:
+        if token.kind is StdTokenKind.OPENPAREN:
             self.stream.consume_token()
 
             args = self.arguments()
@@ -338,13 +338,13 @@ class Parser:
             arguments.extend(kwargs)
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CLOSEPAREN:
+            if token.kind is not StdTokenKind.CLOSEPAREN:
                 assert False, '<Expected CLOSEPAREN>'
 
             self.stream.consume_token()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -379,33 +379,33 @@ class Parser:
         expression = None
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.IDENTIFIER:
+        if token.kind is not StdTokenKind.IDENTIFIER:
             assert False, '<Expected IDENTIFIER>'
 
         self.stream.consume_token()
         content = token.content
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.OPENPAREN:
+        if token.kind is not StdTokenKind.OPENPAREN:
             assert False, '<Expected OPENPAREN>'
 
         self.stream.consume_token()
         parameters = self.parameters()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEPAREN:
+        if token.kind is not StdTokenKind.CLOSEPAREN:
             assert False, '<Expected CLOSEPAREN>'
 
         self.stream.consume_token()
         endpos = token.end
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.RARROW:
+        if token.kind is StdTokenKind.RARROW:
             self.stream.consume_token()
             expression = self.type_expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             return ast.FunctionDefNode(
                 startpos=startpos,
                 endpos=expression.endpos if expression is not None else endpos,
@@ -444,7 +444,7 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is TokenKind.SLASH:
+            if token.kind is StdTokenKind.SLASH:
                 if not parameters or encountered_posonly:
                     assert False, '<Slash Not Permitted>'
 
@@ -455,14 +455,14 @@ class Parser:
                     parameter.kind = ast.ParameterKind.POSONLY
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.COMMA:
+                if token.kind is not StdTokenKind.COMMA:
                     assert False, '<Expected Comma>'
 
                 self.stream.consume_token()
-            elif token.kind is TokenKind.STAR:
+            elif token.kind is StdTokenKind.STAR:
                 token = self.stream.peek_token(1)
 
-                if token.kind is TokenKind.COMMA:
+                if token.kind is StdTokenKind.COMMA:
                     self.stream.consume_token()
 
                     if encountered_kwonly or encountered_varkwarg:
@@ -490,7 +490,7 @@ class Parser:
                 parameters.append(parameter)
 
             token = self.stream.peek_token()
-            is_comma = token.kind is TokenKind.COMMA
+            is_comma = token.kind is StdTokenKind.COMMA
 
             if not alternative.accepted or not is_comma:
                 kwonly_permitted = encountered_kwarg or encountered_varkwarg
@@ -507,27 +507,27 @@ class Parser:
         startpos = token.start
         endpos = token.end
 
-        if token.kind is TokenKind.IDENTIFIER:
+        if token.kind is StdTokenKind.IDENTIFIER:
             self.stream.consume_token()
 
             kind = ast.ParameterKind.ARG
             content = token.content
-        elif token.kind is TokenKind.STAR:
+        elif token.kind is StdTokenKind.STAR:
             self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.IDENTIFIER:
+            if token.kind is not StdTokenKind.IDENTIFIER:
                 assert False, '<Expected IDENTIFIER>'
 
             self.stream.consume_token()
 
             kind = ast.ParameterKind.VARARG
             content = token.content
-        elif token.kind is TokenKind.DOUBLESTAR:
+        elif token.kind is StdTokenKind.DOUBLESTAR:
             self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.IDENTIFIER:
+            if token.kind is not StdTokenKind.IDENTIFIER:
                 assert False, '<Expected IDENTIFIER>'
 
             self.stream.consume_token()
@@ -541,12 +541,12 @@ class Parser:
         default = None
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.COLON:
+        if token.kind is StdTokenKind.COLON:
             self.stream.consume_token()
             expression = self.type_expression()
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.EQUAL:
+        if token.kind is StdTokenKind.EQUAL:
             self.stream.consume_token()
             default = self.expression()
 
@@ -579,7 +579,7 @@ class Parser:
         iterator = self.star_expressions()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -610,7 +610,7 @@ class Parser:
         expression = self.expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -643,7 +643,7 @@ class Parser:
         expression = self.expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -673,7 +673,7 @@ class Parser:
         assert token.is_keyword(KeywordKind.ELSE)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -686,7 +686,7 @@ class Parser:
         startpos = token.start
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -707,7 +707,7 @@ class Parser:
             self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.COLON:
+            if token.kind is not StdTokenKind.COLON:
                 assert False, '<Expected COLON>'
 
             self.stream.consume_token()
@@ -759,14 +759,14 @@ class Parser:
             self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.IDENTIFIER:
+            if token.kind is not StdTokenKind.IDENTIFIER:
                 assert False, '<Expected IDENTIFIER>'
 
             self.stream.consume_token()
             target = token.content
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -788,7 +788,7 @@ class Parser:
         expression = self.expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -816,17 +816,17 @@ class Parser:
         startpos = async_token.start if async_token is not None else token.start
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.OPENPAREN:
+        if token.kind is StdTokenKind.OPENPAREN:
             self.stream.consume_token()
 
             items = self.with_items()
 
             token = self.stream.peek_token()
-            if token.kind is TokenKind.COMMA:
+            if token.kind is StdTokenKind.COMMA:
                 self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CLOSEPAREN:
+            if token.kind is not StdTokenKind.CLOSEPAREN:
                 assert False, '<Expected CLOSEPAREN>'
 
             self.stream.consume_token()
@@ -834,11 +834,11 @@ class Parser:
             items = self.with_items()
 
             token = self.stream.peek_token()
-            if token.kind is TokenKind.COMMA:
+            if token.kind is StdTokenKind.COMMA:
                 assert False, '<Trailing Comma Not Premitted>'
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -859,7 +859,7 @@ class Parser:
         items.append(item)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return items
 
         self.stream.consume_token()
@@ -870,7 +870,7 @@ class Parser:
                 items.append(item)
 
             token = self.stream.peek_token()
-            is_comma = token.kind is TokenKind.COMMA
+            is_comma = token.kind is StdTokenKind.COMMA
 
             if not alternative.accepted or not is_comma:
                 return items
@@ -901,7 +901,7 @@ class Parser:
 
     def decorated_statement(self) -> ast.StatementNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.AT
+        assert token.kind is StdTokenKind.AT
 
         expressions: typing.List[ast.ExpressionNode] = []
 
@@ -910,13 +910,13 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.NEWLINE:
+            if token.kind is not StdTokenKind.NEWLINE:
                 assert False, '<Expected NEWLINE>'
 
             self.stream.consume_token()
             token = self.stream.peek_token()
 
-            if token.kind is TokenKind.AT:
+            if token.kind is StdTokenKind.AT:
                 self.stream.consume_token()
 
                 expression = self.expression()
@@ -938,11 +938,11 @@ class Parser:
             statements.append(statement)
 
             token = self.stream.peek_token()
-            if token.kind is TokenKind.SEMICOLON:
+            if token.kind is StdTokenKind.SEMICOLON:
                 self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind in (TokenKind.NEWLINE, TokenKind.EOF):
+            if token.kind in (StdTokenKind.NEWLINE, StdTokenKind.EOF):
                 self.stream.consume_token()
                 return statements
 
@@ -951,7 +951,7 @@ class Parser:
     def assignment(self) -> ast.StatementNode:
         token = self.stream.peek_token()
 
-        if token.kind is TokenKind.IDENTIFIER:
+        if token.kind is StdTokenKind.IDENTIFIER:
             with self.alternative():
                 self.stream.consume_token()
                 expression = ast.NameNode(
@@ -959,7 +959,7 @@ class Parser:
                 )
 
                 return self.annassign(expression)
-        elif token.kind is TokenKind.OPENPAREN:
+        elif token.kind is StdTokenKind.OPENPAREN:
             with self.alternative():
                 self.stream.consume_token()
                 expression = self.optional(self.single_target)
@@ -968,7 +968,7 @@ class Parser:
                     expression = self.optional(self.single_subscript_attribute_target)
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.CLOSEPAREN:
+                if token.kind is not StdTokenKind.CLOSEPAREN:
                     assert False, '<Expected CLOSEPAREN>'
 
                 assert expression is not None
@@ -985,13 +985,13 @@ class Parser:
             expressions.append(expression)
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.EQUAL:
+            if token.kind is not StdTokenKind.EQUAL:
                 assert False, '<Expected EQUAL>'
 
             self.stream.consume_token()
 
             while True:
-                with self.lookahead(TokenKind.EQUAL) as alternative:
+                with self.lookahead(StdTokenKind.EQUAL) as alternative:
                     expression = self.star_targets()
 
                 if alternative.accepted:
@@ -1015,14 +1015,14 @@ class Parser:
 
     def annassign(self, target: ast.ExpressionNode) -> ast.AnnAssignNode:
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
         annotation = self.type_expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.EQUAL:
+        if token.kind is not StdTokenKind.EQUAL:
             if not isinstance(target, ast.NameNode):
                 assert False, '<Expected NAME>'
 
@@ -1048,31 +1048,31 @@ class Parser:
     def augassign(self, target: ast.ExpressionNode) -> ast.AugAssignNode:
         token = self.stream.peek_token()
 
-        if token.kind is TokenKind.PLUSEQUAL:
+        if token.kind is StdTokenKind.PLUSEQUAL:
             operator = ast.Operator.ADD
-        elif token.kind is TokenKind.MINUSEQUAL:
+        elif token.kind is StdTokenKind.MINUSEQUAL:
             operator = ast.Operator.SUB
-        elif token.kind is TokenKind.STAREQUAL:
+        elif token.kind is StdTokenKind.STAREQUAL:
             operator = ast.Operator.MULT
-        elif token.kind is TokenKind.ATEQUAL:
+        elif token.kind is StdTokenKind.ATEQUAL:
             operator = ast.Operator.MATMULT
-        elif token.kind is TokenKind.SLASHEQUAL:
+        elif token.kind is StdTokenKind.SLASHEQUAL:
             operator = ast.Operator.DIV
-        elif token.kind is TokenKind.PERCENTEQUAL:
+        elif token.kind is StdTokenKind.PERCENTEQUAL:
             operator = ast.Operator.MOD
-        elif token.kind is TokenKind.AMPERSANDEQUAL:
+        elif token.kind is StdTokenKind.AMPERSANDEQUAL:
             operator = ast.Operator.BITAND
-        elif token.kind is TokenKind.VERTICALBAREQUAL:
+        elif token.kind is StdTokenKind.VERTICALBAREQUAL:
             operator = ast.Operator.BITOR
-        elif token.kind is TokenKind.CIRCUMFLEXEQUAL:
+        elif token.kind is StdTokenKind.CIRCUMFLEXEQUAL:
             operator = ast.Operator.BITXOR
-        elif token.kind is TokenKind.DOUBLELTHANEQUAL:
+        elif token.kind is StdTokenKind.DOUBLELTHANEQUAL:
             operator = ast.Operator.LSHIFT
-        elif token.kind is TokenKind.DOUBLEGTHANEQUAL:
+        elif token.kind is StdTokenKind.DOUBLEGTHANEQUAL:
             operator = ast.Operator.RSHIFT
-        elif token.kind is TokenKind.DOUBLESTAREQUAL:
+        elif token.kind is StdTokenKind.DOUBLESTAREQUAL:
             operator = ast.Operator.POW
-        elif token.kind is TokenKind.DOUBLESLASHEQUAL:
+        elif token.kind is StdTokenKind.DOUBLESLASHEQUAL:
             operator = ast.Operator.FLOORDIV
         else:
             assert False, '<Expected Operator>'
@@ -1098,7 +1098,7 @@ class Parser:
     def simple_statement(self) -> ast.StatementNode:
         token = self.stream.peek_token()
 
-        if token.kind is TokenKind.KEYWORD:
+        if token.kind is StdTokenKind.KEYWORD:
             match token.keyword:
                 case KeywordKind.ASSERT:
                     return self.assert_statement()
@@ -1145,7 +1145,7 @@ class Parser:
         message = None
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.COMMA:
+        if token.kind is StdTokenKind.COMMA:
             self.stream.consume_token()
             message = self.expression()
 
@@ -1198,7 +1198,7 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.IDENTIFIER:
+            if token.kind is not StdTokenKind.IDENTIFIER:
                 assert False, '<Expected Identifier>'
 
             self.stream.consume_token()
@@ -1207,7 +1207,7 @@ class Parser:
             endpos = token.end
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.COMMA:
+            if token.kind is not StdTokenKind.COMMA:
                 return ast.GlobalNode(startpos=startpos, endpos=endpos, names=names)
 
             self.stream.consume_token()
@@ -1255,9 +1255,9 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is TokenKind.DOT:
+            if token.kind is StdTokenKind.DOT:
                 level += 1
-            elif token.kind is TokenKind.ELLIPSIS:
+            elif token.kind is StdTokenKind.ELLIPSIS:
                 level += 3
             else:
                 return level
@@ -1268,22 +1268,22 @@ class Parser:
         aliases: typing.List[ast.AliasNode] = []
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.OPENPAREN:
+        if token.kind is StdTokenKind.OPENPAREN:
             self.stream.consume_token()
 
             names = self.import_from_as_names()
             aliases.extend(names)
 
             token = self.stream.peek_token()
-            if token.kind is TokenKind.COMMA:
+            if token.kind is StdTokenKind.COMMA:
                 self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CLOSEPAREN:
+            if token.kind is not StdTokenKind.CLOSEPAREN:
                 assert False, '<Expected CLOSEPAREN>'
 
             self.stream.consume_token()
-        elif token.kind is TokenKind.STAR:
+        elif token.kind is StdTokenKind.STAR:
             name = ast.AliasNode(
                 startpos=token.start,
                 endpos=token.end,
@@ -1296,7 +1296,7 @@ class Parser:
             aliases.extend(names)
 
             token = self.stream.peek_token()
-            if token.kind is TokenKind.COMMA:
+            if token.kind is StdTokenKind.COMMA:
                 assert False, '<Trailing Comma Not Permitted>'
 
         return aliases
@@ -1308,7 +1308,7 @@ class Parser:
         aliases.append(name)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return aliases
 
         self.stream.consume_token()
@@ -1319,7 +1319,7 @@ class Parser:
                 aliases.append(name)
 
             token = self.stream.peek_token()
-            is_comma = token.kind is TokenKind.COMMA
+            is_comma = token.kind is StdTokenKind.COMMA
 
             if not alternative.accepted or not is_comma:
                 return aliases
@@ -1328,7 +1328,7 @@ class Parser:
 
     def import_from_as_name(self) -> ast.AliasNode:
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.IDENTIFIER:
+        if token.kind is not StdTokenKind.IDENTIFIER:
             assert False, '<Expected IDENTIFIER>'
 
         self.stream.consume_token()
@@ -1343,7 +1343,7 @@ class Parser:
             self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.IDENTIFIER:
+            if token.kind is not StdTokenKind.IDENTIFIER:
                 assert False, '<Expected IDENTIFIER>'
 
             self.stream.consume_token()
@@ -1359,7 +1359,7 @@ class Parser:
             aliases.append(name)
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.COMMA:
+            if token.kind is not StdTokenKind.COMMA:
                 return aliases
 
             self.stream.consume_token()
@@ -1373,7 +1373,7 @@ class Parser:
             self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.IDENTIFIER:
+            if token.kind is not StdTokenKind.IDENTIFIER:
                 assert False, '<Expected IDENTIFIER>'
 
             self.stream.consume_token()
@@ -1383,11 +1383,11 @@ class Parser:
 
     def dotted_name(self) -> str:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.IDENTIFIER
+        assert token.kind is StdTokenKind.IDENTIFIER
         content = token.content
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.DOT:
+        if token.kind is not StdTokenKind.DOT:
             return content
 
         names: typing.List[str] = []
@@ -1397,14 +1397,14 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.IDENTIFIER:
+            if token.kind is not StdTokenKind.IDENTIFIER:
                 assert False, '<Expected IDENTIFIER>'
 
             self.stream.consume_token()
             names.append(token.content)
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.DOT:
+            if token.kind is not StdTokenKind.DOT:
                 return '.'.join(names)
 
             self.stream.consume_token()
@@ -1420,7 +1420,7 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.IDENTIFIER:
+            if token.kind is not StdTokenKind.IDENTIFIER:
                 assert False, '<Expected Identifier>'
 
             self.stream.consume_token()
@@ -1428,7 +1428,7 @@ class Parser:
             endpos = token.end
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.COMMA:
+            if token.kind is not StdTokenKind.COMMA:
                 return ast.NonlocalNode(startpos=startpos, endpos=endpos, names=names)
 
             self.stream.consume_token()
@@ -1488,11 +1488,11 @@ class Parser:
         while True:
             token = self.stream.peek_token()
 
-            if token.kind is TokenKind.DOT:
+            if token.kind is StdTokenKind.DOT:
                 self.stream.consume_token()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.IDENTIFIER:
+                if token.kind is not StdTokenKind.IDENTIFIER:
                     assert False, '<Expected IDENTIFIER>'
                 
                 self.stream.consume_token()
@@ -1502,12 +1502,12 @@ class Parser:
                     value=atom,
                     attr=token.content
                 )
-            elif token.kind is TokenKind.OPENPAREN:
+            elif token.kind is StdTokenKind.OPENPAREN:
                 self.stream.consume_token()
                 expressions = self.type_arguments()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.CLOSEPAREN:
+                if token.kind is not StdTokenKind.CLOSEPAREN:
                     assert False, '<Expected CLOSEPAREN>'
                 
                 self.stream.consume_token()
@@ -1533,7 +1533,7 @@ class Parser:
                 expressions.append(expression)
 
             token = self.stream.peek_token()
-            is_comma = token.kind is TokenKind.COMMA
+            is_comma = token.kind is StdTokenKind.COMMA
 
             if not alternative.accepted or not is_comma:
                 return expressions
@@ -1543,7 +1543,7 @@ class Parser:
     def type_atom(self) -> ast.TypeExpressionNode:
         token = self.stream.peek_token()
 
-        if token.kind is TokenKind.IDENTIFIER:
+        if token.kind is StdTokenKind.IDENTIFIER:
             self.stream.consume_token()
             return ast.TypeNameNode(
                 startpos=token.start,
@@ -1551,15 +1551,15 @@ class Parser:
                 value=token.content,
             )
 
-        elif token.kind is TokenKind.VERTICALBAR:
+        elif token.kind is StdTokenKind.VERTICALBAR:
             with self.alternative():
                 return self.type_parameter()
 
-        elif token.kind is TokenKind.OPENBRACKET:
+        elif token.kind is StdTokenKind.OPENBRACKET:
             with self.alternative():
                 return self.list_type()
         
-        elif token.kind is TokenKind.OPENBRACE:
+        elif token.kind is StdTokenKind.OPENBRACE:
             with self.alternative():
                 return self.dict_type()
             
@@ -1570,13 +1570,13 @@ class Parser:
 
     def type_parameter(self) -> ast.TypeParameterNode:
         token = self.stream.peek_token()
-        assert token.kind is TokenKind.VERTICALBAR
+        assert token.kind is StdTokenKind.VERTICALBAR
 
         startpos = token.start
         self.stream.consume_token()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.IDENTIFIER:
+        if token.kind is not StdTokenKind.IDENTIFIER:
             assert False, '<Expected IDENTIFIER>'
 
         self.stream.consume_token()
@@ -1585,12 +1585,12 @@ class Parser:
         constraint = None
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.COLON:
+        if token.kind is StdTokenKind.COLON:
             self.stream.consume_token()
             constraint = self.type_expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.VERTICALBAR:
+        if token.kind is not StdTokenKind.VERTICALBAR:
             assert False, '<Expected VERTICALBAR>'
 
         self.stream.consume_token()
@@ -1603,7 +1603,7 @@ class Parser:
 
     def list_type(self) -> ast.ListTypeNode:
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.OPENBRACKET:
+        if token.kind is not StdTokenKind.OPENBRACKET:
             assert False, '<Expected OPENBRACKET>'
 
         startpos = token.start
@@ -1626,7 +1626,7 @@ class Parser:
         #    self.stream.consume_token()
 
         #token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEBRACKET:
+        if token.kind is not StdTokenKind.CLOSEBRACKET:
             assert False, '<Expected CLOSEBRACKET>'
 
         self.stream.consume_token()
@@ -1639,7 +1639,7 @@ class Parser:
 
     def dict_type(self) -> ast.DictTypeNode:
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.OPENBRACE:
+        if token.kind is not StdTokenKind.OPENBRACE:
             assert False, '<Expected OPENBRACE>'
 
         startpos = token.start
@@ -1648,14 +1648,14 @@ class Parser:
         key = self.type_expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
         value = self.type_expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEBRACE:
+        if token.kind is not StdTokenKind.CLOSEBRACE:
             assert False, '<Expected CLOSEBRACE>'
 
         self.stream.consume_token()
@@ -1668,7 +1668,7 @@ class Parser:
 
     def set_type(self) -> ast.SetTypeNode:
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.OPENBRACE:
+        if token.kind is not StdTokenKind.OPENBRACE:
             assert False, '<Expected OPENBRACE>'
 
         startpos = token.start
@@ -1677,7 +1677,7 @@ class Parser:
         elt = self.type_expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEBRACE:
+        if token.kind is not StdTokenKind.CLOSEBRACE:
             assert False, '<Expected CLOSEBRACE>'
 
         self.stream.consume_token()
@@ -1689,7 +1689,7 @@ class Parser:
         expression = function()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return expression
 
         expressions: typing.List[ast.ExpressionNode] = []
@@ -1711,7 +1711,7 @@ class Parser:
                     endpos=endpos,
                     elts=expressions,
                 )
-            elif token.kind is not TokenKind.COMMA:
+            elif token.kind is not StdTokenKind.COMMA:
                 return ast.TupleNode(
                     startpos=expressions[0].startpos,
                     endpos=expressions[-1].endpos,
@@ -1758,7 +1758,7 @@ class Parser:
 
     def star_expression(self) -> ast.ExpressionNode:
         token = self.stream.peek_token()
-        if token.kind is TokenKind.STAR:
+        if token.kind is StdTokenKind.STAR:
             self.stream.consume_token()
 
             expression = self.bitwise_or()
@@ -1867,12 +1867,12 @@ class Parser:
 
         token = self.stream.peek_token()
         if token.kind not in (
-            TokenKind.EQEQUAL,
-            TokenKind.NOTEQUAL,
-            TokenKind.LTHANEQ,
-            TokenKind.LTHAN,
-            TokenKind.GTHANEQ,
-            TokenKind.GTHAN,
+            StdTokenKind.EQEQUAL,
+            StdTokenKind.NOTEQUAL,
+            StdTokenKind.LTHANEQ,
+            StdTokenKind.LTHAN,
+            StdTokenKind.GTHANEQ,
+            StdTokenKind.GTHAN,
         ) and not token.is_keyword(
             KeywordKind.IN,
             KeywordKind.NOT,
@@ -1886,17 +1886,17 @@ class Parser:
             token = self.stream.peek_token()
             operator = None
 
-            if token.kind is TokenKind.EQEQUAL:
+            if token.kind is StdTokenKind.EQEQUAL:
                 operator = ast.CmpOperator.EQ
-            elif token.kind is TokenKind.NOTEQUAL:
+            elif token.kind is StdTokenKind.NOTEQUAL:
                 operator = ast.CmpOperator.NOTEQ
-            elif token.kind is TokenKind.LTHANEQ:
+            elif token.kind is StdTokenKind.LTHANEQ:
                 operator = ast.CmpOperator.LTE
-            elif token.kind is TokenKind.LTHAN:
+            elif token.kind is StdTokenKind.LTHAN:
                 operator = ast.CmpOperator.LT
-            elif token.kind is TokenKind.GTHANEQ:
+            elif token.kind is StdTokenKind.GTHANEQ:
                 operator = ast.CmpOperator.GTE
-            elif token.kind is TokenKind.GTHAN:
+            elif token.kind is StdTokenKind.GTHAN:
                 operator = ast.CmpOperator.GT
             elif token.is_keyword(KeywordKind.IN):
                 operator = ast.CmpOperator.IN
@@ -1949,7 +1949,7 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.VERTICALBAR:
+            if token.kind is not StdTokenKind.VERTICALBAR:
                 return expression
 
             self.stream.consume_token()
@@ -1968,7 +1968,7 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CIRCUMFLEX:
+            if token.kind is not StdTokenKind.CIRCUMFLEX:
                 return expression
 
             self.stream.consume_token()
@@ -1987,7 +1987,7 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.AMPERSAND:
+            if token.kind is not StdTokenKind.AMPERSAND:
                 return expression
 
             self.stream.consume_token()
@@ -2007,9 +2007,9 @@ class Parser:
         while True:
             token = self.stream.peek_token()
 
-            if token.kind is TokenKind.DOUBLELTHAN:
+            if token.kind is StdTokenKind.DOUBLELTHAN:
                 operator = ast.Operator.LSHIFT
-            elif token.kind is TokenKind.DOUBLEGTHAN:
+            elif token.kind is StdTokenKind.DOUBLEGTHAN:
                 operator = ast.Operator.RSHIFT
             else:
                 return expression
@@ -2031,9 +2031,9 @@ class Parser:
         while True:
             token = self.stream.peek_token()
 
-            if token.kind is TokenKind.PLUS:
+            if token.kind is StdTokenKind.PLUS:
                 operator = ast.Operator.ADD
-            elif token.kind is TokenKind.MINUS:
+            elif token.kind is StdTokenKind.MINUS:
                 operator = ast.Operator.SUB
             else:
                 return expression
@@ -2055,15 +2055,15 @@ class Parser:
         while True:
             token = self.stream.peek_token()
 
-            if token.kind is TokenKind.STAR:
+            if token.kind is StdTokenKind.STAR:
                 operator = ast.Operator.MULT
-            elif token.kind is TokenKind.SLASH:
+            elif token.kind is StdTokenKind.SLASH:
                 operator = ast.Operator.DIV
-            elif token.kind is TokenKind.DOUBLESLASH:
+            elif token.kind is StdTokenKind.DOUBLESLASH:
                 operator = ast.Operator.FLOORDIV
-            elif token.kind is TokenKind.PERCENT:
+            elif token.kind is StdTokenKind.PERCENT:
                 operator = ast.Operator.MOD
-            elif token.kind is TokenKind.AT:
+            elif token.kind is StdTokenKind.AT:
                 operator = ast.Operator.MATMULT
             else:
                 return expression
@@ -2082,11 +2082,11 @@ class Parser:
     def factor(self) -> ast.ExpressionNode:
         token = self.stream.peek_token()
 
-        if token.kind is TokenKind.PLUS:
+        if token.kind is StdTokenKind.PLUS:
             operator = ast.UnaryOperator.UADD
-        elif token.kind is TokenKind.MINUS:
+        elif token.kind is StdTokenKind.MINUS:
             operator = ast.UnaryOperator.USUB
-        elif token.kind is TokenKind.TILDE:
+        elif token.kind is StdTokenKind.TILDE:
             operator = ast.UnaryOperator.INVERT
         else:
             return self.power()
@@ -2105,7 +2105,7 @@ class Parser:
         expression = self.await_primary()
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.DOUBLESTAR:
+        if token.kind is StdTokenKind.DOUBLESTAR:
             self.stream.consume_token()
 
             operand = self.factor()
@@ -2139,11 +2139,11 @@ class Parser:
         while True:
             token = self.stream.peek_token()
 
-            if token.kind is TokenKind.DOT:
+            if token.kind is StdTokenKind.DOT:
                 self.stream.consume_token()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.IDENTIFIER:
+                if token.kind is not StdTokenKind.IDENTIFIER:
                     assert False, '<Expected IDENTIFIER>'
 
                 self.stream.consume_token()
@@ -2154,7 +2154,7 @@ class Parser:
                     value=expression,
                     attr=token.content,
                 )
-            elif token.kind is TokenKind.OPENPAREN:
+            elif token.kind is StdTokenKind.OPENPAREN:
                 expressions: typing.List[ast.ExpressionNode] = []
                 arguments: typing.List[ast.KeywordArgumentNode] = []
 
@@ -2172,7 +2172,7 @@ class Parser:
                     arguments.extend(kwargs)
 
                     token = self.stream.peek_token()
-                    if token.kind is not TokenKind.CLOSEPAREN:
+                    if token.kind is not StdTokenKind.CLOSEPAREN:
                         assert False, '<Expected CLOSEPAREN>'
 
                     self.stream.consume_token()
@@ -2187,13 +2187,13 @@ class Parser:
                     args=expressions,
                     kwargs=arguments,
                 )
-            elif token.kind is TokenKind.OPENBRACKET:
+            elif token.kind is StdTokenKind.OPENBRACKET:
                 self.stream.consume_token()
 
                 slice = self.slices()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.CLOSEBRACKET:
+                if token.kind is not StdTokenKind.CLOSEBRACKET:
                     assert False, '<Expected CLOSEBRACKET>'
 
                 self.stream.consume_token()
@@ -2211,7 +2211,7 @@ class Parser:
         startpos = expression.startpos
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return expression
 
         self.stream.consume_token()
@@ -2233,7 +2233,7 @@ class Parser:
                     endpos=expressions[-1].endpos,
                     elts=expressions,
                 )
-            elif token.kind is not TokenKind.COMMA:
+            elif token.kind is not StdTokenKind.COMMA:
                 return ast.TupleNode(
                     startpos=startpos,
                     endpos=endpos,
@@ -2250,7 +2250,7 @@ class Parser:
         startpos = expression.startpos if expression is not None else token.start
         endpos = token.end
 
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             if expression is None:
                 assert False, '<Missing Slice>'
 
@@ -2260,7 +2260,7 @@ class Parser:
         stop = self.optional(self.expression)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             return ast.SliceNode(
                 startpos=startpos,
                 endpos=stop.endpos if stop is not None else endpos,
@@ -2283,7 +2283,7 @@ class Parser:
     def atom(self) -> ast.ExpressionNode:
         token = self.stream.peek_token()
 
-        if token.kind is TokenKind.IDENTIFIER:
+        if token.kind is StdTokenKind.IDENTIFIER:
             self.stream.consume_token()
             return ast.NameNode(
                 startpos=token.start,
@@ -2314,9 +2314,9 @@ class Parser:
                 endpos=token.end,
                 type=ast.ConstantType.NONE,
             )
-        elif token.kind is TokenKind.STRING:
+        elif token.kind is StdTokenKind.STRING:
             return self.strings()
-        elif token.kind is TokenKind.NUMBER:
+        elif token.kind is StdTokenKind.NUMBER:
             self.stream.consume_token()
 
             if token.flags & NumberTokenFlags.BINARY:
@@ -2354,7 +2354,7 @@ class Parser:
                 endpos=token.end,
                 value=int(token.content),
             )
-        elif token.kind is TokenKind.OPENPAREN:
+        elif token.kind is StdTokenKind.OPENPAREN:
             with self.alternative():
                 return self.tuple()
 
@@ -2363,13 +2363,13 @@ class Parser:
 
             with self.alternative():
                 return self.genexp()
-        elif token.kind is TokenKind.OPENBRACKET:
+        elif token.kind is StdTokenKind.OPENBRACKET:
             with self.alternative():
                 return self.list()
 
             with self.alternative():
                 return self.listcomp()
-        elif token.kind is TokenKind.OPENBRACE:
+        elif token.kind is StdTokenKind.OPENBRACE:
             with self.alternative():
                 return self.dict()
 
@@ -2381,7 +2381,7 @@ class Parser:
 
             with self.alternative():
                 return self.setcomp()
-        elif token.kind is TokenKind.ELLIPSIS:
+        elif token.kind is StdTokenKind.ELLIPSIS:
             self.stream.consume_token()
 
             return ast.ConstantNode(
@@ -2394,7 +2394,7 @@ class Parser:
 
     def group(self) -> ast.ExpressionNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENPAREN
+        assert token.kind is StdTokenKind.OPENPAREN
 
         token = self.stream.peek_token()
         if token.is_keyword(KeywordKind.YIELD):
@@ -2403,7 +2403,7 @@ class Parser:
             expression = self.expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEPAREN:
+        if token.kind is not StdTokenKind.CLOSEPAREN:
             assert False, '<Expected CLOSEPAREN>'
 
         self.stream.consume_token()
@@ -2414,7 +2414,7 @@ class Parser:
 
     def strings(self) -> ast.StringNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.STRING
+        assert token.kind is StdTokenKind.STRING
 
         buffer = io.StringIO()
         buffer.write(token.content)
@@ -2430,7 +2430,7 @@ class Parser:
 
         while True:
             token = self.stream.peek_token()
-            if token.kind is TokenKind.STRING:
+            if token.kind is StdTokenKind.STRING:
                 self.stream.consume_token()
 
                 buffer.write(token.content)
@@ -2445,7 +2445,7 @@ class Parser:
 
     def list(self) -> ast.ListNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENBRACKET
+        assert token.kind is StdTokenKind.OPENBRACKET
 
         startpos = token.start
         expressions: typing.List[ast.ExpressionNode] = []
@@ -2458,7 +2458,7 @@ class Parser:
                 expressions.append(expression)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEBRACKET:
+        if token.kind is not StdTokenKind.CLOSEBRACKET:
             assert False, '<Expected CLOSEPAREN>'
 
         self.stream.consume_token()
@@ -2466,7 +2466,7 @@ class Parser:
 
     def tuple(self) -> ast.TupleNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENPAREN
+        assert token.kind is StdTokenKind.OPENPAREN
 
         startpos = token.start
         expressions: typing.List[ast.ExpressionNode] = []
@@ -2480,7 +2480,7 @@ class Parser:
 
         if alternative.accepted:
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.COMMA:
+            if token.kind is not StdTokenKind.COMMA:
                 assert False, '<Expected COMMA>'
 
             self.stream.consume_token()
@@ -2493,7 +2493,7 @@ class Parser:
                     expressions.append(expression)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEPAREN:
+        if token.kind is not StdTokenKind.CLOSEPAREN:
             assert False, '<Expected CLOSEPAREN>'
 
         self.stream.consume_token()
@@ -2501,7 +2501,7 @@ class Parser:
 
     def set(self) -> ast.SetNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENBRACE
+        assert token.kind is StdTokenKind.OPENBRACE
 
         startpos = token.start
         expressions: typing.List[ast.ExpressionNode] = []
@@ -2514,7 +2514,7 @@ class Parser:
                 expressions.append(expression)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEBRACE:
+        if token.kind is not StdTokenKind.CLOSEBRACE:
             assert False, '<Expected CLOSEBRACE>'
 
         self.stream.consume_token()
@@ -2522,7 +2522,7 @@ class Parser:
 
     def dict(self) -> ast.DictNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENBRACE
+        assert token.kind is StdTokenKind.OPENBRACE
 
         startpos = token.start
         elts: typing.List[ast.DictElt] = []
@@ -2531,7 +2531,7 @@ class Parser:
             elts.extend(self.star_kvpairs())
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEBRACE:
+        if token.kind is not StdTokenKind.CLOSEBRACE:
             assert False, '<Expected CLOSEBRACE>'
 
         self.stream.consume_token()
@@ -2544,7 +2544,7 @@ class Parser:
         elts.append(elt)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return elts
 
         self.stream.consume_token()
@@ -2555,7 +2555,7 @@ class Parser:
                 elts.append(elt)
 
             token = self.stream.peek_token()
-            is_comma = token.kind is TokenKind.COMMA
+            is_comma = token.kind is StdTokenKind.COMMA
 
             if not alternative.accepted or not is_comma:
                 return elts
@@ -2564,7 +2564,7 @@ class Parser:
 
     def star_kvpair(self) -> ast.DictElt:
         token = self.stream.peek_token()
-        if token.kind is TokenKind.DOUBLESTAR:
+        if token.kind is StdTokenKind.DOUBLESTAR:
             self.stream.consume_token()
 
             expression = self.bitwise_or()
@@ -2581,7 +2581,7 @@ class Parser:
         expression = self.expression()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COLON:
+        if token.kind is not StdTokenKind.COLON:
             assert False, '<Expected COLON>'
 
         self.stream.consume_token()
@@ -2637,7 +2637,7 @@ class Parser:
         while True:
             token = self.stream.peek_token()
             if (
-                token.kind is not TokenKind.KEYWORD
+                token.kind is not StdTokenKind.KEYWORD
                 or token.keyword is not KeywordKind.IF
             ):
                 return ast.ComprehensionNode(
@@ -2656,7 +2656,7 @@ class Parser:
 
     def listcomp(self) -> ast.ListCompNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENBRACKET
+        assert token.kind is StdTokenKind.OPENBRACKET
 
         startpos = token.start
 
@@ -2664,7 +2664,7 @@ class Parser:
         comprehensions = self.for_if_clauses()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEBRACKET:
+        if token.kind is not StdTokenKind.CLOSEBRACKET:
             assert False, '<Expected CLOSEBRACKER>'
 
         self.stream.consume_token()
@@ -2677,7 +2677,7 @@ class Parser:
 
     def setcomp(self) -> ast.SetCompNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENBRACE
+        assert token.kind is StdTokenKind.OPENBRACE
 
         startpos = token.start
 
@@ -2685,7 +2685,7 @@ class Parser:
         comprehensions = self.for_if_clauses()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEBRACE:
+        if token.kind is not StdTokenKind.CLOSEBRACE:
             assert False, '<Expected CLOSEBRACE>'
 
         self.stream.consume_token()
@@ -2698,7 +2698,7 @@ class Parser:
 
     def genexp(self) -> ast.GeneratorExpNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENPAREN
+        assert token.kind is StdTokenKind.OPENPAREN
 
         startpos = token.start
 
@@ -2706,7 +2706,7 @@ class Parser:
         comprehensions = self.for_if_clauses()
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.CLOSEPAREN:
+        if token.kind is not StdTokenKind.CLOSEPAREN:
             assert False, '<Expected CLOSEPAREN>'
 
         self.stream.consume_token()
@@ -2719,7 +2719,7 @@ class Parser:
 
     def dictcomp(self) -> ast.DictCompNode:
         token = self.stream.consume_token()
-        assert token.kind is TokenKind.OPENBRACE
+        assert token.kind is StdTokenKind.OPENBRACE
 
         startpos = token.start
 
@@ -2739,7 +2739,7 @@ class Parser:
         expression = None
 
         while True:
-            with self.lookahead(TokenKind.EQUAL, negative=True) as alternative:
+            with self.lookahead(StdTokenKind.EQUAL, negative=True) as alternative:
                 expression = self.star_expression()
 
             if alternative.accepted:
@@ -2747,7 +2747,7 @@ class Parser:
                 expressions.append(expression)
 
             token = self.stream.peek_token()
-            is_comma = token.kind is TokenKind.COMMA
+            is_comma = token.kind is StdTokenKind.COMMA
 
             if not alternative.accepted or not is_comma:
                 return expressions
@@ -2763,7 +2763,7 @@ class Parser:
                 arguments.append(argument)
 
             token = self.stream.peek_token()
-            is_comma = token.kind is TokenKind.COMMA
+            is_comma = token.kind is StdTokenKind.COMMA
 
             if not alternative.accepted or not is_comma:
                 return arguments
@@ -2774,7 +2774,7 @@ class Parser:
         token = self.stream.peek_token()
         startpos = token.start
 
-        if token.kind is TokenKind.DOUBLESTAR:
+        if token.kind is StdTokenKind.DOUBLESTAR:
             self.stream.consume_token()
 
             expression = self.expression()
@@ -2784,12 +2784,12 @@ class Parser:
                 name=None,
                 value=expression,
             )
-        elif token.kind is TokenKind.IDENTIFIER:
+        elif token.kind is StdTokenKind.IDENTIFIER:
             self.stream.consume_token()
             content = token.content
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.EQUAL:
+            if token.kind is not StdTokenKind.EQUAL:
                 assert False, '<Expected EQUAL>'
 
             self.stream.consume_token()
@@ -2809,7 +2809,7 @@ class Parser:
         startpos = expression.startpos
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return expression
 
         self.stream.consume_token()
@@ -2831,7 +2831,7 @@ class Parser:
                     endpos=endpos,
                     elts=expressions,
                 )
-            elif token.kind is not TokenKind.COMMA:
+            elif token.kind is not StdTokenKind.COMMA:
                 return ast.TupleNode(
                     startpos=startpos,
                     endpos=expressions[-1].endpos,
@@ -2845,11 +2845,11 @@ class Parser:
         token = self.stream.peek_token()
         startpos = token.start
 
-        if token.kind is TokenKind.STAR:
+        if token.kind is StdTokenKind.STAR:
             self.stream.consume_token()
 
             token = self.stream.peek_token()
-            if token.kind is TokenKind.STAR:
+            if token.kind is StdTokenKind.STAR:
                 assert False, '<Unexpected STAR>'
 
             expression = self.star_target()
@@ -2868,7 +2868,7 @@ class Parser:
         expressions.append(expression)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return ast.ListNode(
                 startpos=expression.startpos,
                 endpos=expression.endpos,
@@ -2891,7 +2891,7 @@ class Parser:
                     endpos=endpos,
                     elts=expressions,
                 )
-            elif token.kind is not TokenKind.COMMA:
+            elif token.kind is not StdTokenKind.COMMA:
                 return ast.ListNode(
                     startpos=expressions[0].startpos,
                     endpos=expressions[-1].endpos,
@@ -2908,7 +2908,7 @@ class Parser:
         expressions.append(expression)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return ast.TupleNode(
                 startpos=expression.startpos,
                 endpos=expression.endpos,
@@ -2931,7 +2931,7 @@ class Parser:
                     endpos=endpos,
                     elts=expressions,
                 )
-            elif token.kind is not TokenKind.COMMA:
+            elif token.kind is not StdTokenKind.COMMA:
                 return ast.TupleNode(
                     startpos=expressions[0].startpos,
                     endpos=expressions[-1].endpos,
@@ -2943,16 +2943,16 @@ class Parser:
 
     def target_with_star_atom(self) -> ast.ExpressionNode:
         with self.lookahead(
-            TokenKind.DOT, TokenKind.OPENBRACKET, TokenKind.OPENPAREN, negative=True
+            StdTokenKind.DOT, StdTokenKind.OPENBRACKET, StdTokenKind.OPENPAREN, negative=True
         ):
             expression = self.target_primary()
 
             token = self.stream.peek_token()
-            if token.kind is TokenKind.DOT:
+            if token.kind is StdTokenKind.DOT:
                 self.stream.consume_token()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.IDENTIFIER:
+                if token.kind is not StdTokenKind.IDENTIFIER:
                     assert False, '<Expected IDENTIFIER>'
 
                 self.stream.consume_token()
@@ -2963,13 +2963,13 @@ class Parser:
                     value=expression,
                     attr=token.content,
                 )
-            elif token.kind is TokenKind.OPENBRACKET:
+            elif token.kind is StdTokenKind.OPENBRACKET:
                 self.stream.consume_token()
 
                 slice = self.slices()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.CLOSEBRACKET:
+                if token.kind is not StdTokenKind.CLOSEBRACKET:
                     assert False, '<Expected CLOSEBRACKET>'
 
                 self.stream.consume_token()
@@ -2986,7 +2986,7 @@ class Parser:
 
     def star_atom(self) -> ast.ExpressionNode:
         token = self.stream.peek_token()
-        if token.kind is TokenKind.IDENTIFIER:
+        if token.kind is StdTokenKind.IDENTIFIER:
             self.stream.consume_token()
 
             return ast.NameNode(
@@ -2994,7 +2994,7 @@ class Parser:
                 endpos=token.end,
                 value=token.content,
             )
-        elif token.kind is TokenKind.OPENPAREN:
+        elif token.kind is StdTokenKind.OPENPAREN:
             self.stream.consume_token()
             startpos = token.start
 
@@ -3010,7 +3010,7 @@ class Parser:
                     expressions.extend(expression.elts)
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CLOSEPAREN:
+            if token.kind is not StdTokenKind.CLOSEPAREN:
                 assert False, '<Expected CLOSEPAREN>'
 
             self.stream.consume_token()
@@ -3019,7 +3019,7 @@ class Parser:
                 endpos=token.end,
                 elts=expressions,
             )
-        elif token.kind is TokenKind.OPENBRACKET:
+        elif token.kind is StdTokenKind.OPENBRACKET:
             self.stream.consume_token()
             startpos = token.start
 
@@ -3030,7 +3030,7 @@ class Parser:
                 expressions.extend(expression.elts)
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CLOSEBRACKET:
+            if token.kind is not StdTokenKind.CLOSEBRACKET:
                 assert False, '<Expected CLOSEBRACKET>'
 
             self.stream.consume_token()
@@ -3047,7 +3047,7 @@ class Parser:
             return self.single_subscript_attribute_target()
 
         token = self.stream.peek_token()
-        if token.kind is TokenKind.IDENTIFIER:
+        if token.kind is StdTokenKind.IDENTIFIER:
             self.stream.consume_token()
 
             return ast.NameNode(
@@ -3055,13 +3055,13 @@ class Parser:
                 endpos=token.end,
                 value=token.content,
             )
-        elif token.kind is TokenKind.OPENPAREN:
+        elif token.kind is StdTokenKind.OPENPAREN:
             self.stream.consume_token()
 
             expression = self.single_target()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CLOSEPAREN:
+            if token.kind is not StdTokenKind.CLOSEPAREN:
                 assert False, '<Expected CLOSEPAREN>'
 
             self.stream.consume_token()
@@ -3073,15 +3073,15 @@ class Parser:
         expression = self.target_primary()
 
         with self.lookahead(
-            TokenKind.DOT, TokenKind.OPENBRACKET, TokenKind.OPENPAREN, negative=True
+            StdTokenKind.DOT, StdTokenKind.OPENBRACKET, StdTokenKind.OPENPAREN, negative=True
         ) as alternative:
             token = self.stream.peek_token()
 
-            if token.kind is TokenKind.DOT:
+            if token.kind is StdTokenKind.DOT:
                 self.stream.consume_token()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.IDENTIFIER:
+                if token.kind is not StdTokenKind.IDENTIFIER:
                     assert False, '<Expected IDENTIFIER>'
 
                 self.stream.consume_token()
@@ -3092,13 +3092,13 @@ class Parser:
                     value=expression,
                     attr=token.content,
                 )
-            elif token.kind is TokenKind.OPENBRACKET:
+            elif token.kind is StdTokenKind.OPENBRACKET:
                 self.stream.consume_token()
 
                 slice = self.slices()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.CLOSEBRACKET:
+                if token.kind is not StdTokenKind.CLOSEBRACKET:
                     assert False, '<Expected CLOSEBRACKET>'
 
                 self.stream.consume_token()
@@ -3116,7 +3116,7 @@ class Parser:
 
     def target_primary(self) -> ast.ExpressionNode:
         expression = self.optional_lookahead(
-            self.atom, TokenKind.DOT, TokenKind.OPENBRACKET, TokenKind.OPENPAREN
+            self.atom, StdTokenKind.DOT, StdTokenKind.OPENBRACKET, StdTokenKind.OPENPAREN
         )
         if expression is None:
             assert False, '<Expected <atom> (DOT, OPENBRACKET, OPENPAREN)>'
@@ -3127,13 +3127,13 @@ class Parser:
             token = self.stream.peek_token()
 
             with self.lookahead(
-                TokenKind.DOT, TokenKind.OPENBRACKET, TokenKind.OPENPAREN
+                StdTokenKind.DOT, StdTokenKind.OPENBRACKET, StdTokenKind.OPENPAREN
             ) as alternative:
-                if token.kind is TokenKind.DOT:
+                if token.kind is StdTokenKind.DOT:
                     self.stream.consume_token()
 
                     token = self.stream.peek_token()
-                    if token.kind is not TokenKind.IDENTIFIER:
+                    if token.kind is not StdTokenKind.IDENTIFIER:
                         assert False, '<Expected IDENTIFIER>'
 
                     self.stream.consume_token()
@@ -3144,13 +3144,13 @@ class Parser:
                         value=expression,
                         attr=token.content,
                     )
-                elif token.kind is TokenKind.OPENBRACKET:
+                elif token.kind is StdTokenKind.OPENBRACKET:
                     self.stream.consume_token()
 
                     slice = self.slices()
 
                     token = self.stream.peek_token()
-                    if token.kind is not TokenKind.CLOSEBRACKET:
+                    if token.kind is not StdTokenKind.CLOSEBRACKET:
                         assert False, '<Expected CLOSEBRACKET>'
 
                     self.stream.consume_token()
@@ -3160,7 +3160,7 @@ class Parser:
                         value=expression,
                         slice=slice,
                     )
-                elif token.kind is TokenKind.OPENPAREN:
+                elif token.kind is StdTokenKind.OPENPAREN:
                     expressions: typing.List[ast.ExpressionNode] = []
                     arguments: typing.List[ast.KeywordArgumentNode] = []
 
@@ -3180,7 +3180,7 @@ class Parser:
                         arguments.extend(kwargs)
 
                         token = self.stream.peek_token()
-                        if token.kind is not TokenKind.CLOSEPAREN:
+                        if token.kind is not StdTokenKind.CLOSEPAREN:
                             assert False, '<Expected CLOSEPAREN>'
 
                         self.stream.consume_token()
@@ -3211,7 +3211,7 @@ class Parser:
         expressions.append(expression)
 
         token = self.stream.peek_token()
-        if token.kind is not TokenKind.COMMA:
+        if token.kind is not StdTokenKind.COMMA:
             return expressions
 
         self.stream.consume_token()
@@ -3222,7 +3222,7 @@ class Parser:
                 expressions.append(expression)
 
             token = self.stream.peek_token()
-            is_comma = token.kind is TokenKind.COMMA
+            is_comma = token.kind is StdTokenKind.COMMA
 
             if not alternative.accepted or not is_comma:
                 return expressions
@@ -3231,16 +3231,16 @@ class Parser:
 
     def del_target(self) -> ast.ExpressionNode:
         with self.lookahead(
-            TokenKind.DOT, TokenKind.OPENBRACKET, TokenKind.OPENPAREN, negative=True
+            StdTokenKind.DOT, StdTokenKind.OPENBRACKET, StdTokenKind.OPENPAREN, negative=True
         ):
             expression = self.target_primary()
 
             token = self.stream.peek_token()
-            if token.kind is TokenKind.DOT:
+            if token.kind is StdTokenKind.DOT:
                 self.stream.consume_token()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.IDENTIFIER:
+                if token.kind is not StdTokenKind.IDENTIFIER:
                     assert False, '<Expected IDENTIFIER>'
 
                 self.stream.consume_token()
@@ -3251,13 +3251,13 @@ class Parser:
                     value=expression,
                     attr=token.content,
                 )
-            elif token.kind is TokenKind.OPENBRACKET:
+            elif token.kind is StdTokenKind.OPENBRACKET:
                 self.stream.consume_token()
 
                 slice = self.slices()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.CLOSEBRACKET:
+                if token.kind is not StdTokenKind.CLOSEBRACKET:
                     assert False, '<Expected CLOSEBRACKET>'
 
                 self.stream.consume_token()
@@ -3276,21 +3276,21 @@ class Parser:
         token = self.stream.peek_token()
         startpos = token.start
 
-        if token.kind is TokenKind.IDENTIFIER:
+        if token.kind is StdTokenKind.IDENTIFIER:
             self.stream.consume_token()
             return ast.NameNode(
                 startpos=token.start,
                 endpos=token.end,
                 value=token.content,
             )
-        elif token.kind is TokenKind.OPENPAREN:
+        elif token.kind is StdTokenKind.OPENPAREN:
             self.stream.consume_token()
 
             with self.alternative() as alternative:
                 expression = self.del_target()
 
                 token = self.stream.peek_token()
-                if token.kind is not TokenKind.CLOSEPAREN:
+                if token.kind is not StdTokenKind.CLOSEPAREN:
                     alternative.reject()
 
                 self.stream.consume_token()
@@ -3299,7 +3299,7 @@ class Parser:
             expressions = self.del_targets()
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CLOSEPAREN:
+            if token.kind is not StdTokenKind.CLOSEPAREN:
                 assert False, '<Expected CLOSEPAREN>'
 
             self.stream.consume_token()
@@ -3308,7 +3308,7 @@ class Parser:
                 endpos=token.end,
                 elts=expressions,
             )
-        elif token.kind is TokenKind.OPENBRACKET:
+        elif token.kind is StdTokenKind.OPENBRACKET:
             self.stream.consume_token()
 
             expressions: typing.List[ast.ExpressionNode] = []
@@ -3318,7 +3318,7 @@ class Parser:
                 expressions.extend(targets)
 
             token = self.stream.peek_token()
-            if token.kind is not TokenKind.CLOSEBRACKET:
+            if token.kind is not StdTokenKind.CLOSEBRACKET:
                 assert False, 'Expected CLOSEBRACKET'
 
             self.stream.consume_token()
