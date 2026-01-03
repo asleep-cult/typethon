@@ -14,8 +14,6 @@ from .symbols import (
     TerminalSymbol,
     NonterminalSymbol,
     Symbol,
-    EPSILON,
-    EpsilonTerminalKind,
     EOF,
 )
 from ..syntax.tokens import StdTokenKind, TokenMap, KeywordMap
@@ -118,8 +116,6 @@ class ParserTable(typing.Generic[TokenKindT, KeywordKindT]):
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
         next_id: int,
     ) -> None:
-        assert symbol.kind is not EpsilonTerminalKind.EPSILON
-
         frozen_symbol = self.frozen_symbols.get_frozen_terminal(symbol.kind)
         assert frozen_symbol.kind is FrozenSymbolKind.TERMINAL
 
@@ -159,7 +155,6 @@ class ParserTable(typing.Generic[TokenKindT, KeywordKindT]):
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
         production_id: int,
     ) -> None:
-        assert symbol.kind is not EpsilonTerminalKind.EPSILON
         frozen_symbol = self.frozen_symbols.get_frozen_terminal(symbol.kind)
 
         assert frozen_symbol.kind is FrozenSymbolKind.TERMINAL
@@ -365,12 +360,8 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 self.nonterminals[nonterminal.name] = nonterminal
                 symbols.append(nonterminal)
                 # | epsilon
-                empty_production = Production(lhs=nonterminal, rhs=[EPSILON])
+                empty_production = Production(lhs=nonterminal)
                 nonterminal.productions.append(empty_production)
-                # | expr
-                production = Production(lhs=nonterminal)
-                self.add_symbols_for_expression(production.rhs, expression.expression)
-                nonterminal.productions.append(production)
                 # | nonterminal expr
                 production = Production(lhs=nonterminal, rhs=[nonterminal])
                 self.add_symbols_for_expression(production.rhs, expression.expression)
@@ -400,7 +391,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 self.nonterminals[nonterminal.name] = nonterminal
                 symbols.append(nonterminal)
                 # | epsilon
-                empty_production = Production(lhs=nonterminal, rhs=[EPSILON])
+                empty_production = Production(lhs=nonterminal)
                 nonterminal.productions.append(empty_production)
                 # | expr
                 production = Production(lhs=nonterminal)
@@ -442,7 +433,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
     def compute_epsilon_nonterminals(self) -> None:
         # First, add every nonterminal with at least one production containing epsilon
         for nonterminal in self.nonterminals.values():
-            if any(EPSILON in production.rhs for production in nonterminal.productions):
+            if any(not production.rhs for production in nonterminal.productions):
                 self.epsilon_nonterminals.add(nonterminal)
 
         changed = True
@@ -500,10 +491,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             else:
                 result.update(self.first_sets[symbol])
 
-            if (
-                symbol != EPSILON
-                and symbol not in self.epsilon_nonterminals
-            ):
+            if symbol not in self.epsilon_nonterminals:
                 break
 
         return result
@@ -533,9 +521,6 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
                     first_lookahead = self.get_first_set(trailing_symbols)
                     for lookahead in first_lookahead:
-                        if lookahead == EPSILON:
-                            continue
-
                         inner_item = ParserItem(
                             production=production,
                             position=0,
@@ -645,12 +630,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     continue
 
                 if item.transition is not None:
-                    if current_symbol == EPSILON:
-                        shift_symbol = item.lookahead
-                    else:
-                        shift_symbol = current_symbol
-
-                    table.add_shift(state.id, shift_symbol, item.transition)
+                    table.add_shift(state.id, current_symbol, item.transition)
 
             for nonterminal in self.nonterminals.values():
                 for item in state.items:

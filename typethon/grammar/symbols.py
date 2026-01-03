@@ -16,11 +16,11 @@ class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
     entrypoint: bool = attr.ib(default=False)
     productions: typing.List[Production[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return self.name
 
-    def __str__(self) -> str:
-        return f'nonterminal-symbol: {self.name}'
+    def __repr__(self) -> str:
+        return f'<nonterminal-symbol: {self.name}>'
 
     def dump_nonterminal(self) -> str:
         parts = [f'<nonterminal-symbol: {self.name}>:']
@@ -37,17 +37,12 @@ class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
         return '\n'.join(parts)
 
 
-class EpsilonTerminalKind(enum.Enum):
-    EPSILON = enum.auto()
-
-
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
 class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
     kind: typing.Union[
         TokenKindT,
         KeywordKindT,
         StdTokenKind,
-        typing.Literal[EpsilonTerminalKind.EPSILON],
     ] = attr.ib()
 
     def __str__(self) -> str:
@@ -70,7 +65,6 @@ class Production(typing.Generic[TokenKindT, KeywordKindT]):
         return ' '.join(parts)
 
 
-EPSILON = TerminalSymbol[typing.Any, typing.Any](kind=EpsilonTerminalKind.EPSILON)
 EOF = TerminalSymbol[typing.Any, typing.Any](kind=StdTokenKind.EOF)
 
 

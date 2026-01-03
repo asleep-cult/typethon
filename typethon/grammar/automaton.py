@@ -74,7 +74,9 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
                 production_id = entry[1]
                 frozen_production = self.table.frozen_symbols.frozen_productions[production_id]
 
-                del self.stack[-frozen_production.rhs_length:]
+                if frozen_production.rhs_length:
+                    del self.stack[-frozen_production.rhs_length:]
+
                 current_state = self.current_state()
                 logger.debug('REDUCE BY %s, STACK STATE: %s', frozen_production.id, current_state)
 
