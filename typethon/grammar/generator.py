@@ -614,7 +614,6 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
     ) -> ParserTable[TokenKindT, KeywordKindT]:
         table = ParserTable(frozen_symbols=self.frozen_symbols)
         self.compute_canonical_collection(entrypoint)
-        print('\n'.join(self.dump_states()))
 
         for state in self.states:
             for item in state.items:
