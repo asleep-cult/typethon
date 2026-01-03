@@ -1,7 +1,7 @@
 import enum
 
 
-class KeywordKind(enum.IntEnum):
+class KeywordKind(enum.Enum):
     FALSE = enum.auto()
     NONE = enum.auto()
     TRUE = enum.auto()

@@ -38,7 +38,7 @@ class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
 
 
 class EpsilonTerminalKind(enum.Enum):
-    EPSILON = 0
+    EPSILON = enum.auto()
 
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
@@ -72,6 +72,7 @@ class Production(typing.Generic[TokenKindT, KeywordKindT]):
 
 EPSILON = TerminalSymbol[typing.Any, typing.Any](kind=EpsilonTerminalKind.EPSILON)
 EOF = TerminalSymbol[typing.Any, typing.Any](kind=StdTokenKind.EOF)
+
 
 Symbol = typing.Union[
     NonterminalSymbol[TokenKindT, KeywordKindT],

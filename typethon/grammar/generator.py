@@ -268,7 +268,8 @@ class ParserTable(typing.Generic[TokenKindT, KeywordKindT]):
             actions = item[0]
             writer.write(f'[ Actions: {len(actions)} ]\n')
             for symbol, action, number in actions:
-                writer.write(f'  (for symbol {str(symbol)!r}) {action.name} ')
+                terminal = self.frozen_symbols.terminals[symbol.id]
+                writer.write(f'  (for symbol {str(terminal)!r}) {action.name} ')
 
                 match action:
                     case ActionKind.SHIFT:
@@ -282,7 +283,12 @@ class ParserTable(typing.Generic[TokenKindT, KeywordKindT]):
             gotos = item[1]
             writer.write(f'[ GOTOs: {len(gotos)} ]\n')
             for symbol, destination_id in gotos:
-                writer.write(f'  (for symbol #{symbol.id}) -> state #{destination_id}\n')
+                symbol_name = 'unknown'
+                for name, nonterminal in self.frozen_symbols.frozen_nonterminals.items():
+                    if nonterminal.id == symbol.id:
+                        symbol_name = name
+
+                writer.write(f'  (for symbol {str(symbol_name)!r}) -> state #{destination_id}\n')
 
         writer.write('\n')
 
@@ -623,6 +629,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
     ) -> ParserTable[TokenKindT, KeywordKindT]:
         table = ParserTable(frozen_symbols=self.frozen_symbols)
         self.compute_canonical_collection(entrypoint)
+        print('\n'.join(self.dump_states()))
 
         for state in self.states:
             for item in state.items:

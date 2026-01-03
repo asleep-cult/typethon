@@ -9,7 +9,7 @@ TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
 
-class StdTokenKind(enum.IntEnum):
+class StdTokenKind(enum.Enum):
     EOF = enum.auto()
 
     INDENT = enum.auto()
