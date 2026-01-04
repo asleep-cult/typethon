@@ -48,7 +48,7 @@ class TypeAnalyzer:
         *format: str,
     ) -> None:
         self.diagnostics.report_error(
-            (node.startpos, node.endpos),
+            (node.start, node.end),
             message,
             *format
         )
@@ -66,7 +66,7 @@ class TypeAnalyzer:
             message, type1.get_string(), type2.get_string()
         )
         self.diagnostics.report_error(
-            (node.startpos, node.endpos),
+            (node.start, node.end),
             message,
             *format
         )
@@ -681,43 +681,43 @@ class TypeAnalyzer:
         right: types.InstanceOfType,
     ) -> types.InstanceOfType:
         match node.op:
-            case ast.Operator.ADD:
+            case ast.OperatorKind.ADD:
                 trait = Ops.ADD
                 name = 'add'
-            case ast.Operator.SUB:
+            case ast.OperatorKind.SUB:
                 trait = Ops.SUB
                 name = 'sub'
-            case ast.Operator.MULT:
+            case ast.OperatorKind.MULT:
                 trait = Ops.MULT
                 name = 'mult'
-            case ast.Operator.MATMULT:
+            case ast.OperatorKind.MATMULT:
                 trait = Ops.MATMULT
                 name = 'matmult'
-            case ast.Operator.DIV:
+            case ast.OperatorKind.DIV:
                 trait = Ops.DIV
                 name = 'div'
-            case ast.Operator.MOD:
+            case ast.OperatorKind.MOD:
                 trait = Ops.MOD
                 name = 'mod'
-            case ast.Operator.POW:
+            case ast.OperatorKind.POW:
                 trait = Ops.POW
                 name = 'pow'
-            case ast.Operator.LSHIFT:
+            case ast.OperatorKind.LSHIFT:
                 trait = Ops.LSHIFT
                 name = 'lshift'
-            case ast.Operator.RSHIFT:
+            case ast.OperatorKind.RSHIFT:
                 trait = Ops.RSHIFT
                 name = 'rshift'
-            case ast.Operator.BITOR:
+            case ast.OperatorKind.BITOR:
                 trait = Ops.BITOR
                 name = 'bitor'
-            case ast.Operator.BITXOR:
+            case ast.OperatorKind.BITXOR:
                 trait = Ops.BITXOR
                 name = 'bitxor'
-            case ast.Operator.BITAND:
+            case ast.OperatorKind.BITAND:
                 trait = Ops.BITAND
                 name = 'bitand'
-            case ast.Operator.FLOORDIV:
+            case ast.OperatorKind.FLOORDIV:
                 trait = Ops.FLOORDIV
                 name = 'floordiv'
 
@@ -784,15 +784,15 @@ class TypeAnalyzer:
                 operand = self.analyze_instance_type(scope, ctx, expression.operand)
 
                 match expression.op:
-                    case ast.UnaryOperator.INVERT:
+                    case ast.UnaryOperatorKind.INVERT:
                         trait = Ops.INVERT
                         name = 'invert'
-                    case ast.UnaryOperator.NOT:
+                    case ast.UnaryOperatorKind.NOT:
                         return Types.BOOL.to_instance()
-                    case ast.UnaryOperator.UADD:
+                    case ast.UnaryOperatorKind.UADD:
                         trait = Ops.UADD
                         name = 'uadd'
-                    case ast.UnaryOperator.USUB:
+                    case ast.UnaryOperatorKind.USUB:
                         trait = Ops.USUB
                         name = 'usub'
 

@@ -57,20 +57,20 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
         elif token.content == 'EOF':
             kind = StdTokenKind.EOF
         else:
-            return ast.NameNode(startpos=token.start, endpos=token.end, value=token.content)
+            return ast.NameNode(start=token.start, end=token.end, value=token.content)
 
-        return ast.TokenNode(startpos=token.start, endpos=token.end, kind=kind)
+        return ast.TokenNode(start=token.start, end=token.end, kind=kind)
 
     def parse_string(self, token: StringToken) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
         if token.content in self.keywords:
             keyword = self.keywords[token.content]
-            return ast.KeywordNode(startpos=token.start, endpos=token.end, keyword=keyword)
+            return ast.KeywordNode(start=token.start, end=token.end, keyword=keyword)
 
         kind = self.tokens.get(token.content)
         if kind is None:
             raise ValueError(f'Invalid grammar token {token.content!r}')
 
-        return ast.TokenNode(startpos=token.start, endpos=token.end, kind=kind)
+        return ast.TokenNode(start=token.start, end=token.end, kind=kind)
 
     def scan_no_whitespace(self) -> GrammarToken:
         while True:
@@ -116,7 +116,7 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
         if token.kind is not StdTokenKind.IDENTIFIER:
             raise ValueError(f'Expected rule name, not {token!r}')
 
-        startpos = token.start
+        start = token.start
         name = token.content
 
         token = self.scan_token()
@@ -142,8 +142,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
 
         expression = self.parse_expression()
         item = ast.RuleItemNode(
-            startpos=token.start,
-            endpos=expression.endpos,
+            start=token.start,
+            end=expression.end,
             action=action,
             expression=expression
         )
@@ -164,8 +164,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
                 return ast.RuleNode(
                     name=name,
                     entrypoint=entrypoint,
-                    startpos=startpos,
-                    endpos=items[-1].endpos,
+                    start=start,
+                    end=items[-1].end,
                     items=items,
                 )
 
@@ -173,8 +173,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             expression = self.parse_expression()
 
             item = ast.RuleItemNode(
-                startpos=token.start,
-                endpos=expression.endpos,
+                start=token.start,
+                end=expression.end,
                 action=action,
                 expression=expression,
             )
@@ -193,8 +193,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
         parts = [part.strip() for part in token.content.split(',')]
 
         action = ast.ActionNode(
-            startpos=token.start,
-            endpos=token.end,
+            start=token.start,
+            end=token.end,
             name=parts[0],
             flags=parts[1:],
         )
@@ -210,8 +210,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
 
             rhs = self.parse_expression()
             return ast.AlternativeNode(
-                startpos=expression.startpos,
-                endpos=rhs.endpos,
+                start=expression.start,
+                end=rhs.end,
                 lhs=expression,
                 rhs=rhs,
             )
@@ -237,8 +237,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             return expressions[0]
 
         return ast.GroupNode(
-            startpos=expressions[0].startpos,
-            endpos=expressions[-1].endpos,
+            start=expressions[0].start,
+            end=expressions[-1].end,
             expressions=expressions,
         )
 
@@ -250,8 +250,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             expression = self.parse_expression_group_item()
 
             expression = ast.CaptureNode(
-                startpos=expression.startpos,
-                endpos=expression.endpos,
+                start=expression.start,
+                end=expression.end,
                 expression=expression,
             )
         elif token.kind is GrammarTokenKind.OPENPAREN:
@@ -280,22 +280,22 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
         if suffix.kind is GrammarTokenKind.STAR:
             self.scan_token()
             return ast.StarNode(
-                startpos=expression.startpos,
-                endpos=suffix.end,
+                start=expression.start,
+                end=suffix.end,
                 expression=expression,
             )
         elif suffix.kind is GrammarTokenKind.PLUS:
             self.scan_token()
             return ast.PlusNode(
-                startpos=expression.startpos,
-                endpos=suffix.end,
+                start=expression.start,
+                end=suffix.end,
                 expression=expression,
             )
         elif suffix.kind is GrammarTokenKind.QUESTION:
             self.scan_token()
             return ast.OptionalNode(
-                startpos=expression.startpos,
-                endpos=suffix.end,
+                start=expression.start,
+                end=suffix.end,
                 expression=expression,
             )
 
@@ -310,3 +310,13 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             return self.parse_string(token)
         else:
             raise ValueError(f'Invalid grammar: {token!r}')
+
+    @classmethod
+    def parse_from_source(
+        cls,
+        source: str,
+        tokens: TokenMap[TokenKindT],
+        keywords: KeywordMap[KeywordKindT],
+    ) -> typing.List[ast.RuleNode[TokenKindT, KeywordKindT]]:
+        instance = cls(source, tokens, keywords)
+        return instance.parse_rules()

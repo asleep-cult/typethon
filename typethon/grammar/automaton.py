@@ -19,29 +19,34 @@ from ..syntax.tokens import Token
 
 TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
-TransformedNodeT = typing.TypeVar('TransformedNodeT')
+TransformedNodeT = typing.TypeVar('TransformedNodeT', bound='NodeLike')
 
 
-@attr.s(kw_only=True, slots=True)
-class Leaf(typing.Generic[TokenKindT, KeywordKindT]):
-    token: Token[TokenKindT, KeywordKindT] = attr.ib()
+class NodeLike(typing.Protocol):
+    @property
+    def start(self) -> int: ...
 
+    @property
+    def end(self) -> int: ...
 
-NodeItem = typing.Union[
-    'Node[TokenKindT, KeywordKindT, TransformedNodeT]',
-    Leaf[TokenKindT, KeywordKindT],
-    TransformedNodeT
-]
 
 @attr.s(kw_only=True, slots=True)
 class Node(typing.Generic[TokenKindT, KeywordKindT, TransformedNodeT]):
+    start: int = attr.ib()
+    end: int = attr.ib()
     items: typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]] = attr.ib()
 
+
+NodeItem = typing.Union[
+    Node[TokenKindT, KeywordKindT, TransformedNodeT],
+    Token[TokenKindT, KeywordKindT],
+    TransformedNodeT
+]
 
 ActionKindT = typing.Callable[
     [typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]], int],
     NodeItem[TokenKindT, KeywordKindT, TransformedNodeT],
-]  # (nodes: Node | Leaf | TransformedNode, flags: int) -> TransformedNode
+]  # (nodes: Node | Token | TransformedNode, flags: int) -> TransformedNode
 
 
 class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT, TransformedNodeT]):
@@ -110,22 +115,42 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT, TransformedNodeT]
 
         return items
 
+    def get_item_span(
+        self,
+        items: typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]],
+    ) -> typing.Tuple[int, int]:
+        if not items:
+            return (0, 0)
+        
+        return (items[0].start, items[-1].end)
+
     def create_default_node(
         self,
         items: typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]]
     ) -> Node[TokenKindT, KeywordKindT, TransformedNodeT]:
-        return Node(items=items)
+        start, end = self.get_item_span(items)
+        return Node(start=start, end=end, items=items)
 
     def concatenate_items(
         self,
         items: typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]],
         flags: int,
     ) -> Node[TokenKindT, KeywordKindT, TransformedNodeT]:
-        item = items[0]
-        assert isinstance(item, Node)
+        if not items:
+            return Node(start=0, end=0, items=items)
 
-        item.items.extend(items[1:])
-        return item
+        first_item = items[0]
+        assert isinstance(first_item, Node)
+
+        # XXX: Is this necessary?
+        for item in items[1:]:
+            if isinstance(item, Node) and len(item.items) == 1:
+                first_item.items.append(item.items[0])
+            else:
+                first_item.items.append(item)
+
+        first_item.start, first_item.end = self.get_item_span(items)
+        return first_item
 
     def next_action(self) -> typing.Optional[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]]:
         current_state = self.current_state()
@@ -143,7 +168,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT, TransformedNodeT]
             case ActionKind.SHIFT:
                 token = self.advance()
                 next_state = entry[1]
-                self.stack.append((Leaf(token=token), next_state))
+                self.stack.append((token, next_state))
 
             case ActionKind.REDUCE:
                 production_id = entry[1]
@@ -156,7 +181,10 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT, TransformedNodeT]
                     transformer = self.transformers[action.name]
                     node = transformer(items, action.flags)
                 else:
-                    node = self.create_default_node(items)
+                    if len(items) == 1:
+                        node = items[0]
+                    else:
+                        node = self.create_default_node(items)
 
                 current_state = self.current_state()
 

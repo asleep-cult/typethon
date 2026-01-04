@@ -12,8 +12,8 @@ KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
 @attr.s(kw_only=True, slots=True)
 class Node:
-    startpos: int = attr.ib()
-    endpos: int = attr.ib()
+    start: int = attr.ib()
+    end: int = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)

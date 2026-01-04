@@ -1,0 +1,41 @@
+@module:
+    #[create_module]
+    | !block
+
+statement:
+    | !function_def
+    | !expression
+
+block: !statement+
+decorators: ('@' !expression NEWLINE)+
+
+function_def:
+    #[create_function, DECORATORS]
+    | !decorators !function_def_raw
+    #[create_function]
+    | !function_def_raw
+
+function_def_raw:
+    | 'def' !IDENTIFIER '(' !function_parameters ')' '->' !expression ':'
+
+function_parameters:
+    #[create_parameters]
+    | !function_parameter (',' !function_parameter)* ','?
+
+function_parameter: !IDENTIFIER ':' !expression
+
+expression: !atom
+
+atom:
+    #[create_constant, TRUE]
+    | 'True'
+    #[create_constant, FALSE]
+    | 'False'
+    #[create_constant, NONE]
+    | 'None'
+    #[create_constant, ELLIPSIS]
+    | '...'
+    #[create_name]
+    | !IDENTIFIER
+    | !NUMBER
+    | !STRING

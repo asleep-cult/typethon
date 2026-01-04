@@ -17,6 +17,7 @@ from .symbols import (
     Symbol,
     EOF,
 )
+from .parser import GrammarParser
 from ..syntax.tokens import StdTokenKind, TokenMap, KeywordMap
 
 logger = logging.getLogger(__name__)
@@ -24,8 +25,9 @@ logger = logging.getLogger(__name__)
 TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 TerminalKindT = typing.TypeVar('TerminalKindT', bound=enum.Enum)
-
 ExpressionT = typing.TypeVar('ExpressionT', bound=ast.ExpressionNode[typing.Any, typing.Any])
+
+FlagMap = typing.Dict[str, int]
 
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
@@ -157,7 +159,6 @@ class ParserTable(typing.Generic[TokenKindT, KeywordKindT]):
         production_id: int,
     ) -> None:
         frozen_symbol = self.frozen_symbols.get_frozen_terminal(symbol.kind)
-
         assert frozen_symbol.kind is FrozenSymbolKind.TERMINAL
 
         existing_entry = self.actions.get((state_id, frozen_symbol))
@@ -169,8 +170,8 @@ class ParserTable(typing.Generic[TokenKindT, KeywordKindT]):
                 logger.info(
                     'Encountered a SHIFT/REDUCE conflict while adding '
                     'a REDUCE for a production with the id %s in state '
-                    '#%s, symbol %s. Defaulting to SHIFT instead. NOTE: The SHIFT '
-                    'action goes to state #%s',
+                    '#%s, symbol %s. Defaulting to SHIFT instead. NOTE: '
+                    'The SHIFT action goes to state #%s',
                     production_id,
                     state_id,
                     symbol,
@@ -296,7 +297,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-        flags: typing.Dict[str, int],
+        flags: FlagMap,
         rules: typing.List[ast.RuleNode[TokenKindT, KeywordKindT]],
     ) -> None:
         self.rules = rules
@@ -382,7 +383,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             case ast.StarNode():
                 # star-a:b = nonterminal
                 nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](
-                    name=f'star-{expression.startpos}:{expression.endpos}'
+                    name=f'star-{expression.start}:{expression.end}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | epsilon
@@ -413,7 +414,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             case ast.PlusNode():
                 # plus-a:b = nonterminal
                 nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](
-                    name=f'plus-{expression.startpos}-{expression.endpos}'
+                    name=f'plus-{expression.start}-{expression.end}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | expr
@@ -446,7 +447,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             case ast.OptionalNode():
                 # optional-a:b = nonterminal
                 nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](
-                    name=f'optional-{expression.startpos}-{expression.endpos}'
+                    name=f'optional-{expression.start}-{expression.end}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | epsilon
@@ -472,7 +473,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             case ast.AlternativeNode():
                 # plus-a:b = nonterminal
                 nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](
-                    name=f'alternative-{expression.startpos}-{expression.endpos}'
+                    name=f'alternative-{expression.start}-{expression.end}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | lhs
@@ -748,3 +749,15 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             raise ParserGeneratorError('The grammar has no entrypoint')
 
         return tables
+
+    @classmethod
+    def generate_from_grammar(
+        cls,
+        grammar: str,
+        tokens: TokenMap[TokenKindT],
+        keywords: KeywordMap[KeywordKindT],
+        flags: typing.Dict[str, int],
+    ) -> typing.Dict[str, ParserTable[TokenKindT, KeywordKindT]]:
+        rules = GrammarParser[TokenKindT, KeywordKindT].parse_from_source(grammar, tokens, keywords)
+        instance = cls(tokens, keywords, flags, rules)
+        return instance.generate()
