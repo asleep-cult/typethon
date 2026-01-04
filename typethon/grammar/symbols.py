@@ -26,7 +26,10 @@ class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
         parts = [f'<nonterminal-symbol: {self.name}>:']
         for production in self.productions:
             string = '  | '
-            for symbol in production.rhs:
+            for i, symbol in enumerate(production.rhs):
+                if i in production.captured:
+                    string += '!'
+
                 if isinstance(symbol, NonterminalSymbol):
                     string += f'{symbol.name} '
                 else:
@@ -53,6 +56,8 @@ class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
 class Production(typing.Generic[TokenKindT, KeywordKindT]):
     lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib()
     rhs: typing.List[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
+    captured: typing.List[int] = attr.ib(factory=list, hash=False)
+    # List of indexes in rhs that should be captured from the parse tree
 
     def __repr__(self) -> str:
         parts: typing.List[str] = [f'{self.lhs.name} ->']

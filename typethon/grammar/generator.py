@@ -290,6 +290,10 @@ class ParserTable(typing.Generic[TokenKindT, KeywordKindT]):
         return writer.getvalue()
 
 
+# TODO: Capturing for star/plus is broken and its impossible to
+# capture anything with a suffix because no matter how you write
+# !e* it will get expanded into x: x e | epsilon, so it captures
+# both productions but the productions themselves capture nothing
 class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
         self,
@@ -332,7 +336,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             for production in nonterminal.productions:
                 self.productions.append(production)
                 self.frozen_symbols.create_frozen_production(
-                    frozen_nonterminal, len(production.rhs)
+                    frozen_nonterminal, len(production.rhs), tuple(production.captured)
                 )
 
     def initialize_productions_for_rule(
@@ -343,12 +347,12 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
         for item in rule.items:
             production = Production(lhs=nonterminal)
-            self.add_symbols_for_expression(production.rhs, item.expression)
+            self.add_symbols_for_expression(production, item.expression)
             nonterminal.productions.append(production)
 
     def add_symbols_for_expression(
         self,
-        symbols: typing.List[Symbol[TokenKindT, KeywordKindT]],
+        production: Production[TokenKindT, KeywordKindT],
         expression: ast.ExpressionNode[TokenKindT, KeywordKindT],
     ) -> None:
         match expression:
@@ -358,14 +362,14 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     name=f'star-{expression.startpos}:{expression.endpos}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
-                symbols.append(nonterminal)
+                production.rhs.append(nonterminal)
                 # | epsilon
-                empty_production = Production(lhs=nonterminal)
-                nonterminal.productions.append(empty_production)
+                temporary_production = Production(lhs=nonterminal)
+                nonterminal.productions.append(temporary_production)
                 # | nonterminal expr
-                production = Production(lhs=nonterminal, rhs=[nonterminal])
-                self.add_symbols_for_expression(production.rhs, expression.expression)
-                nonterminal.productions.append(production)
+                temporary_production = Production(lhs=nonterminal, rhs=[nonterminal])
+                self.add_symbols_for_expression(temporary_production, expression.expression)
+                nonterminal.productions.append(temporary_production)
 
             case ast.PlusNode():
                 # plus-a:b = nonterminal
@@ -373,15 +377,15 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     name=f'plus-{expression.startpos}-{expression.endpos}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
-                symbols.append(nonterminal)
+                production.rhs.append(nonterminal)
                 # | expr
-                production = Production(lhs=nonterminal)
-                self.add_symbols_for_expression(production.rhs, expression.expression)
-                nonterminal.productions.append(production)
+                temporary_production = Production(lhs=nonterminal)
+                self.add_symbols_for_expression(temporary_production, expression.expression)
+                nonterminal.productions.append(temporary_production)
                 # | nonterminal expr
-                production = Production(lhs=nonterminal, rhs=[nonterminal])
-                self.add_symbols_for_expression(production.rhs, expression.expression)
-                nonterminal.productions.append(production)
+                temporary_production = Production(lhs=nonterminal, rhs=[nonterminal])
+                self.add_symbols_for_expression(temporary_production, expression.expression)
+                nonterminal.productions.append(temporary_production)
 
             case ast.OptionalNode():
                 # optional-a:b = nonterminal
@@ -389,14 +393,18 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     name=f'optional-{expression.startpos}-{expression.endpos}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
-                symbols.append(nonterminal)
+                production.rhs.append(nonterminal)
                 # | epsilon
-                empty_production = Production(lhs=nonterminal)
-                nonterminal.productions.append(empty_production)
+                temporary_production = Production(lhs=nonterminal)
+                nonterminal.productions.append(temporary_production)
                 # | expr
-                production = Production(lhs=nonterminal)
-                self.add_symbols_for_expression(production.rhs, expression.expression)
-                nonterminal.productions.append(production)
+                temporary_production = Production(lhs=nonterminal)
+                self.add_symbols_for_expression(temporary_production, expression.expression)
+                nonterminal.productions.append(temporary_production)
+
+            case ast.CaptureNode():
+                production.captured.append(len(production.rhs))
+                self.add_symbols_for_expression(production, expression.expression)
 
             case ast.AlternativeNode():
                 # plus-a:b = nonterminal
@@ -404,31 +412,31 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     name=f'alternative-{expression.startpos}-{expression.endpos}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
-                symbols.append(nonterminal)
+                production.rhs.append(nonterminal)
                 # | lhs
-                production = Production(lhs=nonterminal)
-                self.add_symbols_for_expression(production.rhs, expression.lhs)
-                nonterminal.productions.append(production)
+                temporary_production = Production(lhs=nonterminal)
+                self.add_symbols_for_expression(temporary_production, expression.lhs)
+                nonterminal.productions.append(temporary_production)
                 # | rhs
-                production = Production(lhs=nonterminal)
-                self.add_symbols_for_expression(production.rhs, expression.rhs)
-                nonterminal.productions.append(production)
+                temporary_production = Production(lhs=nonterminal)
+                self.add_symbols_for_expression(temporary_production, expression.rhs)
+                nonterminal.productions.append(temporary_production)
 
             case ast.GroupNode():
                 for expression in expression.expressions:
-                    self.add_symbols_for_expression(symbols, expression)
+                    self.add_symbols_for_expression(production, expression)
 
             case ast.KeywordNode():
-                symbols.append(TerminalSymbol(kind=expression.keyword))
+                production.rhs.append(TerminalSymbol(kind=expression.keyword))
 
             case ast.TokenNode():
-                symbols.append(TerminalSymbol(kind=expression.kind))
+                production.rhs.append(TerminalSymbol(kind=expression.kind))
 
             case ast.NameNode():
                 if expression.value not in self.nonterminals:
                     raise ValueError(f'{expression.value!r} is not a valid nonterminal symbol')
 
-                symbols.append(self.nonterminals[expression.value])
+                production.rhs.append(self.nonterminals[expression.value])
 
     def compute_epsilon_nonterminals(self) -> None:
         # First, add every nonterminal with at least one production containing epsilon

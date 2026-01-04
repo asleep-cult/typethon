@@ -181,24 +181,12 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
 
         token = self.peek_token()
         while token.kind in (
+            GrammarTokenKind.EXCLAMATION,
             GrammarTokenKind.OPENPAREN,
             StdTokenKind.IDENTIFIER,
             StdTokenKind.STRING,
         ):
-            if token.kind is GrammarTokenKind.OPENPAREN:
-                self.scan_token()
-                expression = self.parse_expression()
-
-                token = self.scan_token()
-                if token.kind is not GrammarTokenKind.CLOSEPAREN:
-                    raise ValueError(f'Expected close parenthesis, got {token!r}')
-
-                expression = self.parse_expression_suffix(expression)
-                expressions.append(expression)
-
-            elif token.kind in (StdTokenKind.IDENTIFIER, StdTokenKind.STRING):
-                expressions.append(self.parse_atom())
-
+            expressions.append(self.parse_expression_group_item())
             token = self.peek_token()
 
         if not expressions:
@@ -211,6 +199,36 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             endpos=expressions[-1].endpos,
             expressions=expressions,
         )
+
+    def parse_expression_group_item(self) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
+        token = self.peek_token()
+
+        if token.kind is GrammarTokenKind.EXCLAMATION:
+            self.scan_token()
+            expression = self.parse_expression_group_item()
+
+            expression = ast.CaptureNode(
+                startpos=expression.startpos,
+                endpos=expression.endpos,
+                expression=expression,
+            )
+        elif token.kind is GrammarTokenKind.OPENPAREN:
+            self.scan_token()
+            expression = self.parse_expression()
+
+            token = self.scan_token()
+            if token.kind is not GrammarTokenKind.CLOSEPAREN:
+                raise ValueError(f'Expected close parenthesis, got {token!r}')
+
+            expression = self.parse_expression_suffix(expression)
+
+        elif token.kind in (StdTokenKind.IDENTIFIER, StdTokenKind.STRING):
+            expression = self.parse_atom()
+
+        else:
+            raise ValueError(f'Invalid grammar token: {token!r}')
+
+        return self.parse_expression_suffix(expression)
 
     def parse_expression_suffix(
         self, expression: ast.ExpressionNode[TokenKindT, KeywordKindT]
@@ -245,10 +263,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
         token = self.scan_token()
 
         if token.kind is StdTokenKind.IDENTIFIER:
-            expression = self.parse_identifier(token)
+            return self.parse_identifier(token)
         elif token.kind is StdTokenKind.STRING:
-            expression = self.parse_string(token)
+            return self.parse_string(token)
         else:
             raise ValueError(f'Invalid grammar: {token!r}')
-
-        return self.parse_expression_suffix(expression)

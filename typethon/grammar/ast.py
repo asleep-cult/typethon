@@ -45,6 +45,11 @@ class OptionalNode(typing.Generic[TokenKindT, KeywordKindT], Node):
 
 
 @attr.s(kw_only=True, slots=True)
+class CaptureNode(typing.Generic[TokenKindT, KeywordKindT], Node):
+    expression: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class AlternativeNode(typing.Generic[TokenKindT, KeywordKindT], Node):
     lhs: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
     rhs: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
@@ -74,6 +79,7 @@ ExpressionNode = typing.Union[
     StarNode[TokenKindT, KeywordKindT],
     PlusNode[TokenKindT, KeywordKindT],
     OptionalNode[TokenKindT, KeywordKindT],
+    CaptureNode[TokenKindT, KeywordKindT],
     AlternativeNode[TokenKindT, KeywordKindT],
     GroupNode[TokenKindT, KeywordKindT],
     KeywordNode[KeywordKindT],

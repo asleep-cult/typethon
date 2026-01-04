@@ -49,7 +49,12 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
         self.frozen_nonterminals[name] = symbol
         return symbol
 
-    def create_frozen_production(self, lhs: FrozenSymbol, rhs_length: int) -> FrozenProduction:
+    def create_frozen_production(
+        self,
+        lhs: FrozenSymbol,
+        rhs_length: int,
+        captured: typing.Tuple[int, ...],
+    ) -> FrozenProduction:
         if lhs.kind is not FrozenSymbolKind.NONTERMINAL:
             raise ValueError('Production lhs must be a nonterminal symbol')
 
@@ -57,6 +62,7 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
             id=len(self.frozen_productions),
             lhs=lhs.id,
             rhs_length=rhs_length,
+            captured=captured,
         )
         self.frozen_productions.append(frozen_production)
         return frozen_production
@@ -78,6 +84,7 @@ class FrozenProduction:
     id: int = attr.ib()
     lhs: int = attr.ib()
     rhs_length: int = attr.ib()
+    captured: typing.Tuple[int, ...] = attr.ib()
 
     def get_lhs(self) -> FrozenSymbol:
         return FrozenSymbol(kind=FrozenSymbolKind.NONTERMINAL, id=self.lhs)

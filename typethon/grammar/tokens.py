@@ -17,6 +17,7 @@ class GrammarTokenKind(enum.Enum):
     STAR = enum.auto()
     PLUS = enum.auto()
     QUESTION = enum.auto()
+    EXCLAMATION = enum.auto()
 
 
 class UnitEnum(enum.Enum):
@@ -32,6 +33,7 @@ SimpleTokenKind = typing.Literal[
     GrammarTokenKind.STAR,
     GrammarTokenKind.PLUS,
     GrammarTokenKind.QUESTION,
+    GrammarTokenKind.EXCLAMATION,
 ]
 GrammarToken = Token[SimpleTokenKind, typing.Literal[UnitEnum.NOTHING]]
 GrammarScanner = Scanner[SimpleTokenKind, typing.Literal[UnitEnum.NOTHING]]
@@ -46,4 +48,5 @@ GRAMMAR_TOKENS: TokenMap[SimpleTokenKind] = (
     ('*', GrammarTokenKind.STAR),
     ('+', GrammarTokenKind.PLUS),
     ('?', GrammarTokenKind.QUESTION),
+    ('!', GrammarTokenKind.EXCLAMATION),
 )

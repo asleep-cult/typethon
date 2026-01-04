@@ -3,7 +3,6 @@ from __future__ import annotations
 import attr
 import typing
 import enum
-import logging
 
 from .frozen import FrozenSymbol
 from .exceptions import (
@@ -17,7 +16,6 @@ from .generator import ActionKind, ParserTable
 from ..syntax.scanner import Scanner
 from ..syntax.tokens import Token
 
-logger = logging.getLogger(__name__)
 
 TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
@@ -38,6 +36,8 @@ class Node(typing.Generic[TokenKindT, KeywordKindT]):
     items: typing.List[NodeItem[TokenKindT, KeywordKindT]] = attr.ib()
 
 
+# TODO: Add a method for transforming Nodes
+
 class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
     # https://www.cs.uaf.edu/~chappell/class/2023_spr/cs331/lect/cs331-20230220-shiftred.pdf
     def __init__(
@@ -56,7 +56,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
         self.stack: typing.List[
             typing.Tuple[
                 # typing.Optional[FrozenSymbol],
-                typing.Optional[NodeItem[TokenKindT, KeywordKindT]],
+                typing.Optional[NodeItem[TokenKindT, KeywordKindT]],  # None for epsilon
                 int
             ]
         ] = [(None, 0)]
@@ -80,9 +80,26 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
     def advance(self) -> Token[TokenKindT, KeywordKindT]:
         if not self.tokens:
-            assert False, f'<there are no tokens>'
+            raise ParserAutomatonError('Automaton called advance with no items on stack')
 
         return self.tokens.pop(0)
+
+    def create_node(
+        self,
+        index: int,
+        captured: typing.Optional[typing.Tuple[int, ...]] = None,
+    ) -> Node[TokenKindT, KeywordKindT]:
+        items: typing.List[NodeItem[TokenKindT, KeywordKindT]] = []
+
+        if index:
+            for i, (item, _) in enumerate(self.stack[-index:]):
+                assert item is not None
+                if captured is None or i in captured:
+                    items.append(item)
+
+            del self.stack[-index:]
+
+        return Node(items=items)
 
     def next_action(self) -> typing.Optional[NodeItem[TokenKindT, KeywordKindT]]:
         current_state = self.current_state()
@@ -106,32 +123,25 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
                 production_id = entry[1]
                 frozen_production = self.table.frozen_symbols.frozen_productions[production_id]
 
-                items: typing.List[NodeItem[TokenKindT, KeywordKindT]] = []
-
-                if frozen_production.rhs_length:
-                    for item, _ in self.stack[-frozen_production.rhs_length:]:
-                        assert item is not None
-                        items.append(item)
-
-                    del self.stack[-frozen_production.rhs_length:]
-
+                node = self.create_node(frozen_production.rhs_length, frozen_production.captured)
                 current_state = self.current_state()
 
                 frozen_lhs = frozen_production.get_lhs()
                 next_state = self.table.get_goto(current_state, frozen_lhs)
                 if next_state is None:
-                    raise ParserAutomatonError('Automaton found no GOTO after REDUCE')
+                    nonterminal_name = 'unknown'
+                    for name, nonterminal in self.table.frozen_symbols.frozen_nonterminals.items():
+                        if nonterminal.id == production_id:
+                            nonterminal_name = name
 
-                self.stack.append((Node(items=items), next_state))
+                    raise ParserAutomatonError(
+                        f'Automaton found no GOTO for {nonterminal_name} in {current_state}'
+                    )
+
+                self.stack.append((node, next_state))
 
             case ActionKind.ACCEPT:
-                items: typing.List[NodeItem[TokenKindT, KeywordKindT]] = []
-
-                for item, _ in self.stack[1:]:
-                    assert item is not None
-                    items.append(item)
-
-                return Node(items=items)
+                return self.create_node(len(self.stack) - 1)
 
             case ActionKind.REJECT:
                 token = self.table.frozen_symbols.terminals[terminal_symbol.id]
