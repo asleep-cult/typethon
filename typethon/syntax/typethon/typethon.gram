@@ -1,22 +1,17 @@
 @module:
     #[create_module]
-    | !block
+    | !statement+
 
 statement:
     | !function_def
     | !expression
 
-block: !statement+
+block: NEWLINE INDENT !statement+ DEDENT
 decorators: ('@' !expression NEWLINE)+
 
 function_def:
-    #[create_function, DECORATORS]
-    | !decorators !function_def_raw
     #[create_function]
-    | !function_def_raw
-
-function_def_raw:
-    | 'def' !IDENTIFIER '(' !function_parameters? ')' '->' !expression ':'
+    | !decorators? 'def' !IDENTIFIER '(' !function_parameters? ')' '->' !expression (':' !block)?
 
 function_parameters:
     #[create_parameters]
@@ -30,11 +25,11 @@ type: !atom
 expression: !atom
 
 atom:
-    #[create_constant, TRUE]
+    #[create_constant]
     | 'True'
-    #[create_constant, FALSE]
+    #[create_constant]
     | 'False'
-    #[create_constant, ELLIPSIS]
+    #[create_constant]
     | '...'
     #[create_name]
     | !IDENTIFIER

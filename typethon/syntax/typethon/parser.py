@@ -11,10 +11,8 @@ from .tokens import (
     create_scanner,
 )
 from . import ast
-from ..tokens import (
-    StdTokenKind,
-    IdentifierToken,
-)
+from ..tokens import IdentifierToken
+
 from ...grammar import (
     ParserTable,
     Transformer,
@@ -22,9 +20,11 @@ from ...grammar import (
     ParserTableGenerator,
     NodeItem as NodeItemT,
     OptionNode,
+    FlattenNode,
 )
 
 NodeItem = NodeItemT[TokenKind, KeywordKind]
+TransformCallbackT = typing.Callable[..., NodeItem]
 
 GRAMMAR_PATH = './typethon.gram'
 
@@ -46,6 +46,10 @@ class ASTParser:
         self,
         source: str,
         entrypoint: str,
+        *,
+        transformer_wrapper: typing.Optional[
+            typing.Callable[[TransformCallbackT], TransformCallbackT]
+        ] = None,
     ) -> None:
         self.scanner = create_scanner(source)
 
@@ -57,32 +61,15 @@ class ASTParser:
             self.create_constant,
             self.create_name,
         ):
+            if transformer_wrapper is not None:
+                function = transformer_wrapper(function).__get__(self)
+
             transformers.append(Transformer[TokenKind, KeywordKind].from_function(function))
 
         self.parser = ParserAutomaton(
             self.scanner,
             self.tables[entrypoint],
             transformers,
-        )
-
-    def create_module(self, items: typing.List[NodeItem], flags: int) -> NodeItem:
-        prettyprinter.cpprint(items)
-        assert False, 'Not Implemented'
-
-    def create_single_parameter(
-        self,
-        span: typing.Tuple[int, int],
-        identifier: IdentifierToken,
-        annotation: ast.TypeExpressionNode,
-        default: OptionNode[ast.ExpressionNode],
-    ) -> ast.Node:
-        return ast.FunctionParameterNode(
-            start=span[0],
-            end=span[1],
-            name=identifier.content,
-            kind=ast.ParameterKind.ARG,
-            annotation=annotation,
-            default=default.item,
         )
 
     def create_single_parameter(
@@ -101,14 +88,35 @@ class ASTParser:
             default=default.item,
         )
 
-    def create_parameters(self, *args):
+    def create_parameters(
+        self,
+        span: typing.Tuple[int, int],
+        first_parameter: ast.FunctionParameterNode,
+        remaning_parameters: FlattenNode[ast.FunctionParameterNode],
+    ) -> FlattenNode[ast.FunctionParameterNode]:
         # parameter, parameters*
-        prettyprinter.cpprint(args)
-        assert False, 'Not Implemented'
+        # TODO: should probably just add a builtin @prepend transformer
+        remaning_parameters.items.insert(0, first_parameter)
+        return remaning_parameters
 
-    def create_function(self, *args):
-        prettyprinter.cpprint(items)
-        assert False, 'Not Implemented'
+    def create_function(
+        self,
+        span: typing.Tuple[int, int],
+        decorators: OptionNode[FlattenNode[ast.ExpressionNode]],
+        name: IdentifierToken,
+        parameters: OptionNode[FlattenNode[ast.FunctionParameterNode]],
+        returns: ast.ExpressionNode,
+        body: OptionNode[FlattenNode[ast.StatementNode]],
+    ) -> ast.FunctionDefNode:
+        return ast.FunctionDefNode(
+            start=span[0],
+            end=span[1],
+            name=name.content,
+            parameters=parameters.flatten().items,
+            body=body.map(lambda flatten: flatten.items),
+            decorators=decorators.flatten().items,
+            returns=returns,
+        )
 
     def create_constant(
         self,

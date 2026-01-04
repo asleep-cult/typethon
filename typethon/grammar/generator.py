@@ -357,6 +357,40 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             self.add_symbols_for_expression(production, item.expression)
             nonterminal.productions.append(production)
 
+    def add_new_star_expression(
+        self,
+        name: str,
+        production: Production[TokenKindT, KeywordKindT],
+        expression: ast.ExpressionNode[TokenKindT, KeywordKindT],
+        *,
+        capture: bool = False,
+    ) -> None:
+        # star-a:b = nonterminal
+        nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](name=name)
+        self.nonterminals[nonterminal.name] = nonterminal
+        # | epsilon
+        temporary_production = Production(lhs=nonterminal)
+        temporary_production.action = '@flatten_star'
+        nonterminal.productions.append(temporary_production)
+        # | nonterminal expr
+        temporary_production = Production(lhs=nonterminal)
+        temporary_production.action = '@flatten_star'
+        self.add_symbols_for_expression(
+            temporary_production,
+            expression,
+            capture=capture,
+        )
+        nonterminal.productions.append(temporary_production)
+
+        if not capture:
+            capture = self.should_capture_uninlined_expression(nonterminal)
+
+        # We insert the nonterminal after calling add_symbols_for_expression
+        # because whether expr captures any symbols determines if the nonterminal
+        # needs to be captured as well
+        temporary_production.insert_symbol(0, nonterminal, capture)
+        production.add_symbol(nonterminal, capture)
+
     def add_symbols_for_expression(
         self,
         production: Production[TokenKindT, KeywordKindT],
@@ -366,33 +400,12 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
     ) -> None:
         match expression:
             case ast.StarNode():
-                # star-a:b = nonterminal
-                nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](
-                    name=f'star-{expression.start}:{expression.end}'
-                )
-                self.nonterminals[nonterminal.name] = nonterminal
-                # | epsilon
-                temporary_production = Production(lhs=nonterminal)
-                temporary_production.action = '@flatten'
-                nonterminal.productions.append(temporary_production)
-                # | nonterminal expr
-                temporary_production = Production(lhs=nonterminal)
-                temporary_production.action = '@flatten'
-                self.add_symbols_for_expression(
-                    temporary_production,
+                self.add_new_star_expression(
+                    f'star-{expression.start}:{expression.end}',
+                    production,
                     expression.expression,
-                    capture=capture,
+                    capture=capture
                 )
-                nonterminal.productions.append(temporary_production)
-
-                if not capture:
-                    capture = self.should_capture_uninlined_expression(nonterminal)
-
-                # We insert the nonterminal after calling add_symbols_for_expression
-                # because whether expr captures any symbols determines if the nonterminal
-                # needs to be captured as well
-                temporary_production.insert_symbol(0, nonterminal, capture)
-                production.add_symbol(nonterminal, capture)
 
             case ast.PlusNode():
                 # plus-a:b = nonterminal
@@ -400,29 +413,26 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     name=f'plus-{expression.start}-{expression.end}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
-                # | expr
+                # | expr plus-a:b@star
                 temporary_production = Production(lhs=nonterminal)
-                temporary_production.action = '@flatten'
+                temporary_production.action = '@flatten_plus'
                 self.add_symbols_for_expression(
                     temporary_production,
                     expression.expression,
                     capture=capture,
                 )
                 nonterminal.productions.append(temporary_production)
-                # | nonterminal expr
-                temporary_production = Production(lhs=nonterminal)
-                temporary_production.action = '@flatten'
-                self.add_symbols_for_expression(
+
+                self.add_new_star_expression(
+                    f'plus-{expression.start}-{expression.end}@star',
                     temporary_production,
                     expression.expression,
                     capture=capture,
                 )
-                nonterminal.productions.append(temporary_production)
 
                 if not capture:
                     capture = self.should_capture_uninlined_expression(nonterminal)
 
-                temporary_production.insert_symbol(0, nonterminal, capture)
                 production.add_symbol(nonterminal, capture)
 
             case ast.OptionalNode():

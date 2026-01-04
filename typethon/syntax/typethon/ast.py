@@ -30,11 +30,6 @@ class ConstantKind(enum.IntEnum):
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeNameNode(Node):
-    value: str = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class TypeParameterNode(Node):
     name: str = attr.ib()
     constraint: typing.Optional[TypeExpressionNode] = attr.ib()
@@ -355,7 +350,7 @@ ExpressionNode = typing.Union[
 
 
 TypeExpressionNode = typing.Union[
-    TypeNameNode,
+    NameNode,
     TypeParameterNode,
     TypeCallNode,
     TypeAttributeNode,

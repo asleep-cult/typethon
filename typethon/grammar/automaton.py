@@ -17,9 +17,11 @@ from ..syntax.scanner import Scanner
 from ..syntax.tokens import Token
 
 
+T = typing.TypeVar('T')
 TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 NodeT = typing.TypeVar('NodeT', bound='NodeItem[typing.Any, typing.Any]')
+ItemT = typing.TypeVar('ItemT', bound='NodeItem[typing.Any, typing.Any]')
 
 
 class NodeLike(typing.Protocol):
@@ -50,6 +52,18 @@ class OptionNode(typing.Generic[NodeT]):
     end: int = attr.ib()
     item: typing.Optional[NodeT] = attr.ib(default=None)
 
+    def map(self, fn: typing.Callable[[NodeT], T]) -> typing.Optional[T]:
+        if self.item is not None:
+            return fn(self.item)
+
+    def flatten(self: OptionNode[FlattenNode[ItemT]]) -> FlattenNode[ItemT]:
+        # get the flattened node or create an empty one
+        if self.item is None:
+            return FlattenNode[ItemT](start=self.start, end=self.end, items=[])
+
+        assert isinstance(self.item, FlattenNode)
+        return self.item
+
 
 NodeItem = typing.Union[
     NodeLike,
@@ -62,73 +76,21 @@ NodeItem = typing.Union[
 @attr.s(kw_only=True, slots=True)
 class Transformer(typing.Generic[TokenKindT, KeywordKindT]):
     name: str = attr.ib()
-    expected_types: typing.List[typing.Type[NodeItem[TokenKindT, KeywordKindT]]] = attr.ib()
     callback: typing.Callable[..., NodeItem[TokenKindT, KeywordKindT]] = attr.ib()
-
-    def is_type_compatible(
-        self,
-        type: typing.Type[NodeItem[TokenKindT, KeywordKindT]],
-        instance: NodeItem[TokenKindT, KeywordKindT],
-    ) -> bool:
-        origin = typing.get_origin(type)
-        args = typing.get_args(type)
-        if origin is None:
-            origin = type
-
-        if origin is FlattenNode:
-            if not isinstance(instance, FlattenNode):
-                return False
-
-            expected_type = args[0]
-            return all(
-                isinstance(inner_instance, expected_type)
-                for inner_instance in instance.items
-            )
-
-        elif origin is OptionNode:
-            if not isinstance(instance, OptionNode):
-                return False
-
-            expected_type = args[0]
-            return isinstance(instance.item, expected_type)
-
-        return isinstance(instance, origin)
 
     def transform(
         self,
         span: typing.Tuple[int, int],
         items: typing.List[NodeItem[TokenKindT, KeywordKindT]],
-        *,
-        check_types: bool = False,
     ) -> NodeItem[TokenKindT, KeywordKindT]:
-        if check_types:
-            for type, instance in zip(self.expected_types, items):
-                if not self.is_type_compatible(type, instance):
-                    raise ValueError(
-                        f'In transform {self.name}, {instance!r} is incompatible with {type!r}'
-                    )
-
         return self.callback(span, *items)
 
     @classmethod
     def from_function(
         cls,
-        function: typing.Callable[..., NodeItem[TokenKindT, KeywordKindT]],
+        function: typing.Callable[..., NodeItem[TokenKindT, KeywordKindT]]
     ) -> Transformer[TokenKindT, KeywordKindT]:
-        # TODO: I want some runtime type checking for debugging
-        # but I am not wasting time writing the logic for this
-        # to work properly. We can make the compatibility
-        # function a callback and provide a third party runtime
-        # type checker while debugging
-        type_hints = {} # typing.get_type_hints(function)
-        type_hints.pop('span', None)
-        type_hints.pop('return', None)
-
-        expected_types: typing.List[typing.Type[NodeItem[TokenKindT, KeywordKindT]]] = []
-        for type in type_hints.values():
-            expected_types.append(type)
-
-        return cls(name=function.__name__, expected_types=expected_types, callback=function)
+        return cls(name=function.__name__, callback=function)
 
 
 class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
@@ -155,7 +117,9 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
             ]
         ] = [(None, 0)]
 
-        self.transformers['@flatten'] = Transformer.from_function(self.transform_flatten)
+        self.transformers['@flatten_star'] = Transformer.from_function(self.transform_flatten_star)
+        # Call it prepend
+        self.transformers['@flatten_plus'] = Transformer.from_function(self.transform_flatten_plus)
         self.transformers['@option'] = Transformer.from_function(self.transform_option)
 
     def current_state(self) -> int:
@@ -210,33 +174,42 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
     def create_default_node(
         self,
         items: typing.List[NodeItem[TokenKindT, KeywordKindT]]
-    ) -> Node[TokenKindT, KeywordKindT]:
+    ) -> NodeItem[TokenKindT, KeywordKindT]:
+        if len(items) == 1:
+            return items[0]
+
         start, end = self.get_item_span(items)
         return Node(start=start, end=end, items=items)
 
-    def transform_flatten(
+    def transform_flatten_star(
         self,
         span: typing.Tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if not items:
-            return FlattenNode(start=-1, end=-1, items=[])
+            return FlattenNode[typing.Any](start=span[0], end=span[1], items=[])
 
         first_item = items[0]
         assert isinstance(first_item, FlattenNode)
 
         first_item.items.extend(items[1:])
-        assert isinstance(first_item, FlattenNode)
-
-        first_item.start, first_item.end = self.get_item_span(items)
+        first_item.start, first_item.end = span
         return first_item
+
+    def transform_flatten_plus(
+        self,
+        span: typing.Tuple[int, int],
+        first_item: NodeItem[TokenKindT, KeywordKindT],
+        star_item: FlattenNode[typing.Any],
+    ) -> NodeItem[TokenKindT, KeywordKindT]:
+        star_item.items.insert(0, first_item)
+        return star_item
 
     def transform_option(
         self,
         span: typing.Tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> NodeItem[TokenKindT, KeywordKindT]:
-        print('transform option', items)
         if not items:
             return OptionNode[typing.Any](start=-1, end=-1)
 
@@ -274,14 +247,9 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
                 action = self.table.frozen_symbols.get_frozen_action(frozen_production)
                 if action is not None:
                     transformer = self.transformers[action]
-                    node = transformer.transform(
-                        self.get_item_span(items), items, check_types=True,
-                    )
+                    node = transformer.transform(self.get_item_span(items), items)
                 else:
-                    if len(items) == 1:
-                        node = items[0]
-                    else:
-                        node = self.create_default_node(items)
+                    node = self.create_default_node(items)
 
                 current_state = self.current_state()
 
