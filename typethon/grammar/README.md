@@ -14,8 +14,8 @@ expr:
     | term           # the | before the first production is optional
 
 term:
-    | term '*' factor  # nonterminals (tokens or keywords) are deonted in quotes
-    | factor  # terminals can be referred to by name
+    | term '*' factor  # terminals (tokens or keywords) are deonted in quotes
+    | factor  # nonterminals can be referred to by name
 
 factor:
     | '(' expr ')'
@@ -44,6 +44,7 @@ option:
     | ε
     #[@option]
     | e
+    
 # Where @option is a builtin transformer that creates OptionNode(None)
 # or OptionNode(e)
 
@@ -54,7 +55,7 @@ zero_or_more:
     #[@flatten_star]
     | zero_or_more e
 
-# Where @flatten is a builtin transformer that creates FlattenNode([e1, e2, ..., en])
+# Where @flatten_star is a builtin transformer that creates FlattenNode([e1, e2, ..., en])
 
 # e+ means one or more e, this is equivalent to:
 one_or_more:
