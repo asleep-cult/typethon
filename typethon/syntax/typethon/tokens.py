@@ -1,4 +1,5 @@
 import enum
+from ..tokens import Token as TokenT
 from ..tokens import TokenMap
 from ..scanner import Scanner
 
@@ -113,7 +114,6 @@ class KeywordKind(enum.Enum):
     SELF = enum.auto()
     TRUE = enum.auto()
     FALSE = enum.auto()
-    NONE = enum.auto()
     AND = enum.auto()
     BREAK = enum.auto()
     CLASS = enum.auto()
@@ -138,7 +138,6 @@ KEYWORDS = (
     ('Self', KeywordKind.SELF),
     ('True', KeywordKind.TRUE),
     ('False', KeywordKind.FALSE),
-    ('None', KeywordKind.NONE),
     ('and', KeywordKind.AND),
     ('break', KeywordKind.BREAK),
     ('class', KeywordKind.CLASS),
@@ -158,6 +157,8 @@ KEYWORDS = (
     ('return', KeywordKind.RETURN),
     ('while', KeywordKind.WHILE),
 )
+
+Token = TokenT[TokenKind, KeywordKind]
 
 MATCHED_TOKENS = {
     TokenKind.OPENPAREN: TokenKind.CLOSEPAREN,

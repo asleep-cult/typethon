@@ -16,14 +16,17 @@ function_def:
     | !function_def_raw
 
 function_def_raw:
-    | 'def' !IDENTIFIER '(' !function_parameters ')' '->' !expression ':'
+    | 'def' !IDENTIFIER '(' !function_parameters? ')' '->' !expression ':'
 
 function_parameters:
     #[create_parameters]
     | !function_parameter (',' !function_parameter)* ','?
 
-function_parameter: !IDENTIFIER ':' !expression
+function_parameter:
+    #[create_single_parameter]
+    | !IDENTIFIER ':' !type ('=' !expression)?
 
+type: !atom
 expression: !atom
 
 atom:
@@ -31,8 +34,6 @@ atom:
     | 'True'
     #[create_constant, FALSE]
     | 'False'
-    #[create_constant, NONE]
-    | 'None'
     #[create_constant, ELLIPSIS]
     | '...'
     #[create_name]

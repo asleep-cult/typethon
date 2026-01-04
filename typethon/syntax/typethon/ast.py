@@ -21,7 +21,6 @@ class ConstantKind(enum.IntEnum):
     SELF = enum.auto()
     TRUE = enum.auto()
     FALSE = enum.auto()
-    NONE = enum.auto()
     ELLIPSIS = enum.auto()
     INTEGER = enum.auto()
     FLOAT = enum.auto()
@@ -300,7 +299,7 @@ class SliceNode(Node):
 class FunctionParameterNode(Node):
     name: str = attr.ib()
     kind: ParameterKind = attr.ib()
-    annotation: typing.Optional[ExpressionNode] = attr.ib()
+    annotation: TypeExpressionNode = attr.ib()
     default: typing.Optional[ExpressionNode] = attr.ib()
 
 

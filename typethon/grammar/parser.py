@@ -184,22 +184,13 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             if token.kind is StdTokenKind.NEWLINE:
                 self.scan_token()               
 
-    def parse_rule_action(self) -> typing.Optional[ast.ActionNode]:
+    def parse_rule_action(self) -> typing.Optional[str]:
         token = self.peek_token()
         if token.kind is not StdTokenKind.DIRECTIVE:
             return
 
         self.scan_token()
-        parts = [part.strip() for part in token.content.split(',')]
-
-        action = ast.ActionNode(
-            start=token.start,
-            end=token.end,
-            name=parts[0],
-            flags=parts[1:],
-        )
-
-        return action
+        return token.content.strip()
 
     def parse_expression(self) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
         expression = self.parse_expression_group()

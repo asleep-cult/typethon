@@ -24,15 +24,9 @@ class RuleNode(typing.Generic[TokenKindT, KeywordKindT], Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class ActionNode(Node):
-    name: str = attr.ib()
-    flags: typing.List[str] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class RuleItemNode(typing.Generic[TokenKindT, KeywordKindT], Node):
     expression: ExpressionNode[TokenKindT, KeywordKindT] = attr.ib()
-    action: typing.Optional[ActionNode] = attr.ib(default=None)
+    action: typing.Optional[str] = attr.ib(default=None)
 
 
 @attr.s(kw_only=True, slots=True)

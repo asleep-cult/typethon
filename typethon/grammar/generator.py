@@ -11,7 +11,6 @@ from .frozen import FrozenSymbol, FrozenSymbolTable, FrozenSymbolKind
 from .exceptions import ParserGeneratorError
 from .symbols import (
     Production,
-    ProductionAction,
     TerminalSymbol,
     NonterminalSymbol,
     Symbol,
@@ -26,8 +25,6 @@ TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 TerminalKindT = typing.TypeVar('TerminalKindT', bound=enum.Enum)
 ExpressionT = typing.TypeVar('ExpressionT', bound=ast.ExpressionNode[typing.Any, typing.Any])
-
-FlagMap = typing.Dict[str, int]
 
 
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
@@ -297,7 +294,6 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-        flags: FlagMap,
         rules: typing.List[ast.RuleNode[TokenKindT, KeywordKindT]],
     ) -> None:
         self.rules = rules
@@ -312,7 +308,6 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             typing.Set[TerminalSymbol[TokenKindT, KeywordKindT]]
         ] = {}
 
-        self.flags = flags
         self.frozen_symbols = FrozenSymbolTable(tokens, keywords)
         self.productions: typing.List[Production[TokenKindT, KeywordKindT]] = []
         self.states: typing.List[ParserState[TokenKindT, KeywordKindT]] = []
@@ -341,10 +336,8 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     frozen_nonterminal, len(production.rhs), tuple(production.captured)
                 )
                 if production.action is not None:
-                    self.frozen_symbols.create_frozen_action(
-                        frozen_production,
-                        production.action.name,
-                        production.action.flags,
+                    self.frozen_symbols.add_production_action(
+                        frozen_production, production.action,
                     )
 
     def should_capture_uninlined_expression(
@@ -360,15 +353,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         nonterminal = self.nonterminals[rule.name]
 
         for item in rule.items:
-            production = Production(lhs=nonterminal)
-
-            if item.action is not None:
-                flags = 0
-                for flag in item.action.flags:
-                    flags |= self.flags[flag]
-
-                production.action = ProductionAction(name=item.action.name, flags=flags)
-
+            production = Production(lhs=nonterminal, action=item.action)
             self.add_symbols_for_expression(production, item.expression)
             nonterminal.productions.append(production)
 
@@ -388,13 +373,11 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | epsilon
                 temporary_production = Production(lhs=nonterminal)
+                temporary_production.action = '@flatten'
                 nonterminal.productions.append(temporary_production)
                 # | nonterminal expr
                 temporary_production = Production(lhs=nonterminal)
-                temporary_production.action = ProductionAction(
-                    name='@flatten',
-                    flags=0,
-                )
+                temporary_production.action = '@flatten'
                 self.add_symbols_for_expression(
                     temporary_production,
                     expression.expression,
@@ -419,6 +402,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | expr
                 temporary_production = Production(lhs=nonterminal)
+                temporary_production.action = '@flatten'
                 self.add_symbols_for_expression(
                     temporary_production,
                     expression.expression,
@@ -427,10 +411,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 nonterminal.productions.append(temporary_production)
                 # | nonterminal expr
                 temporary_production = Production(lhs=nonterminal)
-                temporary_production.action = ProductionAction(
-                    name='@flatten',
-                    flags=0,
-                )
+                temporary_production.action = '@flatten'
                 self.add_symbols_for_expression(
                     temporary_production,
                     expression.expression,
@@ -452,9 +433,11 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | epsilon
                 temporary_production = Production(lhs=nonterminal)
+                temporary_production.action = '@option'
                 nonterminal.productions.append(temporary_production)
                 # | expr
                 temporary_production = Production(lhs=nonterminal)
+                temporary_production.action = '@option'
                 self.add_symbols_for_expression(
                     temporary_production,
                     expression.expression,
@@ -756,8 +739,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         grammar: str,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-        flags: typing.Dict[str, int],
     ) -> typing.Dict[str, ParserTable[TokenKindT, KeywordKindT]]:
         rules = GrammarParser[TokenKindT, KeywordKindT].parse_from_source(grammar, tokens, keywords)
-        instance = cls(tokens, keywords, flags, rules)
+        instance = cls(tokens, keywords, rules)
         return instance.generate()

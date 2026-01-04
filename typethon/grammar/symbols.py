@@ -52,19 +52,13 @@ class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
         return str(self.kind)
 
 
-@attr.s(kw_only=True, slots=True)
-class ProductionAction:
-    name: str = attr.ib()
-    flags: int = attr.ib()
-
-
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
 class Production(typing.Generic[TokenKindT, KeywordKindT]):
     lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib()
     rhs: typing.List[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
     captured: typing.List[int] = attr.ib(factory=list, hash=False)
     # List of indexes in rhs that should be captured from the parse tree
-    action: typing.Optional[ProductionAction] = attr.ib(default=None, hash=False)
+    action: typing.Optional[str] = attr.ib(default=None, hash=False)
 
     def add_symbol(self, symbol: Symbol[TokenKindT, KeywordKindT], capture: bool) -> None:
         if capture:
@@ -98,7 +92,6 @@ class Production(typing.Generic[TokenKindT, KeywordKindT]):
 
 
 EOF = TerminalSymbol[typing.Any, typing.Any](kind=StdTokenKind.EOF)
-
 
 Symbol = typing.Union[
     NonterminalSymbol[TokenKindT, KeywordKindT],
