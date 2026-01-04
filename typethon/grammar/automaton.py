@@ -19,9 +19,7 @@ from ..syntax.tokens import Token
 
 TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
-
-# TODO: Allow the use of custom nodes instead
-# Reimplement parsers with new grammar
+TransformedNodeT = typing.TypeVar('TransformedNodeT')
 
 
 @attr.s(kw_only=True, slots=True)
@@ -29,37 +27,48 @@ class Leaf(typing.Generic[TokenKindT, KeywordKindT]):
     token: Token[TokenKindT, KeywordKindT] = attr.ib()
 
 
-NodeItem = typing.Union['Node[TokenKindT, KeywordKindT]', Leaf[TokenKindT, KeywordKindT]]
+NodeItem = typing.Union[
+    'Node[TokenKindT, KeywordKindT, TransformedNodeT]',
+    Leaf[TokenKindT, KeywordKindT],
+    TransformedNodeT
+]
 
 @attr.s(kw_only=True, slots=True)
-class Node(typing.Generic[TokenKindT, KeywordKindT]):
-    items: typing.List[NodeItem[TokenKindT, KeywordKindT]] = attr.ib()
+class Node(typing.Generic[TokenKindT, KeywordKindT, TransformedNodeT]):
+    items: typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]] = attr.ib()
 
 
-# TODO: Add a method for transforming Nodes
+ActionKindT = typing.Callable[
+    [typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]], int],
+    NodeItem[TokenKindT, KeywordKindT, TransformedNodeT],
+]  # (nodes: Node | Leaf | TransformedNode, flags: int) -> TransformedNode
 
-class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
+
+class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT, TransformedNodeT]):
     # https://www.cs.uaf.edu/~chappell/class/2023_spr/cs331/lect/cs331-20230220-shiftred.pdf
     def __init__(
         self,
         scanner: Scanner[TokenKindT, KeywordKindT],
         table: ParserTable[TokenKindT, KeywordKindT],
+        transformers: typing.Dict[str, ActionKindT[TokenKindT, KeywordKindT, TransformedNodeT]],
         *,
         deadlock_threshold: int = 10,
     ) -> None:
         self.scanner = scanner
         self.table = table
-
-        self.accepted = False
+        self.transformers = transformers
         self.deadlock_threshold = deadlock_threshold
+
         self.tokens: typing.List[Token[TokenKindT, KeywordKindT]] = []
         self.stack: typing.List[
             typing.Tuple[
                 # typing.Optional[FrozenSymbol],
-                typing.Optional[NodeItem[TokenKindT, KeywordKindT]],  # None for epsilon
+                typing.Optional[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]],
                 int
             ]
         ] = [(None, 0)]
+
+        self.transformers['@flatten'] = self.concatenate_items
 
     def current_state(self) -> int:
         if not self.stack:
@@ -84,12 +93,12 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
         return self.tokens.pop(0)
 
-    def create_node(
+    def pop_stack(
         self,
         index: int,
         captured: typing.Optional[typing.Tuple[int, ...]] = None,
-    ) -> Node[TokenKindT, KeywordKindT]:
-        items: typing.List[NodeItem[TokenKindT, KeywordKindT]] = []
+    ) -> typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]]:
+        items: typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]] = []
 
         if index:
             for i, (item, _) in enumerate(self.stack[-index:]):
@@ -99,9 +108,26 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
             del self.stack[-index:]
 
+        return items
+
+    def create_default_node(
+        self,
+        items: typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]]
+    ) -> Node[TokenKindT, KeywordKindT, TransformedNodeT]:
         return Node(items=items)
 
-    def next_action(self) -> typing.Optional[NodeItem[TokenKindT, KeywordKindT]]:
+    def concatenate_items(
+        self,
+        items: typing.List[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]],
+        flags: int,
+    ) -> Node[TokenKindT, KeywordKindT, TransformedNodeT]:
+        item = items[0]
+        assert isinstance(item, Node)
+
+        item.items.extend(items[1:])
+        return item
+
+    def next_action(self) -> typing.Optional[NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]]:
         current_state = self.current_state()
         terminal_symbol = self.current_symbol()
 
@@ -123,7 +149,15 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
                 production_id = entry[1]
                 frozen_production = self.table.frozen_symbols.frozen_productions[production_id]
 
-                node = self.create_node(frozen_production.rhs_length, frozen_production.captured)
+                items = self.pop_stack(frozen_production.rhs_length, frozen_production.captured)
+
+                action = self.table.frozen_symbols.get_frozen_action(frozen_production)
+                if action is not None:
+                    transformer = self.transformers[action.name]
+                    node = transformer(items, action.flags)
+                else:
+                    node = self.create_default_node(items)
+
                 current_state = self.current_state()
 
                 frozen_lhs = frozen_production.get_lhs()
@@ -141,7 +175,8 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
                 self.stack.append((node, next_state))
 
             case ActionKind.ACCEPT:
-                return self.create_node(len(self.stack) - 1)
+                items = self.pop_stack(len(self.stack) - 1)
+                return self.create_default_node(items)
 
             case ActionKind.REJECT:
                 token = self.table.frozen_symbols.terminals[terminal_symbol.id]
@@ -149,7 +184,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
                     f'Automaton encountered a rejected token {token!r}'
                 )
 
-    def parse(self) -> NodeItem[TokenKindT, KeywordKindT]:
+    def parse(self) -> NodeItem[TokenKindT, KeywordKindT, TransformedNodeT]:
         position = self.scanner.position
         stagnant_iterations = 0
 

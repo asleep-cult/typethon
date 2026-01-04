@@ -27,6 +27,7 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
             self.terminals.append(keyword)
 
         self.frozen_productions: typing.List[FrozenProduction] = []
+        self.frozen_actions: typing.Dict[int, FrozenProductionAction] = {}
         self.frozen_nonterminals: typing.Dict[str, FrozenSymbol] = {}
 
     def get_frozen_terminal(
@@ -40,6 +41,9 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
 
     def get_frozen_nonterminal(self, name: str) -> FrozenSymbol:
         return self.frozen_nonterminals[name]
+
+    def get_frozen_action(self, production: FrozenProduction) -> typing.Optional[FrozenProductionAction]:
+        return self.frozen_actions.get(production.id)
 
     def create_frozen_nonterminal(self, name: str) -> FrozenSymbol:
         symbol = FrozenSymbol(
@@ -67,6 +71,16 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
         self.frozen_productions.append(frozen_production)
         return frozen_production
 
+    def create_frozen_action(
+        self,
+        production: FrozenProduction,
+        name: str,
+        flags: int,
+    ) -> FrozenProductionAction:
+        frozen_action = FrozenProductionAction(name=name, flags=flags)
+        self.frozen_actions[production.id] = frozen_action
+        return frozen_action
+
 
 class FrozenSymbolKind(enum.IntEnum):
     NONTERMINAL = enum.auto()
@@ -88,3 +102,9 @@ class FrozenProduction:
 
     def get_lhs(self) -> FrozenSymbol:
         return FrozenSymbol(kind=FrozenSymbolKind.NONTERMINAL, id=self.lhs)
+
+
+@attr.s(kw_only=True, slots=True)
+class FrozenProductionAction:
+    name: str = attr.ib()
+    flags: int = attr.ib()

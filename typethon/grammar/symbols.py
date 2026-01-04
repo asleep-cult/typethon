@@ -52,12 +52,39 @@ class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
         return str(self.kind)
 
 
+@attr.s(kw_only=True, slots=True)
+class ProductionAction:
+    name: str = attr.ib()
+    flags: int = attr.ib()
+
+
 @attr.s(kw_only=True, slots=True, hash=True, eq=True)
 class Production(typing.Generic[TokenKindT, KeywordKindT]):
     lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib()
     rhs: typing.List[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
     captured: typing.List[int] = attr.ib(factory=list, hash=False)
     # List of indexes in rhs that should be captured from the parse tree
+    action: typing.Optional[ProductionAction] = attr.ib(default=None, hash=False)
+
+    def add_symbol(self, symbol: Symbol[TokenKindT, KeywordKindT], capture: bool) -> None:
+        if capture:
+            self.captured.append(len(self.rhs))
+
+        self.rhs.append(symbol)
+
+    def insert_symbol(self, index: int, symbol: Symbol[TokenKindT, KeywordKindT], capture: bool) -> None:
+        updated_captured: typing.List[int] = []
+        if capture:
+            updated_captured.append(index)
+
+        for captured in self.captured:
+            if captured >= index:
+                updated_captured.append(captured + 1)
+            else:
+                updated_captured.append(captured)
+
+        self.rhs.insert(index, symbol)
+        self.captured = updated_captured
 
     def __repr__(self) -> str:
         parts: typing.List[str] = [f'{self.lhs.name} ->']

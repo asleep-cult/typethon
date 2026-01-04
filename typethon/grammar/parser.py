@@ -126,29 +126,41 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
         token = self.peek_token()
         if token.kind is StdTokenKind.NEWLINE:
             self.scan_token()
-            token = self.peek_token()
 
+        token = self.peek_token()
         if token.kind is GrammarTokenKind.VERTICALBAR:
             self.scan_token()
+            action = None
+        else:
+            action = self.parse_rule_action()
+
+            token = self.peek_token()
+            if token.kind is GrammarTokenKind.VERTICALBAR:
+                self.scan_token()
 
         items: typing.List[ast.RuleItemNode[TokenKindT, KeywordKindT]] = []
 
-        while True:
-            expression = self.parse_expression()
+        expression = self.parse_expression()
+        item = ast.RuleItemNode(
+            startpos=token.start,
+            endpos=expression.endpos,
+            action=action,
+            expression=expression
+        )
+        items.append(item)
 
-            item = ast.RuleItemNode(
-                startpos=token.start,
-                endpos=expression.endpos,
-                expression=expression,
-            )
-            items.append(item)
+        token = self.peek_token()
+        if token.kind is StdTokenKind.NEWLINE:
+            self.scan_token()   
+
+        while True:
+            action = self.parse_rule_action()
 
             token = self.peek_token()
-            if token.kind is StdTokenKind.NEWLINE:
-                self.scan_token()
-                token = self.peek_token()
-
             if token.kind is not GrammarTokenKind.VERTICALBAR:
+                if action is not None:
+                    raise ValueError(f'Invalid grammar: {token!r}')
+
                 return ast.RuleNode(
                     name=name,
                     entrypoint=entrypoint,
@@ -158,6 +170,36 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
                 )
 
             self.scan_token()
+            expression = self.parse_expression()
+
+            item = ast.RuleItemNode(
+                startpos=token.start,
+                endpos=expression.endpos,
+                action=action,
+                expression=expression,
+            )
+            items.append(item)
+
+            token = self.peek_token()
+            if token.kind is StdTokenKind.NEWLINE:
+                self.scan_token()               
+
+    def parse_rule_action(self) -> typing.Optional[ast.ActionNode]:
+        token = self.peek_token()
+        if token.kind is not StdTokenKind.DIRECTIVE:
+            return
+
+        self.scan_token()
+        parts = [part.strip() for part in token.content.split(',')]
+
+        action = ast.ActionNode(
+            startpos=token.start,
+            endpos=token.end,
+            name=parts[0],
+            flags=parts[1:],
+        )
+
+        return action
 
     def parse_expression(self) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
         expression = self.parse_expression_group()
@@ -226,7 +268,7 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             expression = self.parse_atom()
 
         else:
-            raise ValueError(f'Invalid grammar token: {token!r}')
+            raise ValueError(f'Invalid grammar: {token!r}')
 
         return self.parse_expression_suffix(expression)
 
