@@ -6,11 +6,12 @@ import typing
 
 from ..syntax.tokens import StdTokenKind
 
+
 TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
 
-@attr.s(kw_only=True, slots=True, hash=True, eq=True, repr=False)
+@attr.s(kw_only=True, slots=True, hash=True, eq=False, repr=False)
 class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
     name: str = attr.ib(hash=True)
     entrypoint: bool = attr.ib(default=False)
@@ -52,9 +53,10 @@ class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
         return str(self.kind)
 
 
-@attr.s(kw_only=True, slots=True, hash=True, eq=True)
+@attr.s(kw_only=True, slots=True, hash=True, eq=False)
 class Production(typing.Generic[TokenKindT, KeywordKindT]):
-    lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib()
+    id: int = attr.ib(hash=True)
+    lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib(hash=False)
     rhs: typing.List[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
     captured: typing.List[int] = attr.ib(factory=list, hash=False)
     # List of indexes in rhs that should be captured from the parse tree

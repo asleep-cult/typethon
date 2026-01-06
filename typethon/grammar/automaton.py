@@ -4,7 +4,11 @@ import attr
 import typing
 import enum
 
-from .frozen import FrozenSymbol
+from .frozen import (
+    FrozenSymbol,
+    ActionKind,
+    FrozenParserTable,
+)
 from .exceptions import (
     ParserAutomatonError,
     UnexpectedTokenError,
@@ -12,7 +16,6 @@ from .exceptions import (
     DeadlockError,
     TokenRejectedError,
 )
-from .generator import ActionKind, ParserTable
 from ..syntax.scanner import Scanner
 from ..syntax.tokens import Token
 
@@ -40,7 +43,7 @@ class Node(typing.Generic[TokenKindT, KeywordKindT]):
 
 
 @attr.s(kw_only=True, slots=True)
-class FlattenNode(typing.Generic[NodeT]):
+class SequenceNode(typing.Generic[NodeT]):
     start: int = attr.ib()
     end: int = attr.ib()
     items: typing.List[NodeT] = attr.ib()
@@ -56,18 +59,18 @@ class OptionNode(typing.Generic[NodeT]):
         if self.item is not None:
             return fn(self.item)
 
-    def flatten(self: OptionNode[FlattenNode[ItemT]]) -> FlattenNode[ItemT]:
+    def sequence(self: OptionNode[SequenceNode[ItemT]]) -> SequenceNode[ItemT]:
         # get the flattened node or create an empty one
         if self.item is None:
-            return FlattenNode[ItemT](start=self.start, end=self.end, items=[])
+            return SequenceNode[ItemT](start=self.start, end=self.end, items=[])
 
-        assert isinstance(self.item, FlattenNode)
+        assert isinstance(self.item, SequenceNode)
         return self.item
 
 
 NodeItem = typing.Union[
     NodeLike,
-    FlattenNode['NodeItem[TokenKindT, KeywordKindT]'],
+    SequenceNode['NodeItem[TokenKindT, KeywordKindT]'],
     OptionNode['NodeItem[TokenKindT, KeywordKindT]'],
     Token[TokenKindT, KeywordKindT],
 ]
@@ -98,10 +101,10 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
         self,
         scanner: Scanner[TokenKindT, KeywordKindT],
-        table: ParserTable[TokenKindT, KeywordKindT],
+        table: FrozenParserTable[TokenKindT, KeywordKindT],
         transformers: typing.Iterable[Transformer[TokenKindT, KeywordKindT]],
         *,
-        deadlock_threshold: int = 10,
+        deadlock_threshold: int = 500,
     ) -> None:
         self.scanner = scanner
         self.table = table
@@ -117,9 +120,9 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
             ]
         ] = [(None, 0)]
 
-        self.transformers['@flatten_star'] = Transformer.from_function(self.transform_flatten_star)
-        # Call it prepend
-        self.transformers['@flatten_plus'] = Transformer.from_function(self.transform_flatten_plus)
+        self.transformers['@prepend'] = Transformer.from_function(self.transform_prepend)
+        self.transformers['@flatten'] = Transformer.from_function(self.transform_flatten)
+        self.transformers['@sequence'] = Transformer.from_function(self.transform_sequence)
         self.transformers['@option'] = Transformer.from_function(self.transform_option)
 
     def current_state(self) -> int:
@@ -181,29 +184,55 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
         start, end = self.get_item_span(items)
         return Node(start=start, end=end, items=items)
 
-    def transform_flatten_star(
+    def transform_prepend(
+        self,
+        span: typing.Tuple[int, int],
+        first_item: ItemT,
+        star_item: SequenceNode[ItemT],
+    ) -> SequenceNode[ItemT]:
+        star_item.items.insert(0, first_item)
+        return star_item
+
+    def flatten_recursive(
+        self,
+        sequence: SequenceNode[NodeItem[TokenKindT, KeywordKindT]],
+        item: NodeItem[TokenKindT, KeywordKindT],
+    ) -> None:
+        if isinstance(item, SequenceNode):
+            for inner_item in item.items:
+                self.flatten_recursive(sequence, inner_item)
+        else:
+            sequence.items.append(item)
+
+    def transform_flatten(
+        self,
+        span: typing.Tuple[int, int],
+        *items: NodeItem[TokenKindT, KeywordKindT],
+    ) -> NodeItem[TokenKindT, KeywordKindT]:
+        sequence = SequenceNode[NodeItem[TokenKindT, KeywordKindT]](
+            start=span[0], end=span[1], items=[]
+        )
+        for item in items:
+            self.flatten_recursive(sequence, item)
+
+        return sequence
+
+    def transform_sequence(
         self,
         span: typing.Tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if not items:
-            return FlattenNode[typing.Any](start=span[0], end=span[1], items=[])
+            return SequenceNode[NodeItem[TokenKindT, KeywordKindT]](
+                start=span[0], end=span[1], items=[]
+            )
 
         first_item = items[0]
-        assert isinstance(first_item, FlattenNode)
+        assert isinstance(first_item, SequenceNode)
 
         first_item.items.extend(items[1:])
         first_item.start, first_item.end = span
         return first_item
-
-    def transform_flatten_plus(
-        self,
-        span: typing.Tuple[int, int],
-        first_item: NodeItem[TokenKindT, KeywordKindT],
-        star_item: FlattenNode[typing.Any],
-    ) -> NodeItem[TokenKindT, KeywordKindT]:
-        star_item.items.insert(0, first_item)
-        return star_item
 
     def transform_option(
         self,
@@ -227,8 +256,13 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
         entry = self.table.get_action(current_state, terminal_symbol)
         if entry is None:
             token = self.table.frozen_symbols.terminals[terminal_symbol.id]
+
+            symbols = [symbol for state_id, symbol in self.table.actions if state_id == current_state]
+            tokens = [self.table.frozen_symbols.terminals[symbol.id] for symbol in symbols]
+            string = ', '.join(token.name for token in tokens)
             raise UnexpectedTokenError(
-                f'Automaton encountered an unexpected token {token!r} in state #{current_state}'
+                f'Automaton encountered an unexpected token {token!r} in state #{current_state}. '
+                f'The next token should have been one of the following: {string}.'
             )
 
         action = entry[0]

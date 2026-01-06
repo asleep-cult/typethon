@@ -3,10 +3,32 @@
     | !statement+
 
 statement:
+    | !simple_statements
     | !function_def
+    | !class_def
+    # | !for_statement
+    | !if_statement
+    | !while_statement
+
+simple_statements:
+    #[@prepend]
+    | !simple_statement (';' !simple_statement)* ';'? NEWLINE
+
+simple_statement:
+    #[create_pass_statement]
+    | 'pass'
+    #[create_break_statement]
+    | 'break'
+    #[create_continue_statement]
+    | 'continue'
+    #[create_expr_statement]
     | !expression
 
-block: NEWLINE INDENT !statement+ DEDENT
+block:
+    #[@flatten]
+    | NEWLINE INDENT !statement+ DEDENT
+    | !simple_statements
+
 decorators: ('@' !expression NEWLINE)+
 
 function_def:
@@ -14,24 +36,168 @@ function_def:
     | !decorators? 'def' !IDENTIFIER '(' !function_parameters? ')' '->' !expression (':' !block)?
 
 function_parameters:
-    #[create_parameters]
+    #[@prepend]
     | !function_parameter (',' !function_parameter)* ','?
 
 function_parameter:
     #[create_single_parameter]
     | !IDENTIFIER ':' !type ('=' !expression)?
 
-type: !atom
-expression: !atom
+class_def:
+    #[create_class]
+    | !decorators? 'class' !IDENTIFIER ':' !block
+
+# for_statement:
+    # [create_for_statement]
+    # | 'for' !target 'in' !expression ':' !block
+
+if_statement:
+    #[create_if_statement]
+    | 'if' !expression ':' !block !else_statement?
+
+else_statement:
+    #[create_elif_statement]
+    | 'elif' !expression ':' !block !else_statement?
+    | 'else' ':' !block
+
+while_statement:
+    #[create_while_statement]
+    | 'while' !expression ':' !block
+
+type: !type_atom
+
+type_atom:
+    #[create_constant]
+    | !'Self'
+    #[create_name]
+    | !IDENTIFIER
+
+expression:
+    | !disjunction
+
+disjunction:
+    #[create_disjunction]
+    | !conjunction ('or' !conjunction)+
+    | !conjunction
+
+conjunction:
+    #[create_conjunction]
+    | !inversion ('and' !inversion)+
+    | !inversion
+
+inversion:
+    #[create_inversion]
+    | 'not' !inversion
+    | !comparison
+
+comparison:
+    #[create_comparison]
+    | !bitwise_or !comparator+
+    | !bitwise_or
+
+comparator:
+    #[create_eq_comparator]
+    | '==' !bitwise_or
+    #[create_noteq_comparator]
+    | '!=' !bitwise_or
+    #[create_lthaneq_comparator]
+    | '<=' !bitwise_or
+    #[create_lthan_comparator]
+    | '<' !bitwise_or
+    #[create_gthaneq_comparator]
+    | '>=' !bitwise_or
+    #[create_gthan_comparator]
+    | '>' !bitwise_or
+    #[create_notin_comparator]
+    | 'not' 'in' !bitwise_or
+    #[create_in_comparator]
+    | 'in' !bitwise_or
+    #[create_isnot_comparator]
+    | 'is' 'not' !bitwise_or
+
+bitwise_or:
+    #[create_binary_operator]
+    | !bitwise_or !'|' !bitwise_xor
+    | !bitwise_xor
+
+bitwise_xor:
+    #[create_binary_operator]
+    | !bitwise_xor !'^' !bitwise_and
+    | !bitwise_and
+
+bitwise_and:
+    #[create_binary_operator]
+    | !bitwise_and !'&' !shift_expr
+    | !shift_expr
+
+shift_expr:
+    #[create_binary_operator]
+    | !shift_expr !'<<' !sum
+    #[create_binary_operator]
+    | !shift_expr !'>>' !sum
+    | !sum
+
+sum:
+    #[create_binary_operator]
+    | !sum !'+' !term
+    #[create_binary_operator]
+    | !sum !'-' !term
+    | !term
+
+term:
+    #[create_binary_operator]
+    | !term !'*' !factor
+    #[create_binary_operator]
+    | !term !'/' !factor
+    #[create_binary_operator]
+    | !term !'//' !factor
+    #[create_binary_operator]
+    | !term !'%' !factor
+    #[create_binary_operator]
+    | !term !'@' !factor
+    | !factor
+
+factor:
+    #[create_unary_operator]
+    | !'+' !factor
+    #[create_unary_operator]
+    | !'-' !factor
+    #[create_unary_operator]
+    | !'~' !factor
+    | !power
+
+power:
+    #[create_binary_operator]
+    | !primary !'**' !factor
+    | !primary
+
+primary:
+    #[create_attribute]
+    | !primary '.' !IDENTIFIER
+    # | !primary '(' !arguments? ')'
+    #[create_subscript]
+    | !primary '[' !slices ']'
+    | !atom
+
+slices:
+    #[@prepend]
+    | !slice (',' !slice)* ','?
+
+slice:
+    #[create_slice]
+    | !expression ':' !expression (':' !expression)?
+    | !expression
 
 atom:
     #[create_constant]
-    | 'True'
+    | !'True'
     #[create_constant]
-    | 'False'
+    | !'False'
     #[create_constant]
-    | '...'
+    | !'...'
     #[create_name]
     | !IDENTIFIER
+    #[create_number]
     | !NUMBER
+    #[create_string]
     | !STRING

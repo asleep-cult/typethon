@@ -260,7 +260,7 @@ class AttributeNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SubscriptNode(Node):
     value: ExpressionNode = attr.ib()
-    slice: ExpressionNode = attr.ib()
+    slices: typing.List[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)

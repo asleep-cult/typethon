@@ -3,6 +3,7 @@ from __future__ import annotations
 import attr
 import enum
 import typing
+import io
 
 from ..syntax.tokens import StdTokenKind, STD_TOKENS, TokenMap, KeywordMap
 
@@ -44,6 +45,13 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
 
     def get_frozen_action(self, production: FrozenProduction) -> typing.Optional[str]:
         return self.frozen_actions.get(production.id)
+
+    def get_nonterminal_name_by_id(self, id: int) -> str:
+        for name, nonterminal in self.frozen_nonterminals.items():
+            if nonterminal.id == id:
+                return name
+
+        return 'unknown'
 
     def create_frozen_nonterminal(self, name: str) -> FrozenSymbol:
         symbol = FrozenSymbol(
@@ -95,3 +103,89 @@ class FrozenProduction:
 
     def get_lhs(self) -> FrozenSymbol:
         return FrozenSymbol(kind=FrozenSymbolKind.NONTERMINAL, id=self.lhs)
+
+
+class ActionKind(enum.IntEnum):
+    SHIFT = enum.auto()
+    REDUCE = enum.auto()
+    ACCEPT = enum.auto()
+    REJECT = enum.auto()
+
+
+class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
+    def __init__(self, frozen_symbols: FrozenSymbolTable[TokenKindT, KeywordKindT]) -> None:
+        self.frozen_symbols = frozen_symbols
+        self.actions: typing.Dict[
+            typing.Tuple[int, FrozenSymbol], typing.Tuple[ActionKind, int]
+        ] = {}
+        self.gotos: typing.Dict[typing.Tuple[int, FrozenSymbol], int] = {}
+
+    def get_action(self, state_id: int, symbol: FrozenSymbol) -> typing.Optional[
+        typing.Tuple[ActionKind, int]
+    ]:
+        return self.actions.get((state_id, symbol))
+
+    def get_goto(self, state_id: int, symbol: FrozenSymbol) -> typing.Optional[int]:
+        return self.gotos.get((state_id, symbol))
+
+    def dump_table(self) -> str:
+        grouped_tables: typing.Dict[
+            int, 
+            typing.Tuple[
+                typing.List[
+                    typing.Tuple[FrozenSymbol, ActionKind, int]
+                ],  # Actions
+                typing.List[typing.Tuple[FrozenSymbol, int]],  # GOTOs
+            ]
+        ] = {}
+
+        for key, value in self.actions.items():
+            if key[0] not in grouped_tables:
+                grouped_tables[key[0]] = ([], [])
+
+            item = grouped_tables[key[0]]
+            actions = item[0]
+            actions.append((key[1], *value))
+
+        for key, value in self.gotos.items():
+            if key[0] not in grouped_tables:
+                grouped_tables[key[0]] = ([], [])
+
+            item = grouped_tables[key[0]]
+            gotos = item[1]
+            gotos.append((key[1], value))
+
+        writer = io.StringIO()
+
+        for state_id, item in grouped_tables.items():
+            writer.write(f'<state #{state_id}>\n')
+
+            actions = item[0]
+            writer.write(f'[ Actions: {len(actions)} ]\n')
+            for symbol, action, number in actions:
+                terminal = self.frozen_symbols.terminals[symbol.id]
+                writer.write(f'  (for symbol {str(terminal)!r}) {action.name} ')
+
+                match action:
+                    case ActionKind.SHIFT:
+                        writer.write(f'-> state #{number}')
+                    case ActionKind.REDUCE:
+                        production = self.frozen_symbols.frozen_productions[number]
+                        name = self.frozen_symbols.get_nonterminal_name_by_id(production.lhs)
+                        writer.write(f'[production: {name}]')
+
+                writer.write('\n')
+
+            gotos = item[1]
+            writer.write(f'[ GOTOs: {len(gotos)} ]\n')
+            for symbol, destination_id in gotos:
+                symbol_name = 'unknown'
+                for name, nonterminal in self.frozen_symbols.frozen_nonterminals.items():
+                    if nonterminal.id == symbol.id:
+                        symbol_name = name
+
+                writer.write(f'  (for symbol {str(symbol_name)!r}) -> state #{destination_id}\n')
+
+        writer.write('\n')
+
+        return writer.getvalue()
