@@ -354,16 +354,15 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         self.table.gotos[state_id, frozen_symbol] = destination_id
 
 
-# Despite my efforts, the parser table generator is unfortunately slow.
-# On PyPy, the performance is somewhat reasonable, but CPython
-# takes around a minute for the grammar which is not even complete yet.
-# It somehow spends over 20 seconds calling hash and dict.get....
-# It's not a huge big deal because the table only needs to be
-# regenerated when the grammar is changed but it still needs to be
-# improved.
-# The second to last optimization I can think of is resolving
-# all cache misses for closures.
-# The last is rewriting the whole thing in another language
+# Despite my efforts, the parser table generator is fairly slow.
+# Tracing seems to add a huge overhead so the results in 
+# README are not that useful for determing the overall speed.
+# On CPython, the average speed seems to be around 8.5 seconds
+# for the (currently incomplete) grammar. PyPy gets this down
+# to around 4.5. I don't think there is much more I can do to meaningfully
+# optimize this besides fixing the cache miss issue in compute_closure
+# which I genuinely don't understand. I can also consider working with
+# third party data structures that might help with performance.
 class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
         self,

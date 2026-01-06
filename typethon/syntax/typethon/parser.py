@@ -81,7 +81,7 @@ class ASTParser:
         end = time.perf_counter()
 
         difference = end - start
-        logger.debug(f'Generated tables after {difference:.2f} seconds')
+        logger.info(f'Generated tables after {difference:.2f} seconds')
 
     def create_pass_statement(self, span: typing.Tuple[int, int]) -> ast.PassNode:
         return ast.PassNode(start=span[0], end=span[1])
