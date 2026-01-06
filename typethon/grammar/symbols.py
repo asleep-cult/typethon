@@ -11,11 +11,18 @@ TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
 
-@attr.s(kw_only=True, slots=True, hash=True, eq=False, repr=False)
+@attr.s(kw_only=True, slots=True, hash=False, eq=False, repr=False)
 class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
-    name: str = attr.ib(hash=True)
+    hash: int = attr.ib(init=False)
+    name: str = attr.ib()
     entrypoint: bool = attr.ib(default=False)
-    productions: typing.List[Production[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
+    productions: typing.List[Production[TokenKindT, KeywordKindT]] = attr.ib(factory=list)
+
+    def __attrs_post_init__(self) -> None:
+        self.hash = hash(self.name)
+
+    def __hash__(self) -> int:
+        return self.hash
 
     def __str__(self) -> str:
         return self.name
@@ -41,8 +48,9 @@ class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
         return '\n'.join(parts)
 
 
-@attr.s(kw_only=True, slots=True, hash=True, eq=True)
+@attr.s(kw_only=True, slots=True, eq=True, hash=False)
 class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
+    hash: int = attr.ib(init=False)
     kind: typing.Union[
         TokenKindT,
         KeywordKindT,
@@ -52,15 +60,24 @@ class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
     def __str__(self) -> str:
         return str(self.kind)
 
+    def __attrs_post_init__(self) -> int:
+        self.hash = hash(self.kind.name)
 
-@attr.s(kw_only=True, slots=True, hash=True, eq=False)
+    def __hash__(self) -> int:
+        return self.hash
+
+
+@attr.s(kw_only=True, slots=True, hash=False, eq=False)
 class Production(typing.Generic[TokenKindT, KeywordKindT]):
-    id: int = attr.ib(hash=True)
-    lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib(hash=False)
-    rhs: typing.List[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list, hash=False)
-    captured: typing.List[int] = attr.ib(factory=list, hash=False)
+    id: int = attr.ib()
+    lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib()
+    rhs: typing.List[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list)
+    captured: typing.List[int] = attr.ib(factory=list)
     # List of indexes in rhs that should be captured from the parse tree
-    action: typing.Optional[str] = attr.ib(default=None, hash=False)
+    action: typing.Optional[str] = attr.ib(default=None)
+
+    def __hash__(self) -> int:
+        return self.id
 
     def add_symbol(self, symbol: Symbol[TokenKindT, KeywordKindT], capture: bool) -> None:
         if capture:
