@@ -50,6 +50,14 @@ def identity(x: |T|) -> T:
 class Box:
     value: |T|
 
+# Actually, I do not like this syntax. I think I will to steal OCaml's polymorphic
+# type syntax.
+
+def f(x: 't) -> 't
+
+# We will just have to get rid of single quote strings. And restrict them
+# to single characters depending on how strings end up working.
+
 # Classes will automatically have initializers for the attributes defined
 # in their body. I'm unsure whether there will be getters, setters,
 # getattribute and other weird overrides.
@@ -320,4 +328,21 @@ class Collection(
 ) with Index|U, V| for T
 
 # If functions get defaults, kwonly args, etc., classes do as well.
+
+# 15. I think maybe there should be some monad-like builtin type and special syntax
+# for it. This could be used for things like handling. For this to work,
+# I think higher kinded types will be necessary which I barely understand.
+
+def some_function() -> Result(int, Error)
+
+# So someting like this: 
+result = some_function()
+if not result.is_error():
+    other_function(result.value)
+
+# Might be written as:
+result = some_function() in
+value -> other_function(value)
+
+# Not sure...
 ```
