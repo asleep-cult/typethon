@@ -39,26 +39,20 @@ ParserItem = typing.Tuple[
     typing.FrozenSet[TerminalSymbol[TokenKindT, KeywordKindT]]
 ]
 InternedParserItem = int
-NonterminalSetMap = typing.Dict[
-    NonterminalSymbol[TokenKindT, KeywordKindT],
-    typing.Set[InternedParserItem],
-]
-TerminalSetMap = typing.Dict[
-    TerminalSymbol[TokenKindT, KeywordKindT],
-    typing.Set[InternedParserItem],
-]
 
 
 class ItemSet(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
         self,
-        intern_lookup: typing.Dict[ParserItem[TokenKindT, KeywordKindT], int],
         interned_items: typing.List[ParserItem[TokenKindT, KeywordKindT]],
+        interned_items_lookup: typing.Dict[ParserItem[TokenKindT, KeywordKindT], int],
+        interned_symbols: typing.List[Symbol[TokenKindT, KeywordKindT]],
     ) -> None:
-        self.intern_lookup = intern_lookup
+        self.interned_items_lookup = interned_items_lookup
         self.interned_items = interned_items
-        self.nonterminal_items: NonterminalSetMap[TokenKindT, KeywordKindT] = defaultdict(set)
-        self.terminal_items: TerminalSetMap[TokenKindT, KeywordKindT] = defaultdict(set)
+        self.interned_symbols = interned_symbols
+        self.nonterminal_items: typing.Dict[int, typing.Set[InternedParserItem]] = defaultdict(set)
+        self.terminal_items: typing.Dict[int, typing.Set[InternedParserItem]] = defaultdict(set)
         self.completed_items: typing.Set[InternedParserItem] = set()
         self.all_interned_items: typing.Set[InternedParserItem] = set()
 
@@ -82,24 +76,30 @@ class ItemSet(typing.Generic[TokenKindT, KeywordKindT]):
 
     def iter_symbols(self) -> typing.Iterator[Symbol[TokenKindT, KeywordKindT]]:
         return itertools.chain(
-            self.nonterminal_items.keys(),
-            self.terminal_items.keys(),
+            (self.interned_symbols[symbol] for symbol in self.nonterminal_items.keys()),
+            (self.interned_symbols[symbol] for symbol in  self.terminal_items.keys()),
         )
 
     def iter_nonterminal_items_with_symbol(self) -> typing.Iterator[
-        typing.Tuple[NonterminalSymbol[TokenKindT, KeywordKindT], ParserItem[TokenKindT, KeywordKindT]]
+        typing.Tuple[
+            NonterminalSymbol[TokenKindT, KeywordKindT],
+            ParserItem[TokenKindT, KeywordKindT]
+        ]
     ]:
         return (
-            (nonterminal, self.interned_items[item])
+            (self.interned_symbols[nonterminal], self.interned_items[item])
             for (nonterminal, items) in self.nonterminal_items.items()
             for item in items
         )
 
     def iter_terminal_items_with_symbol(self) -> typing.Iterator[
-        typing.Tuple[TerminalSymbol[TokenKindT, KeywordKindT], ParserItem[TokenKindT, KeywordKindT]]
+        typing.Tuple[
+            TerminalSymbol[TokenKindT, KeywordKindT],
+            ParserItem[TokenKindT, KeywordKindT]
+        ]
     ]:
         return (
-            (terminal, self.interned_items[item])
+            (self.interned_symbols[terminal], self.interned_items[item])
             for (terminal, items) in self.terminal_items.items()
             for item in items
         )
@@ -136,49 +136,30 @@ class ItemSet(typing.Generic[TokenKindT, KeywordKindT]):
             self.iter_completed_items(),
         )
 
-    def get_effective_map(
-        self,
-        symbol: Symbol[TokenKindT, KeywordKindT],
-    ) -> typing.Union[
-        NonterminalSetMap[TokenKindT, KeywordKindT],
-        TerminalSetMap[TokenKindT, KeywordKindT],
-    ]:
-        if isinstance(symbol, NonterminalSymbol):
-            return self.nonterminal_items
-        else:
-            return self.terminal_items
-
-    def get_effective_set(
-        self,
-        symbol: Symbol[TokenKindT, KeywordKindT],
-    ) -> typing.Set[InternedParserItem]:
-        if isinstance(symbol, NonterminalSymbol):
-            return self.nonterminal_items[symbol]
-        else:
-            return self.terminal_items[symbol]
-
     def add_item(
         self,
         item: ParserItem[TokenKindT, KeywordKindT],
-        *,
-        cache_key: bool = True,
     ) -> bool:
-        interned_item = self.intern_lookup.get(item)
+        interned_item = self.interned_items_lookup.get(item)
         if interned_item is None:
             interned_item = len(self.interned_items)
             self.interned_items.append(item)
-            self.intern_lookup[item] = interned_item
+            self.interned_items_lookup[item] = interned_item
 
         if len(item[0].rhs) > item[1]:
             current_symbol = item[0].rhs[item[1]]
-            container = self.get_effective_set(current_symbol)
+
+            if isinstance(current_symbol, NonterminalSymbol):
+                container = self.nonterminal_items[current_symbol.id]
+            else:
+                container = self.terminal_items[current_symbol.id]
         else:
             container = self.completed_items
 
         length = len(container)
         container.add(interned_item)
         changed = len(container) != length
-        if changed and cache_key:
+        if changed:
             self.all_interned_items.add(interned_item)
 
         return changed
@@ -371,16 +352,17 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             typing.Set[TerminalSymbol[TokenKindT, KeywordKindT]]
         ] = {}
 
+        self.interned_items_lookup: typing.Dict[ParserItem[TokenKindT, KeywordKindT], int] = {}
+        self.interned_items: typing.List[ParserItem[TokenKindT, KeywordKindT]] = []
+        self.interned_symbols: typing.List[Symbol[TokenKindT, KeywordKindT]] = []
+
         self.frozen_symbols = FrozenSymbolTable(tokens, keywords)
         self.states: typing.List[ParserState[TokenKindT, KeywordKindT]] = []
         self.productions: typing.List[Production[TokenKindT, KeywordKindT]] = []
-        self.transitions: typing.Dict[
-            typing.Tuple[int, Symbol[TokenKindT, KeywordKindT]], int
-        ] = {}
-        self.intern_lookup: typing.Dict[ParserItem[TokenKindT, KeywordKindT], int] = {}
-        self.interned_items: typing.List[ParserItem[TokenKindT, KeywordKindT]] = []
+        self.transitions: typing.Dict[typing.Tuple[int, int], int] = {}
+
         self.precomputed_gotos: typing.Dict[
-            typing.Tuple[int, Symbol[TokenKindT, KeywordKindT]],
+            typing.Tuple[int, int],
             ParserState[TokenKindT, KeywordKindT],
         ] = {}
         self.precomputed_closures: typing.Dict[
@@ -401,17 +383,38 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
     def create_item_set(self) -> ItemSet[TokenKindT, KeywordKindT]:
         return ItemSet(
-            intern_lookup=self.intern_lookup,
             interned_items=self.interned_items,
+            interned_items_lookup=self.interned_items_lookup,
+            interned_symbols=self.interned_symbols,
         )
+
+    def create_nonterminal_symbol(
+        self,
+        *,
+        name: str,
+        entrypoint: bool = False
+    ) -> NonterminalSymbol[TokenKindT, KeywordKindT]:
+        symbol = NonterminalSymbol[TokenKindT, KeywordKindT](
+            id=len(self.interned_symbols),
+            name=name,
+            entrypoint=entrypoint,
+        )
+        self.nonterminals[symbol.name] = symbol
+        self.interned_symbols.append(symbol)
+        return symbol
 
     def initialize_nonterminals(self) -> None:
         for rule in self.rules:
-            self.nonterminals[rule.name] = NonterminalSymbol(name=rule.name, entrypoint=rule.entrypoint)
+            self.create_nonterminal_symbol(
+                name=rule.name,
+                entrypoint=rule.entrypoint,
+            )
 
     def initialize_terminals(self) -> None:
         for terminal in self.frozen_symbols.terminals:
-            self.terminals[terminal] = TerminalSymbol(kind=terminal)
+            symbol = TerminalSymbol(id=len(self.interned_symbols), kind=terminal)
+            self.interned_symbols.append(symbol)
+            self.terminals[terminal] = symbol
 
     def initialize_productions(self) -> None:
         for rule in self.rules:
@@ -471,7 +474,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         capture: bool = False,
     ) -> None:
         # star-a:b = nonterminal
-        nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](name=name)
+        nonterminal = self.create_nonterminal_symbol(name=name)
         self.nonterminals[nonterminal.name] = nonterminal
         # | epsilon
         temporary_production = self.create_production(lhs=nonterminal)
@@ -514,7 +517,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
             case ast.PlusNode():
                 # plus-a:b = nonterminal
-                nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](
+                nonterminal = self.create_nonterminal_symbol(
                     name=f'plus-{expression.start}-{expression.end}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
@@ -542,7 +545,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
             case ast.OptionalNode():
                 # optional-a:b = nonterminal
-                nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](
+                nonterminal = self.create_nonterminal_symbol(
                     name=f'optional-{expression.start}-{expression.end}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
@@ -570,7 +573,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
             case ast.AlternativeNode():
                 # plus-a:b = nonterminal
-                nonterminal = NonterminalSymbol[TokenKindT, KeywordKindT](
+                nonterminal = self.create_nonterminal_symbol(
                     name=f'alternative-{expression.start}-{expression.end}'
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
@@ -709,7 +712,10 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 ]
             ] = {}
         
-            for symbol, interned_items in items.nonterminal_items.items():
+            for interned_symbol, interned_items in items.nonterminal_items.items():
+                symbol = self.interned_symbols[interned_symbol]
+                assert isinstance(symbol, NonterminalSymbol)
+
                 for interned_item in interned_items:
                     precomputed_closure = self.precomputed_closures.get(interned_item)
                     if precomputed_closure is not None:
@@ -736,7 +742,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
             for symbol, first_set in first_sets:
                 for production in symbol.productions:
-                    added = items.add_item((production, 0, first_set), cache_key=True)
+                    added = items.add_item((production, 0, first_set))
                     if added:
                         changed = changed or added
 
@@ -760,12 +766,16 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
     ) -> ParserState[TokenKindT, KeywordKindT]:
         result = self.create_item_set()
 
-        mapping = state.items.get_effective_map(symbol)
-        for production, position, lookahead in state.items.iter_interned_items(mapping[symbol]):
+        if isinstance(symbol, NonterminalSymbol):
+            mapping = state.items.nonterminal_items
+        else:
+            mapping = state.items.terminal_items
+
+        for production, position, lookahead in state.items.iter_interned_items(mapping[symbol.id]):
             result.add_item((production, position + 1, lookahead))
 
         next_state = self.compute_closure(result)
-        self.precomputed_gotos[state.id, symbol] = next_state
+        self.precomputed_gotos[state.id, symbol.id] = next_state
         return next_state
 
     def create_state(
@@ -799,12 +809,12 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
             for state in self.states:
                 for symbol in state.items.iter_symbols():
-                    next_state = self.precomputed_gotos.get((state.id, symbol))
+                    next_state = self.precomputed_gotos.get((state.id, symbol.id))
                     if next_state is None:
                         next_state = self.compute_goto(state, symbol)
                         changed = True
 
-                    transition = self.transitions.get((state.id, symbol))
+                    transition = self.transitions.get((state.id, symbol.id))
                     if (
                         transition is not None
                         and transition != next_state.id
@@ -820,7 +830,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                             )
                         )
 
-                    self.transitions[state.id, symbol] = next_state.id
+                    self.transitions[state.id, symbol.id] = next_state.id
 
                 if changed:
                     break
@@ -849,15 +859,12 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                         builder.add_reduce(state.id, lookahead_symbol, production.id)
 
             for symbol, (production, _, lookahed) in state.items.iter_terminal_items_with_symbol():
-                transition = self.transitions.get((state.id, symbol))
+                transition = self.transitions.get((state.id, symbol.id))
                 if transition is not None:
                     builder.add_shift(state.id, symbol, transition)
 
             for nonterminal in self.nonterminals.values():
-                if nonterminal not in state.items.nonterminal_items:
-                    continue
-
-                transition = self.transitions.get((state.id, nonterminal))
+                transition = self.transitions.get((state.id, nonterminal.id))
                 if transition is not None:
                     builder.add_goto(state.id, nonterminal, transition)
 

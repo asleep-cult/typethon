@@ -13,16 +13,13 @@ KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
 @attr.s(kw_only=True, slots=True, hash=False, eq=False, repr=False)
 class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
-    hash: int = attr.ib(init=False)
+    id: int = attr.ib()
     name: str = attr.ib()
     entrypoint: bool = attr.ib(default=False)
     productions: typing.List[Production[TokenKindT, KeywordKindT]] = attr.ib(factory=list)
 
-    def __attrs_post_init__(self) -> None:
-        self.hash = hash(self.name)
-
     def __hash__(self) -> int:
-        return self.hash
+        return self.id
 
     def __str__(self) -> str:
         return self.name
@@ -50,7 +47,7 @@ class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
 
 @attr.s(kw_only=True, slots=True, eq=True, hash=False)
 class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
-    hash: int = attr.ib(init=False)
+    id: int = attr.ib()
     kind: typing.Union[
         TokenKindT,
         KeywordKindT,
@@ -60,11 +57,8 @@ class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
     def __str__(self) -> str:
         return str(self.kind)
 
-    def __attrs_post_init__(self) -> int:
-        self.hash = hash(self.kind.name)
-
     def __hash__(self) -> int:
-        return self.hash
+        return self.id
 
 
 @attr.s(kw_only=True, slots=True, hash=False, eq=False)
@@ -110,7 +104,7 @@ class Production(typing.Generic[TokenKindT, KeywordKindT]):
         return ' '.join(parts)
 
 
-EOF = TerminalSymbol[typing.Any, typing.Any](kind=StdTokenKind.EOF)
+EOF = TerminalSymbol[typing.Any, typing.Any](id=0, kind=StdTokenKind.EOF)
 
 Symbol = typing.Union[
     NonterminalSymbol[TokenKindT, KeywordKindT],
