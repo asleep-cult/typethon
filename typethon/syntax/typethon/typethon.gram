@@ -202,4 +202,4 @@ atom:
     #[create_number]
     | !NUMBER
     #[create_string]
-    | !STRING
+    | !STRING+

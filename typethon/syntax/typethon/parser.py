@@ -1,5 +1,6 @@
 import typing
 import time
+import io
 import logging
 import inspect
 from pathlib import Path
@@ -13,7 +14,13 @@ from .tokens import (
     create_scanner,
 )
 from . import ast
-from ..tokens import IdentifierToken
+from ..tokens import (
+    IdentifierToken,
+    NumberToken,
+    NumberTokenFlags,
+    StringToken,
+    StringTokenFlags,
+)
 
 from ...grammar import (
     FrozenParserTable,
@@ -313,30 +320,6 @@ class ASTParser:
             value=value,
         )
 
-    def create_notin_comparator(
-        self,
-        span: typing.Tuple[int, int],
-        value: ast.ExpressionNode,
-    ) -> ast.ComparatorNode:
-        return ast.ComparatorNode(
-            start=span[0],
-            end=span[1],
-            op=ast.CmpOperatorKind.NOTIN,
-            value=value,
-        )
-
-    def create_isnot_comparator(
-        self,
-        span: typing.Tuple[int, int],
-        value: ast.ExpressionNode,
-    ) -> ast.ComparatorNode:
-        return ast.ComparatorNode(
-            start=span[0],
-            end=span[1],
-            op=ast.CmpOperatorKind.ISNOT,
-            value=value,
-        )
-
     def create_binary_operator(
         self,
         span: typing.Tuple[int, int],
@@ -464,6 +447,77 @@ class ASTParser:
                     end=span[1],
                     kind=ast.ConstantKind.FALSE,
                 )
+
+    def create_number(
+        self,
+        span: typing.Tuple[int, int],
+        token: NumberToken,
+    ) -> ast.ConstantNode:
+        if token.flags & NumberTokenFlags.BINARY:
+            radix = 2
+        elif token.flags & NumberTokenFlags.OCTAL:
+            radix = 8
+        elif token.flags & NumberTokenFlags.HEXADECIMAL:
+            radix = 16
+        else:
+            radix = -1
+
+        if radix != -1:
+            return ast.IntegerNode(
+                start=span[0],
+                end=span[1],
+                value=int(token.content, radix),
+            )
+
+        if token.flags & NumberTokenFlags.IMAGINARY:
+            return ast.ComplexNode(
+                start=span[0],
+                end=span[1],
+                value=complex(token.content),
+            )
+
+        if token.flags & NumberTokenFlags.FLOAT:
+            return ast.FloatNode(
+                start=span[0],
+                end=span[1],
+                value=float(token.content),
+            )
+
+        return ast.IntegerNode(
+            start=span[0],
+            end=span[1],
+            value=int(token.content),
+        )
+
+    def create_string(
+        self,
+        span: typing.Tuple[int, int],
+        string_tokens: SequenceNode[StringToken],
+    ) -> ast.StringNode:
+        writer = io.StringIO()
+        flags = ast.StringFlags.NONE
+
+        for token in string_tokens.items:
+            writer.write(token.content)
+            # TODO: What is a T-String?
+            # We actually need to check to make sure bytes and we
+            # cant actually just combine the flags like this 
+
+            if (token.flags & StringTokenFlags.RAW) != 0:
+                flags |= ast.StringFlags.RAW
+
+            if (token.flags & StringTokenFlags.BYTES) != 0:
+                flags |= ast.StringFlags.BYTES
+
+            if (token.flags & StringTokenFlags.FORMAT) != 0:
+                flags |= ast.StringFlags.FORMAT
+
+        return ast.StringNode(
+            start=span[0],
+            end=span[1],
+            value=writer.getvalue(),
+            flags=flags,
+        )
 
     def create_name(
         self,

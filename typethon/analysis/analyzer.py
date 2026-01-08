@@ -853,7 +853,7 @@ class TypeAnalyzer:
                     self.report_error(
                         expression,
                         'Unresolved reference to name `{0}`',
-                        symbol.name,
+                        expression.value,
                     )
 
                 ctx.name_hook(symbol.content, expression)
