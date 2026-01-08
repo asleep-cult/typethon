@@ -7,7 +7,7 @@ from . import types
 from .builder import Types, Ops, Traits, DEBUG
 from .context import AnalysisContext, ContextFlags
 from ..diagnostics import DiagnosticReporter
-from ..syntax.python import ast
+from ..syntax.typethon import ast
 from .scope import Scope, Symbol, UNRESOLVED
 
 T = typing.TypeVar('T', bound=ast.StatementNode)
@@ -125,8 +125,7 @@ class TypeAnalyzer:
         self, statement: ast.FunctionDefNode,
     ) -> typing.Generator[ast.TypeParameterNode]:
         for parameter in statement.parameters:
-            if parameter.annotation is not None:
-                yield from self.walk_type_parameters(parameter.annotation)
+            yield from self.walk_type_parameters(parameter.annotation)
 
     def walk_class_parameters(
         self, statement: ast.ClassDefNode
@@ -189,37 +188,21 @@ class TypeAnalyzer:
                     function_scope = scope.get_child_scope(statement.name)
 
                     for parameter in statement.parameters:
-                        if parameter.annotation is None:
-                            self.report_error(
-                                parameter,
-                                'Parameter `{0}` in `{1}` is missing an annotation',
-                                parameter.name,
-                                function.name,
-                            )
-                            type = types.UNKNOWN
-                        else:
-                            type = self.evaluate_annotation(
-                                function_scope,
-                                parameter.annotation,
-                                function,
-                            )
+                        type = self.evaluate_annotation(
+                            function_scope,
+                            parameter.annotation,
+                            function,
+                        )
 
                         function.fn_parameters[parameter.name] = (
                             types.FunctionParameter(name=parameter.name, type=type)
                         )
 
-                    if statement.returns is not None:
-                        function.fn_returns = self.evaluate_annotation(
-                            function_scope,
-                            statement.returns,
-                            function,
-                        )
-                    else:
-                        self.report_error(
-                            statement,
-                            '`{0}` is missing a return type annotation',
-                            function.name
-                        )
+                    function.fn_returns = self.evaluate_annotation(
+                        function_scope,
+                        statement.returns,
+                        function,
+                    )
 
                     function.complete_propagation()
 
@@ -285,7 +268,7 @@ class TypeAnalyzer:
         # we just need to find somewhere reasonable to put Self that this
         # function can access
         match expression:
-            case ast.TypeNameNode():
+            case ast.NameNode():
                 if expression.value == 'Self':
                     # TODO; Invalid Syntax
                     assert isinstance(owner, types.FunctionType)
@@ -825,7 +808,9 @@ class TypeAnalyzer:
 
             case ast.SubscriptNode():
                 instance = self.analyze_instance_type(scope, ctx, expression.value)
-                slice = self.analyze_instance_type(scope, ctx, expression.slice)
+
+                assert len(expression.slices) == 0, 'TODO Maybe'
+                slice = self.analyze_instance_type(scope, ctx, expression.slices[0])
 
                 implementation = instance.type.get_trait_implementation(
                     Traits.INDEX.with_parameters([slice.type, types.ANY])
@@ -972,32 +957,29 @@ class TypeAnalyzer:
         return type
 
     def analyze_constant(self, constant: ast.ConstantNode) -> types.InstanceOfType:
-        match constant.type:
-            case ast.ConstantType.TRUE:
+        match constant.kind:
+            case ast.ConstantKind.TRUE:
                 return Types.TRUE
 
-            case ast.ConstantType.FALSE:
+            case ast.ConstantKind.FALSE:
                 return Types.FALSE
 
-            case ast.ConstantType.NONE:
-                return Types.NONE
-
-            case ast.ConstantType.ELLIPSIS:
+            case ast.ConstantKind.ELLIPSIS:
                 assert False, '<TODO>'  # XXX: Does this really need to exist...
 
-            case ast.ConstantType.INTEGER:
+            case ast.ConstantKind.INTEGER:
                 assert isinstance(constant, ast.IntegerNode)
                 return Types.INT.to_instance(constant.value)
 
-            case ast.ConstantType.FLOAT:
+            case ast.ConstantKind.FLOAT:
                 assert isinstance(constant, ast.FloatNode)
                 return Types.FLOAT.to_instance(constant.value)
 
-            case ast.ConstantType.COMPLEX:
+            case ast.ConstantKind.COMPLEX:
                 assert isinstance(constant, ast.ComplexNode)
                 return Types.FLOAT.to_instance(constant.value)
 
-            case ast.ConstantType.STRING | ast.ConstantType.BYTES:
+            case ast.ConstantKind.STRING | ast.ConstantKind.BYTES:
                 assert False, '<TODO>'
 
     def resolve_type_parameters_from_arguments(
@@ -1078,7 +1060,7 @@ class TypeAnalyzer:
 
         if function is DEBUG:
             prettyprinter.cpprint(arguments)
-            return Types.NONE
+            return function.fn_returns.to_instance()
 
         parameters = self.resolve_type_parameters_from_arguments(node, function, arguments)
         function = function.with_parameters(parameters)

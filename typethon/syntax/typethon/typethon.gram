@@ -21,6 +21,8 @@ simple_statement:
     | 'break'
     #[create_continue_statement]
     | 'continue'
+    #[create_return_statement]
+    | 'return' !expression?
     #[create_expr_statement]
     | !expression
 
@@ -96,24 +98,24 @@ comparison:
     | !bitwise_or
 
 comparator:
-    #[create_eq_comparator]
-    | '==' !bitwise_or
-    #[create_noteq_comparator]
-    | '!=' !bitwise_or
-    #[create_lthaneq_comparator]
-    | '<=' !bitwise_or
-    #[create_lthan_comparator]
-    | '<' !bitwise_or
-    #[create_gthaneq_comparator]
-    | '>=' !bitwise_or
-    #[create_gthan_comparator]
-    | '>' !bitwise_or
-    #[create_notin_comparator]
-    | 'not' 'in' !bitwise_or
-    #[create_in_comparator]
-    | 'in' !bitwise_or
-    #[create_isnot_comparator]
-    | 'is' 'not' !bitwise_or
+    #[create_comparator_one]
+    | !'==' !bitwise_or
+    #[create_comparator_one]
+    | !'!=' !bitwise_or
+    #[create_comparator_one]
+    | !'<=' !bitwise_or
+    #[create_comparator_one]
+    | !'<' !bitwise_or
+    #[create_comparator_one]
+    | !'>=' !bitwise_or
+    #[create_comparator_one]
+    | !'>' !bitwise_or
+    #[create_comparator_two]
+    | !'not' !'in' !bitwise_or
+    #[create_comparator_one]
+    | !'in' !bitwise_or
+    #[create_comparator_two]
+    | !'is' !'not' !bitwise_or
 
 bitwise_or:
     #[create_binary_operator]

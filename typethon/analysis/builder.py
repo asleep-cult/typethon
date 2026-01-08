@@ -167,8 +167,7 @@ class Types:
     # This is meant as a placeholder when the analyzer
     # doesn't care about a type
 
-    NONE_TYPE = TypeBuilder.new_type('NoneType')
-    NONE = NONE_TYPE.to_instance()
+    UNIT_TYPE = TypeBuilder.new_type('unit')
 
     BOOL = TypeBuilder.new_type('bool')
     TRUE = BOOL.to_instance(True)
@@ -316,4 +315,4 @@ TypeBuilder.add_all_traits(
     Index.with_parameters([Types.INT, Types.LIST.parameters[0]]),
 )
 
-DEBUG = TypeBuilder.new_function('debug', returns=Types.NONE_TYPE)
+DEBUG = TypeBuilder.new_function('debug', returns=Types.UNIT_TYPE)

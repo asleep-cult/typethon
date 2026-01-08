@@ -14,7 +14,6 @@ from .exceptions import (
     UnexpectedTokenError,
     StackUnderflowError,
     DeadlockError,
-    TokenRejectedError,
 )
 from ..syntax.scanner import Scanner
 from ..syntax.tokens import Token
@@ -140,7 +139,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
             token = self.scanner.scan()
             self.tokens.append(token)
 
-        return self.table.frozen_symbols.get_frozen_terminal(token.kind)
+        return token.kind.name
 
     def advance(self) -> Token[TokenKindT, KeywordKindT]:
         if not self.tokens:
@@ -253,15 +252,20 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
         current_state = self.current_state()
         terminal_symbol = self.current_symbol()
 
-        entry = self.table.get_action(current_state, terminal_symbol)
+        interned_symbol = self.table.frozen_symbols.get_interned_terminal(terminal_symbol)
+        entry = self.table.get_action(current_state, interned_symbol)
         if entry is None:
-            token = self.table.frozen_symbols.terminals[terminal_symbol.id]
-
-            symbols = [symbol for state_id, symbol in self.table.actions if state_id == current_state]
-            tokens = [self.table.frozen_symbols.terminals[symbol.id] for symbol in symbols]
-            string = ', '.join(token.name for token in tokens)
+            interned_symbols = [
+                interned_symbol for state_id, interned_symbol in self.table.actions
+                if state_id == current_state
+            ]
+            frozen_symbols = [
+                self.table.frozen_symbols.get_frozen_symbol(interned_symbol)
+                for interned_symbol in interned_symbols
+            ]
+            string = ', '.join(frozen_symbols)
             raise UnexpectedTokenError(
-                f'Automaton encountered an unexpected token {token!r} in state #{current_state}. '
+                f'Automaton encountered an unexpected token {terminal_symbol!r} in state #{current_state}. '
                 f'The next token should have been one of the following: {string}.'
             )
 
@@ -274,11 +278,11 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
             case ActionKind.REDUCE:
                 production_id = entry[1]
-                frozen_production = self.table.frozen_symbols.frozen_productions[production_id]
+                frozen_production = self.table.frozen_symbols.get_frozen_production(production_id)
 
                 items = self.pop_stack(frozen_production.rhs_length, frozen_production.captured)
 
-                action = self.table.frozen_symbols.get_frozen_action(frozen_production)
+                action = self.table.frozen_symbols.get_frozen_action(frozen_production.id)
                 if action is not None:
                     transformer = self.transformers[action]
                     node = transformer.transform(self.get_item_span(items), items)
@@ -287,29 +291,25 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
                 current_state = self.current_state()
 
-                frozen_lhs = frozen_production.get_lhs()
-                next_state = self.table.get_goto(current_state, frozen_lhs)
+                next_state = self.table.get_goto(current_state, frozen_production.lhs)
                 if next_state is None:
-                    nonterminal_name = 'unknown'
-                    for name, nonterminal in self.table.frozen_symbols.frozen_nonterminals.items():
-                        if nonterminal.id == production_id:
-                            nonterminal_name = name
-
+                    nonterminal = self.table.frozen_symbols.get_frozen_symbol(frozen_production.lhs)
                     raise ParserAutomatonError(
-                        f'Automaton found no GOTO for {nonterminal_name} in {current_state}'
+                        f'Automaton found no GOTO for {nonterminal} in {current_state}'
                     )
 
                 self.stack.append((node, next_state))
 
             case ActionKind.ACCEPT:
+                production_id = entry[1]
                 items = self.pop_stack(len(self.stack) - 1)
-                return self.create_default_node(items)
 
-            case ActionKind.REJECT:
-                token = self.table.frozen_symbols.terminals[terminal_symbol.id]
-                raise TokenRejectedError(
-                    f'Automaton encountered a rejected token {token!r}'
-                )
+                action = self.table.frozen_symbols.get_frozen_action(production_id)
+                if action is not None:
+                    transformer = self.transformers[action]
+                    return transformer.transform(self.get_item_span(items), items)
+                else:
+                    return self.create_default_node(items)
 
     def parse(self) -> NodeItem[TokenKindT, KeywordKindT]:
         position = self.scanner.position

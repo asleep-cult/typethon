@@ -10,7 +10,6 @@ from . import ast
 from .frozen import (
     ActionKind,
     FrozenSymbolTable,
-    FrozenSymbolKind,
     FrozenParserTable,
 )
 from .exceptions import ParserGeneratorError
@@ -22,7 +21,7 @@ from .symbols import (
     EOF,
 )
 from .parser import GrammarParser
-from ..syntax.tokens import StdTokenKind, TokenMap, KeywordMap
+from ..syntax.tokens import StdTokenKind, TokenMap, KeywordMap, STD_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -53,23 +52,63 @@ class ParserState:
 
 @attr.s(kw_only=True, slots=True)
 class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
+    genereator: ParserTableGenerator[TokenKindT, KeywordKindT] = attr.ib()
     table: FrozenParserTable[TokenKindT, KeywordKindT] = attr.ib()
 
-    def add_accept(self, state_id: int) -> None:
-        assert EOF.kind is StdTokenKind.EOF
-        frozen_eof = self.table.frozen_symbols.get_frozen_terminal(EOF.kind)
+    def get_action_entry_note_message(
+        self,
+        which: str,
+        entry: typing.Tuple[ActionKind, int],
+    ) -> typing.Optional[str]:
+        if entry[0] == ActionKind.SHIFT:
+            dumped = self.genereator.dump_canonical_collection(entry[1])
+            return f'The next state of the {which} entry is as follows: {dumped}'
+        elif entry[0] == ActionKind.REDUCE:
+            production = self.genereator.productions[entry[1]]
+            return f'The existing entry reduced by the following procuction: {production}\n'
 
-        existing_entry = self.table.actions.get((state_id, frozen_eof))
+    def get_action_table_conflict_message(
+        self,
+        symbol: TerminalSymbol[TokenKindT, KeywordKindT],
+        state_id: int,
+        existing_entry: typing.Tuple[ActionKind, int],
+        new_entry: typing.Tuple[ActionKind, int],
+    ) -> str:      
+        dumped = self.genereator.dump_canonical_collection(state_id)
+
+        writer = io.StringIO()
+        writer.write(
+            f'Encountered a {existing_entry[0].name}/{new_entry[0].name} conflict '
+            f'while trying to add an {new_entry[0].name} action for symbol {symbol.kind.name} '
+            f'in #{state_id}. Note: The existing current is as follows:\n{dumped}'
+        )
+
+        note = self.get_action_entry_note_message('existing', existing_entry)
+        if note is not None:
+            writer.write(note)
+
+        note = self.get_action_entry_note_message('new', new_entry)
+        if note is not None:
+            writer.write(note)
+
+        return writer.getvalue()
+
+    def add_accept(self, state_id: int, production: Production[TokenKindT, KeywordKindT]) -> None:
+        new_entry = (ActionKind.ACCEPT, production.id)
+        existing_entry = self.table.actions.get((state_id, EOF.id))
         if (
             existing_entry is not None
-            and existing_entry != (ActionKind.ACCEPT, -1)
+            and existing_entry != new_entry
         ):
-            raise ParserGeneratorError(
-                'Encountered an impossible conflict while trying to add '
-                'an ACCEPT action for state #{0}: {1}'.format(state_id, existing_entry)
+            message = self.get_action_table_conflict_message(
+                EOF,
+                state_id,
+                existing_entry,
+                new_entry,
             )
+            self.genereator.report_conflict(message)
 
-        self.table.actions[state_id, frozen_eof] = (ActionKind.ACCEPT, -1)
+        self.table.actions[state_id, EOF.id] = new_entry
 
     def add_shift(
         self,
@@ -77,78 +116,45 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
         next_id: int,
     ) -> None:
-        frozen_symbol = self.table.frozen_symbols.get_frozen_terminal(symbol.kind)
-        assert frozen_symbol.kind is FrozenSymbolKind.TERMINAL
-
-        existing_entry = self.table.actions.get((state_id, frozen_symbol))
+        existing_entry = self.table.actions.get((state_id, symbol.id))
+        new_entry = (ActionKind.SHIFT, next_id)
         if (
             existing_entry is not None
-            and existing_entry != (ActionKind.SHIFT, next_id)
+            and existing_entry != new_entry
         ):
-            if existing_entry[0] is ActionKind.REDUCE:
-                logger.info(
-                    'Encountered a SHIFT/REDUCE conflict while adding '
-                    'a SHIFT to state #%s in state #%s, symbol %s. Replacing '
-                    'the REDUCE action. NOTE: The REDUCE action was for '
-                    'a production with the id %s.',
-                    next_id,
-                    state_id,
-                    symbol,
-                    existing_entry[1],
-                )
-            else:
-                raise ParserGeneratorError(
-                    'Encountered an impossible conflict while trying to add '
-                    'a SHIFT to state {0} in state #{1}, symbol {2}: {3}'
-                    .format(
-                        next_id,
-                        state_id,
-                        symbol,
-                        existing_entry,
-                    )
-                )
+            recoverable = existing_entry[0] is ActionKind.REDUCE
+            message = self.get_action_table_conflict_message(
+                symbol,
+                state_id,
+                existing_entry,
+                new_entry,
+            )
+            self.genereator.report_conflict(message, recoverable=recoverable)
 
-        self.table.actions[state_id, frozen_symbol] = (ActionKind.SHIFT, next_id)
+        self.table.actions[state_id, symbol.id] = new_entry
 
     def add_reduce(
         self,
         state_id: int,
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
-        production_id: int,
+        production: Production[TokenKindT, KeywordKindT],
     ) -> None:
-        frozen_symbol = self.table.frozen_symbols.get_frozen_terminal(symbol.kind)
-        assert frozen_symbol.kind is FrozenSymbolKind.TERMINAL
-
-        existing_entry = self.table.actions.get((state_id, frozen_symbol))
+        existing_entry = self.table.actions.get((state_id, symbol.id))
+        new_entry = (ActionKind.REDUCE, production.id)
         if (
             existing_entry is not None
-            and existing_entry != (ActionKind.REDUCE, production_id)
+            and existing_entry != new_entry
         ):
-            if existing_entry[0] is ActionKind.SHIFT:
-                logger.info(
-                    'Encountered a SHIFT/REDUCE conflict while adding '
-                    'a REDUCE for a production with the id %s in state '
-                    '#%s, symbol %s. Defaulting to SHIFT instead. NOTE: '
-                    'The SHIFT action goes to state #%s',
-                    production_id,
-                    state_id,
-                    symbol,
-                    existing_entry[1],
-                )
-                return
-            else:
-                raise ParserGeneratorError(
-                    'Encountered an impossible conflict while trying to add '
-                    'a REDUCE action for a production with the id {0} in '
-                    'state #{1}, symbol {2}: {3}'.format(
-                        production_id,
-                        state_id,
-                        symbol,
-                        existing_entry,
-                    )
-                )
+            recoverable = existing_entry[0] is ActionKind.SHIFT
+            message = self.get_action_table_conflict_message(
+                symbol,
+                state_id,
+                existing_entry,
+                new_entry
+            )
+            self.genereator.report_conflict(message, recoverable=recoverable)
 
-        self.table.actions[state_id, frozen_symbol] = (ActionKind.REDUCE, production_id)
+        self.table.actions[state_id, symbol.id] = (ActionKind.REDUCE, production.id)
 
     def add_goto(
         self,
@@ -156,15 +162,12 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         symbol: NonterminalSymbol[TokenKindT, KeywordKindT],
         destination_id: int,
     ) -> None:
-        frozen_symbol = self.table.frozen_symbols.get_frozen_nonterminal(symbol.name)
-        assert frozen_symbol.kind is FrozenSymbolKind.NONTERMINAL
-
-        existing_entry = self.table.gotos.get((state_id, frozen_symbol))
+        existing_entry = self.table.gotos.get((state_id, symbol.id))
         if (
             existing_entry is not None
             and existing_entry != destination_id
         ):
-            raise ParserGeneratorError(
+            message = (
                 'Encountered impossible conflict while trying to add '
                 'an entry to add an entry to the goto table state #{0}, '
                 'symbol {1}, destination: state #{2}: {3}'.format(
@@ -174,8 +177,9 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
                     existing_entry,
                 )
             )
+            self.genereator.report_conflict(message)
 
-        self.table.gotos[state_id, frozen_symbol] = destination_id
+        self.table.gotos[state_id, symbol.id] = destination_id
 
 
 # Finally, the parser generator is quick and seems to work well.
@@ -186,6 +190,13 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         keywords: KeywordMap[KeywordKindT],
         rules: typing.List[ast.RuleNode[TokenKindT, KeywordKindT]],
     ) -> None:
+        self.terminal_kinds: typing.List[
+            typing.Union[StdTokenKind, TokenKindT, KeywordKindT]
+        ] = []
+        self.terminal_kinds.extend(std_token for _, std_token in STD_TOKENS)
+        self.terminal_kinds.extend(token for _, token in tokens)
+        self.terminal_kinds.extend(keyword for _, keyword in keywords)
+
         self.rules = rules
         self.nonterminals: typing.Dict[
             str, NonterminalSymbol[TokenKindT, KeywordKindT]
@@ -215,7 +226,6 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         ] = {}
         self.interned_canonical_collections: typing.List[CanonicalCollection] = []
 
-        self.frozen_symbols = FrozenSymbolTable(tokens, keywords)  # This can really be deleted
         self.productions: typing.List[Production[TokenKindT, KeywordKindT]] = []
         self.transitions: typing.Dict[
             typing.Tuple[InternedCanonicalCollection, InternedSymbol],
@@ -226,6 +236,17 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             typing.Tuple[InternedCanonicalCollection, InternedSymbol],
             InternedCanonicalCollection,
         ] = {}
+
+    def report_conflict(
+        self,
+        message: str,
+        *,
+        recoverable: bool = False
+    ) -> None:
+        if not recoverable:
+            raise ParserGeneratorError(message)
+
+        logger.debug(message)
 
     def create_nonterminal_symbol(
         self,
@@ -250,10 +271,10 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             )
 
     def initialize_terminals(self) -> None:
-        for terminal in self.frozen_symbols.terminals:
-            symbol = TerminalSymbol(id=len(self.interned_symbols), kind=terminal)
+        for kind in self.terminal_kinds:
+            symbol = TerminalSymbol(id=len(self.interned_symbols), kind=kind)
             self.interned_symbols.append(symbol)
-            self.terminals[terminal] = symbol
+            self.terminals[kind] = symbol
 
     def initialize_productions(self) -> None:
         for rule in self.rules:
@@ -264,18 +285,22 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self.initialize_nonterminals()
         self.initialize_productions()
 
-    def generate_frozen_symbols(self) -> None:
-        for nonterminal in self.nonterminals.values():
-            frozen_nonterminal = self.frozen_symbols.create_frozen_nonterminal(nonterminal.name)
+    def generate_frozen_symbols(self) -> FrozenSymbolTable[TokenKindT, KeywordKindT]:
+        symbol_table = FrozenSymbolTable(self.interned_symbols)
 
         for production in self.productions:
-            frozen_nonterminal = self.frozen_symbols.get_frozen_nonterminal(production.lhs.name)
-
-            frozen_production = self.frozen_symbols.create_frozen_production(
-                frozen_nonterminal, len(production.rhs), tuple(production.captured)
+            frozen_production = symbol_table.create_frozen_production(
+                production.lhs.id,
+                len(production.rhs),
+                tuple(production.captured),
             )
             if production.action is not None:
-                self.frozen_symbols.add_production_action(frozen_production, production.action)
+                symbol_table.add_production_action(
+                    frozen_production.id,
+                    production.action,
+                )
+
+        return symbol_table
 
     def should_capture_uninlined_expression(
         self,
@@ -545,17 +570,20 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 lookahead.kind.name
                 for lookahead in self.iter_bitset(lookahead)
             )
-            writer.write(f'  ({i}., pos={position}, lookahead={{{string}}}): ')
-            writer.write(f'{production.lhs.name} -> ')
+            writer.write(f'  ({i}., pos={position}, lookahead={{{string}}}):')
+            writer.write(f' {production.lhs.name} ->')
 
             for j, symbol in enumerate(production.rhs):
                 if j == position:
-                    writer.write(f'* ')
+                    writer.write(' *')
 
                 if isinstance(symbol, NonterminalSymbol):
-                    writer.write(f'{symbol.name} ')
+                    writer.write(f' {symbol.name}')
                 else:
-                    writer.write(f'{str(symbol)!r} ')
+                    writer.write(f' {str(symbol)!r}')
+
+            if len(production.rhs) <= position:
+                writer.write(' *')
 
             writer.write('\n')
 
@@ -707,8 +735,9 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         entrypoint: Production[TokenKindT, KeywordKindT],
     ) -> FrozenParserTable[TokenKindT, KeywordKindT]:
-        table = FrozenParserTable(frozen_symbols=self.frozen_symbols)
-        builder = TableBuilder(table=table)
+        symbol_table = self.generate_frozen_symbols()
+        table = FrozenParserTable(frozen_symbols=symbol_table)
+        builder = TableBuilder(genereator=self, table=table)
         self.compute_canonical_collection(entrypoint)
 
         for (interned_items, lookaheads), interned_collection in (
@@ -719,10 +748,10 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
                 if len(production.rhs) <= position:
                     if production.lhs.entrypoint:
-                        builder.add_accept(interned_collection)
+                        builder.add_accept(interned_collection, production)
                     else:
                         for lookahead_symbol in self.iter_bitset(lookahead):
-                            builder.add_reduce(interned_collection, lookahead_symbol, production.id)
+                            builder.add_reduce(interned_collection, lookahead_symbol, production)
                 
                     continue
 

@@ -16,7 +16,3 @@ class DeadlockError(ParserAutomatonError):
 
 class UnexpectedTokenError(ParserAutomatonError):
     ...
-
-
-class TokenRejectedError(ParserAutomatonError):
-    ...

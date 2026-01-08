@@ -30,6 +30,11 @@ class ConstantKind(enum.IntEnum):
 
 
 @attr.s(kw_only=True, slots=True)
+class ModuleNode(Node):
+    body: typing.List[StatementNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class TypeParameterNode(Node):
     name: str = attr.ib()
     constraint: typing.Optional[TypeExpressionNode] = attr.ib()
@@ -75,7 +80,7 @@ class FunctionDefNode(Node):
     parameters: typing.List[FunctionParameterNode] = attr.ib()
     body: typing.Optional[typing.List[StatementNode]] = attr.ib()
     decorators: typing.List[ExpressionNode] = attr.ib()
-    returns: typing.Optional[ExpressionNode] = attr.ib()
+    returns: TypeExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -111,7 +116,7 @@ class AugAssignNode(Node):
 @attr.s(kw_only=True, slots=True)
 class AnnAssignNode(Node):
     target: ExpressionNode = attr.ib()
-    annotation: ExpressionNode = attr.ib()
+    annotation: TypeExpressionNode = attr.ib()
     value: typing.Optional[ExpressionNode] = attr.ib()
 
 
@@ -264,11 +269,6 @@ class SubscriptNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class StarredNode(Node):
-    value: ExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class NameNode(Node):
     value: str = attr.ib()
 
@@ -341,7 +341,6 @@ ExpressionNode = typing.Union[
     ConstantNode,
     AttributeNode,
     SubscriptNode,
-    StarredNode,
     NameNode,
     ListNode,
     TupleNode,

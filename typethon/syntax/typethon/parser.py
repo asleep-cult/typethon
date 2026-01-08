@@ -83,6 +83,17 @@ class ASTParser:
         difference = end - start
         logger.info(f'Generated tables after {difference:.2f} seconds')
 
+    def create_module(
+        self,
+        span: typing.Tuple[int, int],
+        body: SequenceNode[ast.StatementNode],
+    ) -> typing.Any:
+        return ast.ModuleNode(
+            start=span[0],
+            end=span[1],
+            body=body.items,
+        )
+
     def create_pass_statement(self, span: typing.Tuple[int, int]) -> ast.PassNode:
         return ast.PassNode(start=span[0], end=span[1])
 
@@ -91,6 +102,13 @@ class ASTParser:
 
     def create_continue_statement(self, span: typing.Tuple[int, int]) -> ast.ContinueNode:
         return ast.ContinueNode(start=span[0], end=span[1])
+
+    def create_return_statement(
+        self,
+        span: typing.Tuple[int, int],
+        value: OptionNode[ast.ExpressionNode],
+    ) -> ast.ReturnNode:
+        return ast.ReturnNode(start=span[0], end=span[1], value=value.item)
 
     def create_expr_statement(
         self,
@@ -125,7 +143,7 @@ class ASTParser:
         decorators: OptionNode[SequenceNode[ast.ExpressionNode]],
         name: IdentifierToken,
         parameters: OptionNode[SequenceNode[ast.FunctionParameterNode]],
-        returns: ast.ExpressionNode,
+        returns: ast.TypeExpressionNode,
         body: OptionNode[SequenceNode[ast.StatementNode]],
     ) -> ast.FunctionDefNode:
         return ast.FunctionDefNode(
@@ -235,75 +253,63 @@ class ASTParser:
             comparators=comparators.items,
         )
 
-    def create_eq_comparator(
+    def create_comparator_one(
         self,
         span: typing.Tuple[int, int],
+        operator: Token,
         value: ast.ExpressionNode,
     ) -> ast.ComparatorNode:
+        match operator.kind:
+            case TokenKind.EQEQUAL:
+                op = ast.CmpOperatorKind.EQ
+            case TokenKind.NOTEQUAL:
+                op = ast.CmpOperatorKind.NOTEQ
+            case TokenKind.LTHANEQ:
+                op = ast.CmpOperatorKind.LTE
+            case TokenKind.LTHAN:
+                op = ast.CmpOperatorKind.LT
+            case TokenKind.GTHANEQ:
+                op = ast.CmpOperatorKind.GTE
+            case TokenKind.GTHAN:
+                op = ast.CmpOperatorKind.GT
+            case KeywordKind.IN:
+                op = ast.CmpOperatorKind.IN
+            case _:
+                # What is the point of this accepting arguments
+                # but no type checks works
+                typing.assert_never(operator.kind)
+
         return ast.ComparatorNode(
             start=span[0],
             end=span[1],
-            op=ast.CmpOperatorKind.EQ,
+            op=op,
             value=value,
         )
 
-    def create_noteq_comparator(
+    def create_comparator_two(
         self,
         span: typing.Tuple[int, int],
+        operator1: Token,
+        operator2: Token,
         value: ast.ExpressionNode,
     ) -> ast.ComparatorNode:
-        return ast.ComparatorNode(
-            start=span[0],
-            end=span[1],
-            op=ast.CmpOperatorKind.NOTEQ,
-            value=value,
-        )
+        op: typing.Optional[ast.CmpOperatorKind] = None
 
-    def create_lthaneq_comparator(
-        self,
-        span: typing.Tuple[int, int],
-        value: ast.ExpressionNode,
-    ) -> ast.ComparatorNode:
-        return ast.ComparatorNode(
-            start=span[0],
-            end=span[1],
-            op=ast.CmpOperatorKind.LTE,
-            value=value,
-        )
+        if operator1.kind is KeywordKind.IS:
+            if operator2.kind is KeywordKind.NOT:
+                op = ast.CmpOperatorKind.ISNOT
 
-    def create_lthan_comparator(
-        self,
-        span: typing.Tuple[int, int],
-        value: ast.ExpressionNode,
-    ) -> ast.ComparatorNode:
-        return ast.ComparatorNode(
-            start=span[0],
-            end=span[1],
-            op=ast.CmpOperatorKind.LT,
-            value=value,
-        )
+        elif operator1.kind is KeywordKind.NOT:
+            if operator2.kind is KeywordKind.IN:
+                op = ast.CmpOperatorKind.NOTIN
 
-    def create_gthaneq_comparator(
-        self,
-        span: typing.Tuple[int, int],
-        value: ast.ExpressionNode,
-    ) -> ast.ComparatorNode:
-        return ast.ComparatorNode(
-            start=span[0],
-            end=span[1],
-            op=ast.CmpOperatorKind.GTE,
-            value=value,
-        )
+        if op is None:
+            assert False, 'Unreachable'
 
-    def create_gthan_comparator(
-        self,
-        span: typing.Tuple[int, int],
-        value: ast.ExpressionNode,
-    ) -> ast.ComparatorNode:
         return ast.ComparatorNode(
             start=span[0],
             end=span[1],
-            op=ast.CmpOperatorKind.GT,
+            op=op,
             value=value,
         )
 
@@ -316,18 +322,6 @@ class ASTParser:
             start=span[0],
             end=span[1],
             op=ast.CmpOperatorKind.NOTIN,
-            value=value,
-        )
-
-    def create_in_comparator(
-        self,
-        span: typing.Tuple[int, int],
-        value: ast.ExpressionNode,
-    ) -> ast.ComparatorNode:
-        return ast.ComparatorNode(
-            start=span[0],
-            end=span[1],
-            op=ast.CmpOperatorKind.IN,
             value=value,
         )
 
