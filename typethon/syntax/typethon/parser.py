@@ -3,6 +3,7 @@ import time
 import io
 import logging
 import inspect
+import pickle
 from pathlib import Path
 
 from .tokens import (
@@ -38,6 +39,63 @@ TransformCallbackT = typing.Callable[..., NodeItem]
 logger = logging.getLogger(__name__)
 
 GRAMMAR_PATH = './typethon.gram'
+GRAMMAR_CACHE_PATH = './parsertables.bin'
+EXPERIMENTAL_LAMBDAS = True
+"""
+The syntax for experimental lambdas is as follows:
+(args...) :: expr
+
+(args...) ::
+    block
+::
+
+Since this syntax introduces a REDUCE/REDUCE conflict,
+the grammar for tuple/group and lambda are combined and disambiguated
+later.
+
+This can probably be avoided entirely with a different syntax
+for the argument list, such as |x, y, z| (as in Rust).
+|x, y, z| ::
+    print(x, y, z)
+::
+The delimiter at the end of the block is unavoidable
+because a dedent that can be followed by an expression
+is a very bad idea.
+
+Without them, something like this would be actually call
+the lambda:
+(a, b) ::
+    print(a, b)
+(1, 2)
+
+I also preliminarily added tuples, retaining Python's
+no-parenthesis syntax slop.
+
+Aside from the ambiguity issue, the lambda has another
+problem as well. When the scanner is in any sort of
+parenthesis, it skips all newlines and indentation.
+So, for the block lambda to work, it has "trick"
+the scanner into thinking there are no parenthesis.
+The way I did this was by a new stack bottom that the
+scanner uses to determine whether to use whitespace.
+So, at the star, something like this ((x) :: * would have
+a stack like this [`(`], suggesting the scanner should
+skip newlines. However, in the parameter list we use a lookahead
+to determine whether to give a sequence of parameters or a
+tuple/group. If the next token is a double colon, it returns
+the parameter list and sets the bottom of the stack to 1.
+I initially tried to implement this as a transformer for the
+:: token, but the parser will already scan the next token
+before we can a chance to update the stack bottom. 
+
+The parser generator slowed down quite significantly baceuse this
+added 1000 new states. (Everytime I think it's fast enough
+it get slower.)
+
+I have also realized that the assignment syntax will
+be ambiguous as well. I think I will just make assignments
+an expression.
+"""
 
 
 class ASTParser:
@@ -58,7 +116,10 @@ class ASTParser:
 
         transformers: typing.List[Transformer[TokenKind, KeywordKind]] = []
         def is_transformer(member: typing.Any) -> bool:
-            return inspect.ismethod(member) and member.__name__.startswith('create_')
+            return inspect.ismethod(member) and (
+                member.__name__.startswith('create_')
+                or member.__name__ == 'add_lambda_parameters'
+            )
         
         for _, function in inspect.getmembers(self, is_transformer):
             if transformer_wrapper is not None:
@@ -76,9 +137,21 @@ class ASTParser:
         )
 
     @classmethod
-    def load_parser_tables(cls) -> None:
-        path = Path(__file__).parent / GRAMMAR_PATH
-        with open(path, 'r') as fp:
+    def load_parser_tables(cls, *, regenrate: bool = False) -> None:
+        cache_path = Path(__file__).parent / GRAMMAR_CACHE_PATH
+
+        if not regenrate:
+            with open(cache_path, 'rb') as fp:
+                start = time.perf_counter()
+                cls.tables = pickle.load(fp)
+                end = time.perf_counter()
+                
+                difference = end - start
+                logger.info(f'Loaded cached tables after {difference:.2f} seconds')
+                return
+
+        grammar_path = Path(__file__).parent / GRAMMAR_PATH
+        with open(grammar_path, 'r') as fp:
             grammar = fp.read()
 
         start = time.perf_counter()
@@ -86,6 +159,9 @@ class ASTParser:
             grammar, TOKENS, KEYWORDS
         )
         end = time.perf_counter()
+
+        with open(cache_path, 'wb') as fp:
+            pickle.dump(cls.tables, fp)
 
         difference = end - start
         logger.info(f'Generated tables after {difference:.2f} seconds')
@@ -128,7 +204,7 @@ class ASTParser:
             expr=expression,
         )
 
-    def create_single_parameter(
+    def create_function_parameter(
         self,
         span: typing.Tuple[int, int],
         name: IdentifierToken,
@@ -524,7 +600,129 @@ class ASTParser:
         span: typing.Tuple[int, int],
         identifier: IdentifierToken,
     ) -> ast.NameNode:
-        return ast.NameNode(start=span[0], end=span[1], value=identifier.content)
+        return ast.NameNode(
+            start=span[0],
+            end=span[1],
+            value=identifier.content,
+        )
+
+    def create_tuple(
+        self,
+        span: typing.Tuple[int, int],
+        elts: SequenceNode[ast.ExpressionNode],
+    ) -> ast.TupleNode:
+        # Unparenthesized
+        return ast.TupleNode(
+            start=span[0],
+            end=span[1],
+            elts=elts.items,
+        )
+
+    def create_tuple_or_lambda_parameters(
+        self,
+        span: typing.Tuple[int, int],
+        elts: OptionNode[SequenceNode[ast.ExpressionNode]],
+    ) -> typing.Union[ast.TupleNode, SequenceNode[ast.LambdaParameterNode]]:
+        token = self.parser.peek_token(1)
+        if token.kind is not TokenKind.DOUBLECOLON:
+            return ast.TupleNode(
+                start=span[0],
+                end=span[1],
+                elts=elts.sequence().items,
+            )
+
+        parameters: typing.List[ast.LambdaParameterNode] = []
+        for elt in elts.sequence().items:
+            if not isinstance(elt, ast.NameNode):
+                assert False, 'Invalid lambda parameter'
+
+            parameter = ast.LambdaParameterNode(
+                start=elt.start,
+                end=elt.end,
+                name=elt.value,
+            )
+            parameters.append(parameter)
+
+        self.scanner.enter_nested_stack()
+        return SequenceNode(
+            start=span[0],
+            end=span[1],
+            items=parameters,
+        )
+
+    def create_group_or_lambda_parameters(
+        self,
+        span: typing.Tuple[int, int],
+        expression: ast.ExpressionNode,
+    ) -> typing.Union[ast.ExpressionNode, SequenceNode[ast.LambdaParameterNode]]:
+        token = self.parser.peek_token(1)
+        if token.kind is not TokenKind.DOUBLECOLON:
+            return expression
+
+        if not isinstance(expression, ast.NameNode):
+            assert False, 'Non-name lambda parameter'
+
+        parameter = ast.LambdaParameterNode(
+            start=expression.start,
+            end=expression.end,
+            name=expression.value,
+        )
+
+        self.scanner.enter_nested_stack()
+        return SequenceNode(
+            start=span[0],
+            end=span[1],
+            items=[parameter],
+        )
+
+    def create_block_lambda(
+        self,
+        span: typing.Tuple[int, int],
+        body: SequenceNode[ast.StatementNode],
+    ) -> ast.BlockLambdaNode:
+        self.scanner.exit_nested_stack()
+        return ast.BlockLambdaNode(
+            start=span[0],
+            end=span[1],
+            parameters=[],
+            body=body.items,
+        )
+
+    def create_expression_lambda(
+        self,
+        span: typing.Tuple[int, int],
+        body: ast.ExpressionNode,
+    ) -> ast.ExpressionNode:
+        self.scanner.exit_nested_stack()
+        return ast.ExpressionLambdaNode(
+            start=span[0],
+            end=span[1],
+            parameters=[],
+            body=body,
+        )
+
+    def add_lambda_parameters(
+        self,
+        span: typing.Tuple[int, int],
+        parameters: SequenceNode[ast.LambdaParameterNode],
+        lambdef: typing.Union[ast.ExpressionLambdaNode, ast.BlockLambdaNode],
+    ) -> typing.Union[ast.ExpressionLambdaNode, ast.BlockLambdaNode]:
+        for parameter in parameters.items:
+            lambdef.parameters.append(parameter)
+
+        return lambdef
+
+    def create_type_parameter(
+        self,
+        span: typing.Tuple[int, int],
+        name: IdentifierToken,
+    ) -> ast.TypeParameterNode:
+        return ast.TypeParameterNode(
+            start=span[0],
+            end=span[1],
+            name=name.content,
+            constraint=None,
+        )
 
     def parse(self) -> NodeItem:
         return self.parser.parse()

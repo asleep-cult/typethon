@@ -11,6 +11,8 @@ from .frozen import (
     ActionKind,
     FrozenSymbolTable,
     FrozenParserTable,
+    UNSET_ACTION,
+    UNSET_GOTO
 )
 from .exceptions import ParserGeneratorError
 from .symbols import (
@@ -28,6 +30,7 @@ logger = logging.getLogger(__name__)
 TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
+UNSET_TRANSITION = -1
 
 InternedSymbol = int
 InternedParserItem = int
@@ -65,7 +68,7 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
             return f'The next state of the {which} entry is as follows: {dumped}'
         elif entry[0] == ActionKind.REDUCE:
             production = self.genereator.productions[entry[1]]
-            return f'The existing entry reduced by the following procuction: {production}\n'
+            return f'The {which} entry reduced by the following procuction: {production}\n'
 
     def get_action_table_conflict_message(
         self,
@@ -78,9 +81,9 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
 
         writer = io.StringIO()
         writer.write(
-            f'Encountered a {existing_entry[0].name}/{new_entry[0].name} conflict '
-            f'while trying to add an {new_entry[0].name} action for symbol {symbol.kind.name} '
-            f'in #{state_id}. Note: The existing current is as follows:\n{dumped}'
+            f'Encountered a(n) {existing_entry[0].name}/{new_entry[0].name} conflict '
+            f'while trying to add a(n) {new_entry[0].name} action for symbol {symbol.kind.name} '
+            f'in #{state_id}. Note: The current state is as follows:\n{dumped}'
         )
 
         note = self.get_action_entry_note_message('existing', existing_entry)
@@ -95,9 +98,9 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
 
     def add_accept(self, state_id: int, production: Production[TokenKindT, KeywordKindT]) -> None:
         new_entry = (ActionKind.ACCEPT, production.id)
-        existing_entry = self.table.actions.get((state_id, EOF.id))
+        existing_entry = self.table.actions[state_id][EOF.id]
         if (
-            existing_entry is not None
+            existing_entry != UNSET_ACTION
             and existing_entry != new_entry
         ):
             message = self.get_action_table_conflict_message(
@@ -108,7 +111,7 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
             )
             self.genereator.report_conflict(message)
 
-        self.table.actions[state_id, EOF.id] = new_entry
+        self.table.actions[state_id][EOF.id] = new_entry
 
     def add_shift(
         self,
@@ -116,10 +119,10 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
         next_id: int,
     ) -> None:
-        existing_entry = self.table.actions.get((state_id, symbol.id))
+        existing_entry = self.table.actions[state_id][symbol.id]
         new_entry = (ActionKind.SHIFT, next_id)
         if (
-            existing_entry is not None
+            existing_entry != UNSET_ACTION
             and existing_entry != new_entry
         ):
             recoverable = existing_entry[0] is ActionKind.REDUCE
@@ -131,7 +134,7 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
             )
             self.genereator.report_conflict(message, recoverable=recoverable)
 
-        self.table.actions[state_id, symbol.id] = new_entry
+        self.table.actions[state_id][symbol.id] = new_entry
 
     def add_reduce(
         self,
@@ -139,10 +142,10 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
         production: Production[TokenKindT, KeywordKindT],
     ) -> None:
-        existing_entry = self.table.actions.get((state_id, symbol.id))
+        existing_entry = self.table.actions[state_id][symbol.id]
         new_entry = (ActionKind.REDUCE, production.id)
         if (
-            existing_entry is not None
+            existing_entry != UNSET_ACTION
             and existing_entry != new_entry
         ):
             recoverable = existing_entry[0] is ActionKind.SHIFT
@@ -154,7 +157,10 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
             )
             self.genereator.report_conflict(message, recoverable=recoverable)
 
-        self.table.actions[state_id, symbol.id] = (ActionKind.REDUCE, production.id)
+            if recoverable:
+                return
+
+        self.table.actions[state_id][symbol.id] = (ActionKind.REDUCE, production.id)
 
     def add_goto(
         self,
@@ -162,9 +168,10 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         symbol: NonterminalSymbol[TokenKindT, KeywordKindT],
         destination_id: int,
     ) -> None:
-        existing_entry = self.table.gotos.get((state_id, symbol.id))
+        index = symbol.id - len(self.table.frozen_symbols.interned_terminal_lookup)
+        existing_entry = self.table.gotos[state_id][index]
         if (
-            existing_entry is not None
+            existing_entry != UNSET_GOTO
             and existing_entry != destination_id
         ):
             message = (
@@ -179,7 +186,7 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
             )
             self.genereator.report_conflict(message)
 
-        self.table.gotos[state_id, symbol.id] = destination_id
+        self.table.gotos[state_id][index] = destination_id
 
 
 # Finally, the parser generator is quick and seems to work well.
@@ -196,6 +203,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self.terminal_kinds.extend(std_token for _, std_token in STD_TOKENS)
         self.terminal_kinds.extend(token for _, token in tokens)
         self.terminal_kinds.extend(keyword for _, keyword in keywords)
+        self.terminal_symbol_boundary = len(self.terminal_kinds)
 
         self.rules = rules
         self.nonterminals: typing.Dict[
@@ -208,10 +216,10 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self.epsilon_nonterminals: typing.Set[
             NonterminalSymbol[TokenKindT, KeywordKindT]
         ] = set()
-        self.first_sets: typing.Dict[
-            NonterminalSymbol[TokenKindT, KeywordKindT],
-            LookaheadSet,
-        ] = {}
+        self.first_sets: typing.List[LookaheadSet] = []
+        self.nonterminal_closures: typing.List[
+            typing.List[InternedParserItem]
+        ] = []
 
         self.interned_items_lookup: typing.Dict[
             ParserItem[TokenKindT, KeywordKindT],
@@ -227,10 +235,9 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self.interned_canonical_collections: typing.List[CanonicalCollection] = []
 
         self.productions: typing.List[Production[TokenKindT, KeywordKindT]] = []
-        self.transitions: typing.Dict[
-            typing.Tuple[InternedCanonicalCollection, InternedSymbol],
-            InternedCanonicalCollection,
-        ] = {}
+        self.transitions: typing.List[
+            typing.List[InternedCanonicalCollection]
+        ] = []
 
         self.precomputed_gotos: typing.Dict[
             typing.Tuple[InternedCanonicalCollection, InternedSymbol],
@@ -500,13 +507,13 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     self.epsilon_nonterminals.add(nonterminal)
 
     def compute_first_sets(self) -> None:
+        self.first_sets = [0] * len(self.nonterminals)
         for nonterminal in self.nonterminals.values():
-            self.first_sets[nonterminal] = 0
-
             for production in nonterminal.productions:
                 for symbol in production.rhs:
                     if isinstance(symbol, TerminalSymbol):
-                        self.first_sets[nonterminal] |= 1 << symbol.id
+                        index = nonterminal.id - self.terminal_symbol_boundary
+                        self.first_sets[index] |= 1 << symbol.id
 
                     if symbol not in self.epsilon_nonterminals:
                         break
@@ -515,18 +522,32 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         while changed:
             changed = False
             for nonterminal in self.nonterminals.values():
-                bitset = self.first_sets[nonterminal]
+                index = nonterminal.id - self.terminal_symbol_boundary
+                bitset = self.first_sets[index]
 
                 for production in nonterminal.productions:
                     for symbol in production.rhs:
                         if isinstance(symbol, NonterminalSymbol):
-                            lookahead = self.first_sets[symbol]
+                            next_index = symbol.id - self.terminal_symbol_boundary
+                            lookahead = self.first_sets[next_index]
 
                             changed = changed or (bitset & lookahead) != lookahead
-                            self.first_sets[nonterminal] |= lookahead
+                            self.first_sets[index] |= lookahead
 
                         if symbol not in self.epsilon_nonterminals:
                             break
+
+    def compute_nonterminal_closures(self) -> None:
+        for _ in range(len(self.nonterminals)):
+            self.nonterminal_closures.append([])
+
+        for nonterminal in self.nonterminals.values():
+            index = nonterminal.id - self.terminal_symbol_boundary
+            closure = self.nonterminal_closures[index]
+
+            for production in nonterminal.productions:
+                interned_item = self.get_interned_item((production, 0))
+                closure.append(interned_item)
 
     def iter_bitset(
         self,
@@ -551,7 +572,8 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             if isinstance(symbol, TerminalSymbol):
                 result |= 1 << symbol.id
             else:
-                result |= self.first_sets[symbol]
+                index = symbol.id - self.terminal_symbol_boundary
+                result |= self.first_sets[index]
 
             if symbol not in self.epsilon_nonterminals:
                 break
@@ -612,6 +634,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self.interned_canonical_collections.append(canonical_collection)
         self.interned_canonical_collections_lookup[canonical_collection] = interned_collection
 
+        self.transitions.append([UNSET_TRANSITION] * len(self.interned_symbols))
         return interned_collection
 
     def compute_closure(
@@ -641,9 +664,8 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 ):
                     next_lookahead |= lookahead
 
-                for production in current_symbol.productions:
-                    next_interned_item = self.get_interned_item((production, 0))
-
+                index = current_symbol.id - self.terminal_symbol_boundary
+                for next_interned_item in self.nonterminal_closures[index]:
                     if next_interned_item not in state.items:
                         changed = True
                         state.items.append(next_interned_item)
@@ -708,9 +730,9 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                         changed = True
                         next_interned_collection = self.compute_goto(interned_collection, current_symbol)
 
-                    transition = self.transitions.get((interned_collection, current_symbol.id))
+                    transition = self.transitions[interned_collection][current_symbol.id]
                     if (
-                        transition is not None
+                        transition != UNSET_TRANSITION
                         and transition != next_interned_collection
                     ):
                         raise ParserGeneratorError(
@@ -724,7 +746,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                             )
                         )
 
-                    self.transitions[interned_collection, current_symbol.id] = next_interned_collection
+                    self.transitions[interned_collection][current_symbol.id] = next_interned_collection
 
         logger.info(
             'Finished generating %s states.',
@@ -735,10 +757,14 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         entrypoint: Production[TokenKindT, KeywordKindT],
     ) -> FrozenParserTable[TokenKindT, KeywordKindT]:
-        symbol_table = self.generate_frozen_symbols()
-        table = FrozenParserTable(frozen_symbols=symbol_table)
-        builder = TableBuilder(genereator=self, table=table)
         self.compute_canonical_collection(entrypoint)
+
+        symbol_table = self.generate_frozen_symbols()
+        table = FrozenParserTable(
+            number_of_states=len(self.interned_canonical_collections),
+            frozen_symbols=symbol_table
+        )
+        builder = TableBuilder(genereator=self, table=table)
 
         for (interned_items, lookaheads), interned_collection in (
             self.interned_canonical_collections_lookup.items()
@@ -759,26 +785,28 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 if not isinstance(current_symbol, TerminalSymbol):
                     continue
 
-                transition = self.transitions.get((interned_collection, current_symbol.id))
-                if transition is not None:
+                transition = self.transitions[interned_collection][current_symbol.id]
+                if transition != UNSET_TRANSITION:
                     builder.add_shift(interned_collection, current_symbol, transition)
 
             for nonterminal in self.nonterminals.values():
-                transition = self.transitions.get((interned_collection, nonterminal.id))
-                if transition is not None:
+                transition = self.transitions[interned_collection][nonterminal.id]
+                if transition != UNSET_TRANSITION:
                     builder.add_goto(interned_collection, nonterminal, transition)
 
         for interned_collection in self.interned_canonical_collections_lookup.values():
-            if not any(state_id == interned_collection for state_id, _ in table.actions):
+            if all(
+                entry == UNSET_ACTION for entry in table.actions[interned_collection]
+            ):
                 raise ParserGeneratorError(f'State #{interned_collection} has no actions')
 
         return table
 
     def generate(self) -> typing.Dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]:
         self.generate_symbols()
-        self.generate_frozen_symbols()
         self.compute_epsilon_nonterminals()
         self.compute_first_sets()
+        self.compute_nonterminal_closures()
 
         tables: typing.Dict[str, FrozenParserTable[TokenKindT, KeywordKindT]] = {}
         for nonterminal in self.nonterminals.values():

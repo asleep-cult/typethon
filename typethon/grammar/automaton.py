@@ -8,6 +8,8 @@ from .frozen import (
     FrozenSymbol,
     ActionKind,
     FrozenParserTable,
+    UNSET_ACTION,
+    UNSET_GOTO,
 )
 from .exceptions import (
     ParserAutomatonError,
@@ -132,6 +134,13 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
         return self.stack[-1][1]
 
+    def peek_token(self, amount: int) -> Token[TokenKindT, KeywordKindT]:
+        # Infinite lookahead for disambiguation in user-defined transformers
+        while len(self.tokens) < amount:
+            self.tokens.append(self.scanner.scan())
+
+        return self.tokens[amount - 1]
+
     def current_symbol(self) -> FrozenSymbol:
         if self.tokens:
             token = self.tokens[0]
@@ -227,7 +236,14 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
             )
 
         first_item = items[0]
-        assert isinstance(first_item, SequenceNode)
+        if not isinstance(first_item, SequenceNode):
+            assert len(items) == 1
+
+            first_item = SequenceNode(
+                start=span[0],
+                end=span[1],
+                items=[first_item]
+            )
 
         first_item.items.extend(items[1:])
         first_item.start, first_item.end = span
@@ -254,19 +270,16 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
         interned_symbol = self.table.frozen_symbols.get_interned_terminal(terminal_symbol)
         entry = self.table.get_action(current_state, interned_symbol)
-        if entry is None:
-            interned_symbols = [
-                interned_symbol for state_id, interned_symbol in self.table.actions
-                if state_id == current_state
+        if entry == UNSET_ACTION:
+            symbols = [
+                self.table.frozen_symbols.get_frozen_symbol(i)
+                for i, entry in enumerate(self.table.actions[current_state])
+                if entry != UNSET_ACTION
             ]
-            frozen_symbols = [
-                self.table.frozen_symbols.get_frozen_symbol(interned_symbol)
-                for interned_symbol in interned_symbols
-            ]
-            string = ', '.join(frozen_symbols)
+            string = ', '.join(symbols)
             raise UnexpectedTokenError(
                 f'Automaton encountered an unexpected token {terminal_symbol!r} in state #{current_state}. '
-                f'The next token should have been one of the following: {string}.'
+                f'The next token should have been one of the following: {string}. ({self.scanner.position})'
             )
 
         action = entry[0]
@@ -292,7 +305,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
                 current_state = self.current_state()
 
                 next_state = self.table.get_goto(current_state, frozen_production.lhs)
-                if next_state is None:
+                if next_state == UNSET_GOTO:
                     nonterminal = self.table.frozen_symbols.get_frozen_symbol(frozen_production.lhs)
                     raise ParserAutomatonError(
                         f'Automaton found no GOTO for {nonterminal} in {current_state}'

@@ -46,6 +46,7 @@ class NumberTokenFlags(enum.IntFlag):
 
 class StringTokenFlags(enum.IntFlag):
     NONE = 0
+    CHARACTER = enum.auto()
 
     RAW = enum.auto()
     BYTES = enum.auto()

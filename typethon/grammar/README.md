@@ -55,7 +55,7 @@ zero_or_more:
     #[@sequence]
     | zero_or_more e
 
-# Where @flatten is a builtin transformer that creates FlattenNode([e1, e2, ..., en])
+# Where @sequence is a builtin transformer that creates SequenceNode([e1, e2, ..., en])
 
 # e+ means one or more e, this is equivalent to:
 one_or_more:

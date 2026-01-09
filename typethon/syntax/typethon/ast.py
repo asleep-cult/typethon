@@ -173,6 +173,23 @@ class ContinueNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
+class LambdaParameterNode(Node):
+    name: str = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ExpressionLambdaNode(Node):
+    parameters: typing.List[LambdaParameterNode] = attr.ib()
+    body: ExpressionNode = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class BlockLambdaNode(Node):
+    parameters: typing.List[LambdaParameterNode] = attr.ib()
+    body: typing.List[StatementNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class BoolOpNode(Node):
     op: BoolOperatorKind = attr.ib()
     values: typing.List[ExpressionNode] = attr.ib()
@@ -330,6 +347,8 @@ StatementNode = typing.Union[
 ]
 
 ExpressionNode = typing.Union[
+    ExpressionLambdaNode,
+    BlockLambdaNode,
     BoolOpNode,
     BinaryOpNode,
     UnaryOpNode,

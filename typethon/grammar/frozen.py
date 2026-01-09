@@ -20,14 +20,14 @@ StateID = int
 class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
         self,
-        interned_symbols: typing.List[Symbol[TokenKindT, KeywordKindT]]
+        interned_symbols: typing.List[Symbol[TokenKindT, KeywordKindT]],
     ) -> None:
         self.interned_symbols: typing.List[FrozenSymbol] = []
         self.interned_terminal_lookup: typing.Dict[
             str, InternedFrozenSymbol
         ] = {}
         self.interned_nonterminal_lookup: typing.Dict[str, InternedFrozenSymbol] = {}
-        for symbol in sorted(interned_symbols, key=lambda symbol: symbol.id):
+        for symbol in interned_symbols:
             if isinstance(symbol, TerminalSymbol):
                 frozen_symbol = symbol.kind.name
                 self.interned_terminal_lookup[frozen_symbol] = symbol.id
@@ -83,64 +83,64 @@ class FrozenProduction:
 
 
 class ActionKind(enum.IntEnum):
+    REJECT = -1
     SHIFT = enum.auto()
     REDUCE = enum.auto()
     ACCEPT = enum.auto()
 
 
+UNSET_ACTION = (ActionKind.REJECT, -1)
+UNSET_GOTO = -1
+
+
 class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
-    def __init__(self, frozen_symbols: FrozenSymbolTable[TokenKindT, KeywordKindT]) -> None:
+    def __init__(
+        self,
+        number_of_states: int,
+        frozen_symbols: FrozenSymbolTable[TokenKindT, KeywordKindT]
+    ) -> None:
         self.frozen_symbols = frozen_symbols
-        self.actions: typing.Dict[
-            typing.Tuple[StateID, InternedFrozenSymbol],
-            typing.Tuple[ActionKind, typing.Union[StateID, InternedFrozenProduction]]
-        ] = {}
-        self.gotos: typing.Dict[
-            typing.Tuple[StateID, InternedFrozenSymbol],
-            StateID
-        ] = {}
+        self.actions: typing.List[
+            typing.List[typing.Tuple[ActionKind, typing.Union[StateID, InternedFrozenProduction]]]
+        ] = []
+        self.gotos: typing.List[typing.List[StateID]] = []
 
-    def get_action(self, state_id: StateID, symbol: InternedFrozenSymbol) -> typing.Optional[
-        typing.Tuple[ActionKind, typing.Union[StateID, InternedFrozenProduction]]
+        for _ in range(number_of_states):
+            self.actions.append([UNSET_ACTION] * len(frozen_symbols.interned_terminal_lookup))
+
+        for _ in range(number_of_states):
+            self.gotos.append([UNSET_GOTO] * len(frozen_symbols.interned_nonterminal_lookup))
+
+    def get_action(self, state_id: StateID, interned_symbol: InternedFrozenSymbol) -> typing.Tuple[
+        ActionKind, typing.Union[StateID, InternedFrozenProduction]
     ]:
-        return self.actions.get((state_id, symbol))
+        return self.actions[state_id][interned_symbol]
 
-    def get_goto(self, state_id: StateID, symbol: InternedFrozenSymbol) -> typing.Optional[int]:
-        return self.gotos.get((state_id, symbol))
+    def get_goto(self, state_id: StateID, interned_symbol: InternedFrozenSymbol) -> StateID:
+        index = interned_symbol - len(self.frozen_symbols.interned_terminal_lookup)
+        return self.gotos[state_id][index]
 
     def dump_table(self) -> str:
-        grouped_tables: typing.Dict[
-            int, 
-            typing.Tuple[
-                typing.List[
-                    typing.Tuple[FrozenSymbol, ActionKind, int]
-                ],  # Actions
-                typing.List[typing.Tuple[FrozenSymbol, int]],  # GOTOs
-            ]
-        ] = {}
-
-        for (state_id, interned_symbol), value in self.actions.items():
-            if state_id not in grouped_tables:
-                grouped_tables[state_id] = ([], [])
-
-            actions = grouped_tables[state_id][0]
-            symbol = self.frozen_symbols.get_frozen_symbol(interned_symbol)
-            actions.append((symbol, *value))
-
-        for (state_id, interned_symbol), value in self.gotos.items():
-            if state_id not in grouped_tables:
-                grouped_tables[state_id] = ([], [])
-
-            gotos = grouped_tables[state_id][1]
-            symbol = self.frozen_symbols.get_frozen_symbol(interned_symbol)
-            gotos.append((symbol, value))
-
         writer = io.StringIO()
 
-        for state_id, item in grouped_tables.items():
+        for state_id in range(len(self.actions)):
             writer.write(f'<state #{state_id}>\n')
 
-            actions = item[0]
+            actions: typing.List[
+                typing.Tuple[
+                    FrozenSymbol,
+                    ActionKind,
+                    typing.Union[StateID, InternedFrozenProduction]
+                ]
+            ] = []
+
+            for i, (action, number) in enumerate(self.actions[state_id]):
+                if action is ActionKind.REJECT:
+                    continue
+
+                symbol = self.frozen_symbols.get_frozen_symbol(i)
+                actions.append((symbol, action, number))
+
             writer.write(f'[ Actions: {len(actions)} ]\n')
             for symbol, action, number in actions:
                 writer.write(f'  (for symbol {str(symbol)!r}) {action.name} ')
@@ -155,7 +155,13 @@ class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
 
                 writer.write('\n')
 
-            gotos = item[1]
+            gotos: typing.List[typing.Tuple[FrozenSymbol, StateID]] = []
+
+            for i, goto_state in enumerate(self.gotos[state_id]):
+                index = i + len(self.frozen_symbols.interned_terminal_lookup)
+                symbol = self.frozen_symbols.get_frozen_symbol(index)
+                gotos.append((symbol, goto_state))
+
             writer.write(f'[ GOTOs: {len(gotos)} ]\n')
             for symbol, destination_id in gotos:
                 writer.write(f'  (for symbol {symbol!r}) -> state #{destination_id}\n')

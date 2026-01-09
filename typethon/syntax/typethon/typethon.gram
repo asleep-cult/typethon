@@ -12,84 +12,80 @@ statement:
 
 simple_statements:
     #[@prepend]
-    | !simple_statement (';' !simple_statement)* ';'? NEWLINE
+    | !simple_statement (";" !simple_statement)* ";"? NEWLINE
 
 simple_statement:
     #[create_pass_statement]
-    | 'pass'
+    | "pass"
     #[create_break_statement]
-    | 'break'
+    | "break"
     #[create_continue_statement]
-    | 'continue'
+    | "continue"
     #[create_return_statement]
-    | 'return' !expression?
+    | "return" !expression?
     #[create_expr_statement]
-    | !expression
+    | !expressions
 
-block:
+complex_block:
     #[@flatten]
     | NEWLINE INDENT !statement+ DEDENT
+
+block:
+    | !complex_block
     | !simple_statements
 
-decorators: ('@' !expression NEWLINE)+
+decorators: ("@" !expression NEWLINE)+
 
 function_def:
     #[create_function]
-    | !decorators? 'def' !IDENTIFIER '(' !function_parameters? ')' '->' !expression (':' !block)?
+    | !decorators? "def" !IDENTIFIER "(" !function_parameters? ")" "->" !type_expression (":" !block)?
 
 function_parameters:
     #[@prepend]
-    | !function_parameter (',' !function_parameter)* ','?
+    | !function_parameter ("," !function_parameter)* ","?
 
 function_parameter:
-    #[create_single_parameter]
-    | !IDENTIFIER ':' !type ('=' !expression)?
+    #[create_function_parameter]
+    | !IDENTIFIER ":" !type_expression ("=" !expression)?
 
 class_def:
     #[create_class]
-    | !decorators? 'class' !IDENTIFIER ':' !block
+    | !decorators? "class" !IDENTIFIER ":" !block
 
 # for_statement:
     # [create_for_statement]
-    # | 'for' !target 'in' !expression ':' !block
+    # | "for" !target "in" !expression ":" !block
 
 if_statement:
     #[create_if_statement]
-    | 'if' !expression ':' !block !else_statement?
+    | "if" !expression ":" !block !else_statement?
 
 else_statement:
     #[create_elif_statement]
-    | 'elif' !expression ':' !block !else_statement?
-    | 'else' ':' !block
+    | "elif" !expression ":" !block !else_statement?
+    | "else" ":" !block
 
 while_statement:
     #[create_while_statement]
-    | 'while' !expression ':' !block
-
-type: !type_atom
-
-type_atom:
-    #[create_constant]
-    | !'Self'
-    #[create_name]
-    | !IDENTIFIER
+    | "while" !expression ":" !block
 
 expression:
     | !disjunction
+    | !lambda
 
 disjunction:
     #[create_disjunction]
-    | !conjunction ('or' !conjunction)+
+    | !conjunction ("or" !conjunction)+
     | !conjunction
 
 conjunction:
     #[create_conjunction]
-    | !inversion ('and' !inversion)+
+    | !inversion ("and" !inversion)+
     | !inversion
 
 inversion:
     #[create_inversion]
-    | 'not' !inversion
+    | "not" !inversion
     | !comparison
 
 comparison:
@@ -99,107 +95,154 @@ comparison:
 
 comparator:
     #[create_comparator_one]
-    | !'==' !bitwise_or
+    | !"==" !bitwise_or
     #[create_comparator_one]
-    | !'!=' !bitwise_or
+    | !"!=" !bitwise_or
     #[create_comparator_one]
-    | !'<=' !bitwise_or
+    | !"<=" !bitwise_or
     #[create_comparator_one]
-    | !'<' !bitwise_or
+    | !"<" !bitwise_or
     #[create_comparator_one]
-    | !'>=' !bitwise_or
+    | !">=" !bitwise_or
     #[create_comparator_one]
-    | !'>' !bitwise_or
+    | !">" !bitwise_or
     #[create_comparator_two]
-    | !'not' !'in' !bitwise_or
+    | !"not" !"in" !bitwise_or
     #[create_comparator_one]
-    | !'in' !bitwise_or
+    | !"in" !bitwise_or
     #[create_comparator_two]
-    | !'is' !'not' !bitwise_or
+    | !"is" !"not" !bitwise_or
 
 bitwise_or:
     #[create_binary_operator]
-    | !bitwise_or !'|' !bitwise_xor
+    | !bitwise_or !"|" !bitwise_xor
     | !bitwise_xor
 
 bitwise_xor:
     #[create_binary_operator]
-    | !bitwise_xor !'^' !bitwise_and
+    | !bitwise_xor !"^" !bitwise_and
     | !bitwise_and
 
 bitwise_and:
     #[create_binary_operator]
-    | !bitwise_and !'&' !shift_expr
+    | !bitwise_and !"&" !shift_expr
     | !shift_expr
 
 shift_expr:
     #[create_binary_operator]
-    | !shift_expr !'<<' !sum
+    | !shift_expr !"<<" !sum
     #[create_binary_operator]
-    | !shift_expr !'>>' !sum
+    | !shift_expr !">>" !sum
     | !sum
 
 sum:
     #[create_binary_operator]
-    | !sum !'+' !term
+    | !sum !"+" !term
     #[create_binary_operator]
-    | !sum !'-' !term
+    | !sum !"-" !term
     | !term
 
 term:
     #[create_binary_operator]
-    | !term !'*' !factor
+    | !term !"*" !factor
     #[create_binary_operator]
-    | !term !'/' !factor
+    | !term !"/" !factor
     #[create_binary_operator]
-    | !term !'//' !factor
+    | !term !"//" !factor
     #[create_binary_operator]
-    | !term !'%' !factor
+    | !term !"%" !factor
     #[create_binary_operator]
-    | !term !'@' !factor
+    | !term !"@" !factor
     | !factor
 
 factor:
     #[create_unary_operator]
-    | !'+' !factor
+    | !"+" !factor
     #[create_unary_operator]
-    | !'-' !factor
+    | !"-" !factor
     #[create_unary_operator]
-    | !'~' !factor
+    | !"~" !factor
     | !power
 
 power:
     #[create_binary_operator]
-    | !primary !'**' !factor
+    | !primary !"**" !factor
     | !primary
 
 primary:
     #[create_attribute]
-    | !primary '.' !IDENTIFIER
-    # | !primary '(' !arguments? ')'
+    | !primary "." !IDENTIFIER
+    # | !primary "(" !arguments? ")"
     #[create_subscript]
-    | !primary '[' !slices ']'
+    | !primary "[" !slices "]"
     | !atom
 
 slices:
     #[@prepend]
-    | !slice (',' !slice)* ','?
+    | !slice ("," !slice)* ","?
 
 slice:
     #[create_slice]
-    | !expression ':' !expression (':' !expression)?
+    | !expression ":" !expression (":" !expression)?
     | !expression
 
 atom:
     #[create_constant]
-    | !'True'
+    | !"True"
     #[create_constant]
-    | !'False'
+    | !"False"
     #[create_constant]
-    | !'...'
+    | !"..."
     #[create_name]
     | !IDENTIFIER
     #[create_number]
     | !NUMBER
     #[create_string]
     | !STRING+
+    | !tuple_or_lambda
+    | !group_or_lambda
+
+expression_list:
+    #[@prepend]
+    | !expression ("," !expression)+ ","?
+    #[@sequence]
+    | !expression ","
+
+expressions:
+    #[create_tuple]
+    | !expression_list
+    | !expression
+
+lambda:
+    #[create_block_lambda]
+    | "::" !complex_block "::"
+    #[create_expression_lambda]
+    | "::" !expression
+
+tuple_or_lambda_parameters:
+    #[create_tuple_or_lambda_parameters]
+    | "(" !expression_list? ")"
+
+tuple_or_lambda:
+    | !tuple_or_lambda_parameters
+    #[add_lambda_parameters]
+    | !tuple_or_lambda_parameters !lambda
+
+group_or_lambda_parameters:
+    #[create_group_or_lambda_parameters]
+    | "(" !expression ")"
+
+group_or_lambda:
+    | !group_or_lambda_parameters
+    #[add_lambda_parameters]
+    | !group_or_lambda_parameters !lambda
+
+type_expression: !type_atom
+
+type_atom:
+    #[create_type_parameter]
+    | "'" !IDENTIFIER
+    #[create_constant]
+    | !"Self"
+    #[create_name]
+    | !IDENTIFIER

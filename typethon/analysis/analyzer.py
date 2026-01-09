@@ -112,6 +112,9 @@ class TypeAnalyzer:
             child_scope = scope.create_child_scope(statement.name)
 
             for parameter in parameters:
+                if child_scope.has_symbol(parameter.name):
+                    continue
+
                 type_parameter = types.TypeParameter(name=parameter.name, owner=type)
 
                 symbol = Symbol(name=parameter.name, content=type_parameter)

@@ -29,7 +29,9 @@ class TokenKind(enum.Enum):
     TILDE = enum.auto()
     CIRCUMFLEX = enum.auto()
     QUESTION = enum.auto()
+    TICK = enum.auto()
 
+    DOUBLECOLON = enum.auto()
     DOUBLESLASH = enum.auto()
     EQEQUAL = enum.auto()
     NOTEQUAL = enum.auto()
@@ -81,7 +83,9 @@ TOKENS: TokenMap[TokenKind] = (
     ('%', TokenKind.PERCENT),
     ('~', TokenKind.TILDE),
     ('^', TokenKind.CIRCUMFLEX),
+    ('\'', TokenKind.TICK),
 
+    ('::', TokenKind.DOUBLECOLON),
     ('//', TokenKind.DOUBLESLASH),
     ('==', TokenKind.EQEQUAL),
     ('!=', TokenKind.NOTEQUAL),

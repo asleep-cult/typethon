@@ -9,7 +9,6 @@ from .tokens import (
     NumberToken,
     NumberTokenFlags,
     KeywordMap,
-    SimpleTokenKind,
     StringToken,
     StringTokenFlags,
     Token,
@@ -73,6 +72,14 @@ def is_octal(char: str) -> bool:
 def is_binary(char: str) -> bool:
     return char in '01'
 
+"""
+def f(x):
+    if abc:
+        f = map((x) ::
+            return 10
+        ::, items)
+"""
+
 
 class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
@@ -98,6 +105,16 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         self.match_stack: typing.List[TokenKindT] = []
         self.indentstack: typing.List[typing.Tuple[int, int]] = [(0, 0)]
         self.indents: typing.List[typing.Union[IndentToken, DedentToken]] = []
+
+        self.match_stack_bottom = 0
+        self.match_bottom_stack: typing.List[int] = []
+
+    def enter_nested_stack(self) -> None:
+        self.match_bottom_stack.append(self.match_stack_bottom)
+        self.match_stack_bottom = len(self.match_stack)
+
+    def exit_nested_stack(self) -> None:
+        self.match_stack_bottom = self.match_bottom_stack.pop()
 
     def create_lookup_table(
         self, tokens: typing.Dict[str, TokenKindT]
@@ -342,7 +359,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         char = self.consume_char()
         assert char == '\n'
 
-        if self.is_newline or self.match_stack:
+        if self.is_newline or len(self.match_stack) - self.match_stack_bottom > 0:
             return None
 
         self.is_newline = True
@@ -353,7 +370,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
 
         terminator = self.consume_char()
         multiline = False
-        assert terminator in '\'\"'
+        assert terminator == '"'
 
         if self.peek_char() == terminator:
             self.consume_char()
@@ -384,6 +401,23 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
 
         content = self.source[start + terminator_size:]
         return StringToken(start=start, end=self.position, content=content, flags=flags)
+
+    def character(self) -> typing.Optional[StringToken]:
+        start = self.position
+
+        terminator = self.peek_char()
+        assert terminator == '\''
+        flags = StringTokenFlags.CHARACTER
+
+        content = self.peek_char(1)
+        if content == terminator:
+            self.consume_char(2)
+            return StringToken(start=start, end=self.position, content='', flags=flags)
+
+        char = self.peek_char(2)
+        if char == terminator:
+            self.consume_char(3)
+            return StringToken(start=start, end=self.position, content=content, flags=flags)
 
     def comment(self) -> typing.Optional[DirectiveToken]:
         start = self.position
@@ -457,7 +491,12 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
             elif is_digit(char):
                 return self.number()
 
-            elif char in '\'\"':
+            elif char == '\'':
+                character = self.character()
+                if character is not None:
+                    return character
+
+            elif char == '"':
                 return self.string()
 
             elif char == '\n':
