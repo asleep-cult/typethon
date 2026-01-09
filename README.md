@@ -162,6 +162,24 @@ class Map:
 # less expressive, which is one thing I would like to retain from Python.
 
 # Other notes:
+# *I think traits should be called classes and data types should simply be
+# (type, type) or {name: type} kind of like JS objects.
+
+type User = { name: str }
+
+def get_name(user: Self(User)) -> str:
+    return self.name
+
+type Something = (int, int)
+
+def print_name(named: { name: str }) -> str:
+    print(named.name)
+
+# Something like this would only work with a type that has
+# a single field called name, rather than any type with a name.
+
+# If so, we absolutely need to add something like Rust's impl.
+
 # *Function bodies are optional for prototyping
 
 def proto(foo: int) -> str

@@ -72,14 +72,6 @@ def is_octal(char: str) -> bool:
 def is_binary(char: str) -> bool:
     return char in '01'
 
-"""
-def f(x):
-    if abc:
-        f = map((x) ::
-            return 10
-        ::, items)
-"""
-
 
 class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
