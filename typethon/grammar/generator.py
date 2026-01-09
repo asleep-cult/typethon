@@ -126,13 +126,14 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
             and existing_entry != new_entry
         ):
             recoverable = existing_entry[0] is ActionKind.REDUCE
-            message = self.get_action_table_conflict_message(
-                symbol,
-                state_id,
-                existing_entry,
-                new_entry,
-            )
-            self.genereator.report_conflict(message, recoverable=recoverable)
+            if not recoverable or self.genereator.require_log():
+                message = self.get_action_table_conflict_message(
+                    symbol,
+                    state_id,
+                    existing_entry,
+                    new_entry,
+                )
+                self.genereator.report_conflict(message, recoverable=recoverable)
 
         self.table.actions[state_id][symbol.id] = new_entry
 
@@ -149,13 +150,14 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
             and existing_entry != new_entry
         ):
             recoverable = existing_entry[0] is ActionKind.SHIFT
-            message = self.get_action_table_conflict_message(
-                symbol,
-                state_id,
-                existing_entry,
-                new_entry
-            )
-            self.genereator.report_conflict(message, recoverable=recoverable)
+            if not recoverable or self.genereator.require_log():
+                message = self.get_action_table_conflict_message(
+                    symbol,
+                    state_id,
+                    existing_entry,
+                    new_entry
+                )
+                self.genereator.report_conflict(message, recoverable=recoverable)
 
             if recoverable:
                 return
@@ -254,6 +256,9 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             raise ParserGeneratorError(message)
 
         logger.debug(message)
+
+    def require_log(self) -> bool:
+        return logger.getEffectiveLevel() <= logging.DEBUG
 
     def create_nonterminal_symbol(
         self,
