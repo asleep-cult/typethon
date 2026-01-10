@@ -35,46 +35,6 @@ class ModuleNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeParameterNode(Node):
-    name: str = attr.ib()
-    constraint: typing.Optional[TypeExpressionNode] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class TypeCallNode(Node):
-    type: TypeExpressionNode = attr.ib()
-    args: typing.List[TypeExpressionNode] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class TypeAttributeNode(Node):
-    value: TypeExpressionNode = attr.ib()
-    attr: str = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class DictTypeNode(Node):
-    key: TypeExpressionNode = attr.ib()
-    value: TypeExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class SetTypeNode(Node):
-    elt: TypeExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class ListTypeNode(Node):
-    elt: TypeExpressionNode = attr.ib()
-    # size: typing.Optional[int] = attr.ib(default=None)
-
-
-@attr.s(kw_only=True, slots=True)
-class TupleTypeNode(Node):
-    elts: typing.List[TypeExpressionNode] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class FunctionDefNode(Node):
     name: str = attr.ib()
     parameters: typing.List[FunctionParameterNode] = attr.ib()
@@ -327,6 +287,52 @@ class DictElt(Node):
     value: ExpressionNode = attr.ib()
 
 
+@attr.s(kw_only=True, slots=True)
+class TypeParameterNode(Node):
+    name: str = attr.ib()
+    constraint: typing.Optional[TypeExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class TypeCallNode(Node):
+    type: TypeExpressionNode = attr.ib()
+    args: typing.List[TypeExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class TypeAttributeNode(Node):
+    value: TypeExpressionNode = attr.ib()
+    attr: str = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ListTypeNode(Node):
+    elt: TypeExpressionNode = attr.ib()
+    # size: typing.Optional[int] = attr.ib(default=None)
+
+
+@attr.s(kw_only=True, slots=True)
+class TypeAssignmentNode(Node):
+    name: str = attr.ib()
+    type: TypeExpressionNode = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class StructFieldNode(Node):
+    name: str = attr.ib()
+    type: TypeExpressionNode = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class StructTypeNode(Node):
+    fields: typing.List[StructFieldNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class TupleTypeNode(Node):
+    elts: typing.List[TypeExpressionNode] = attr.ib()
+
+
 StatementNode = typing.Union[
     FunctionDefNode,
     ClassDefNode,
@@ -344,6 +350,7 @@ StatementNode = typing.Union[
     PassNode,
     BreakNode,
     ContinueNode,
+    TypeAssignmentNode,
 ]
 
 ExpressionNode = typing.Union[
@@ -372,8 +379,7 @@ TypeExpressionNode = typing.Union[
     TypeParameterNode,
     TypeCallNode,
     TypeAttributeNode,
-    DictTypeNode,
-    SetTypeNode,
     ListTypeNode,
-    # TupleTypeNode, TODO: Tuple
+    StructTypeNode,
+    TupleTypeNode,
 ]

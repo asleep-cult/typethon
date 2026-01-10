@@ -25,6 +25,7 @@ simple_statement:
     | "return" !expression?
     #[create_expr_statement]
     | !expressions
+    | !type_assignment
 
 complex_block:
     #[@flatten]
@@ -237,9 +238,27 @@ group_or_lambda:
     #[add_lambda_parameters]
     | !group_or_lambda_parameters !lambda
 
-type_expression: !type_atom
+type_assignment:
+    #[create_type_assignment]
+    | "type" !IDENTIFIER "=" !type_expression
+
+type_expression:
+    | !type_atom
+
+type_struct:
+    #[create_struct_type]
+    | "{" !type_struct_fields "}"
+
+type_struct_fields:
+    #[@prepend]
+    | !type_struct_field ("," !type_struct_field)* ","?
+
+type_struct_field:
+    #[create_struct_field]
+    | !IDENTIFIER ":" !type_expression
 
 type_atom:
+    | !type_struct
     #[create_type_parameter]
     | "'" !IDENTIFIER
     #[create_constant]

@@ -35,7 +35,7 @@ class TypeBuilder:
     @staticmethod
     def new_type_parameter(
         name: str,
-        constraint: typing.Optional[types.TypeTrait] = None
+        constraint: typing.Optional[types.TypeClass] = None
     ) -> types.TypeParameter:
         return types.TypeParameter(name=name, constraint=constraint)
 
@@ -51,46 +51,20 @@ class TypeBuilder:
         return type
 
     @staticmethod
-    def new_trait(
+    def new_type_class(
         name: str,
         *parameters: types.TypeParameter,
         **functions: types.FunctionType,
-    ) -> types.TypeTrait:
-        trait = types.TypeTrait(name=name, parameters=list(parameters), tr_functions=functions)
+    ) -> types.TypeClass:
+        type_class = types.TypeClass(name=name, parameters=list(parameters), cls_functions=functions)
         for parameter in parameters:
-            parameter.owner = trait
+            parameter.owner = type_class
 
-        return trait
+        return type_class
 
     @staticmethod
     def new_self_type() -> types.SelfType:
         return types.SelfType()
-
-    @staticmethod
-    def new_class(
-        name: str,
-        *parameters: types.TypeParameter,
-        **kwargs: types.AnalyzedType,
-    ) -> types.ClassType:
-        cls_attributes: typing.Dict[str, types.ClassAttribute] = {}
-        cls_functions: typing.Dict[str, types.FunctionType] = {}
-
-        for name, type in kwargs.items():
-            if isinstance(type, types.FunctionType):
-                cls_functions[name] = type
-            else:
-                cls_attributes[name] = types.ClassAttribute(name=name, type=type)
-
-        cls = types.ClassType(
-            name=name,
-            parameters=list(parameters),
-            cls_attributes=cls_attributes,
-            cls_functions=cls_functions,
-        )
-        for parameter in parameters:
-            parameter.owner = cls
-
-        return cls
 
     @staticmethod
     def bind_members(type: types.PolymorphicType, cls: type) -> typing.Dict[str, types.FunctionType]:
@@ -109,24 +83,24 @@ class TypeBuilder:
         return functions
 
     @staticmethod
-    def trait_from_class(trait_name: str) -> typing.Callable[[type], types.TypeTrait]:
-        def wrapped(cls: type) -> types.TypeTrait:
-            trait = types.TypeTrait(name=trait_name)
+    def type_class_from_class(class_name: str) -> typing.Callable[[type], types.TypeClass]:
+        def wrapped(cls: type) -> types.TypeClass:
+            type_class = types.TypeClass(name=class_name)
 
-            functions = TypeBuilder.bind_members(trait, cls)
-            trait.tr_functions.update(functions)
+            functions = TypeBuilder.bind_members(type_class, cls)
+            type_class.cls_functions.update(functions)
 
-            return trait
+            return type_class
         return wrapped
 
     @staticmethod
-    def new_unaryop_trait(name: str, op: str) -> types.TypeTrait:
-        trait = types.TypeTrait(name=name)
+    def new_unaryop_class(name: str, op: str) -> types.TypeClass:
+        type_class = types.TypeClass(name=name)
 
-        return_type = types.TypeParameter(name='T', owner=trait)
-        trait.parameters.append(return_type)
+        return_type = types.TypeParameter(name='T', owner=type_class)
+        type_class.parameters.append(return_type)
 
-        self_type = types.SelfType(owner=trait)
+        self_type = types.SelfType(owner=type_class)
         function = TypeBuilder.new_function(
             op,
             self=self_type,
@@ -134,18 +108,18 @@ class TypeBuilder:
         )
         function.fn_self = self_type
 
-        trait.tr_functions[function.name] = function
-        return trait
+        type_class.cls_functions[function.name] = function
+        return type_class
 
     @staticmethod
-    def new_binaryop_trait(name: str, op: str) -> types.TypeTrait:
-        trait = types.TypeTrait(name=name)
+    def new_binaryop_class(name: str, op: str) -> types.TypeClass:
+        type_class = types.TypeClass(name=name)
 
-        rhs_type = types.TypeParameter(name='T', owner=trait)
-        return_type = types.TypeParameter(name='U', owner=trait)
-        trait.parameters.extend((rhs_type, return_type))
+        rhs_type = types.TypeParameter(name='T', owner=type_class)
+        return_type = types.TypeParameter(name='U', owner=type_class)
+        type_class.parameters.extend((rhs_type, return_type))
 
-        self_type = types.SelfType(owner=trait)
+        self_type = types.SelfType(owner=type_class)
         function = TypeBuilder.new_function(
             op,
             self=self_type,
@@ -154,13 +128,13 @@ class TypeBuilder:
         )
         function.fn_self = self_type
 
-        trait.tr_functions[function.name] = function
-        return trait
+        type_class.cls_functions[function.name] = function
+        return type_class
 
     @staticmethod
-    def add_all_traits(type: types.AnalyzedType, *traits: types.TypeTrait) -> None:
-        for trait in traits:
-            type.add_trait_implementation(trait)
+    def add_all_classes(type: types.AnalyzedType, *type_classes: types.TypeClass) -> None:
+        for type_class in type_classes:
+            type.add_class_implementation(type_class)
 
 
 class Types:
@@ -187,19 +161,19 @@ class Types:
 
 
 class Ops:
-    ADD = TypeBuilder.new_binaryop_trait('Add', 'add')
-    SUB = TypeBuilder.new_binaryop_trait('Sub', 'sub')
-    MULT = TypeBuilder.new_binaryop_trait('Mult', 'mult')
-    MATMULT = TypeBuilder.new_binaryop_trait('Matmult', 'matmult')
-    DIV = TypeBuilder.new_binaryop_trait('Div', 'div')
-    MOD = TypeBuilder.new_binaryop_trait('Mod', 'mod')
-    POW = TypeBuilder.new_binaryop_trait('Pow', 'pow')
-    LSHIFT = TypeBuilder.new_binaryop_trait('LShift', 'lshift')
-    RSHIFT = TypeBuilder.new_binaryop_trait('RShift', 'rshift')
-    BITOR = TypeBuilder.new_binaryop_trait('BitOr', 'bitor')
-    BITXOR = TypeBuilder.new_binaryop_trait('BitXOr', 'bitxor')
-    BITAND = TypeBuilder.new_binaryop_trait('BitAnd', 'bitand')
-    FLOORDIV = TypeBuilder.new_binaryop_trait('FloorDiv', 'floordiv')
+    ADD = TypeBuilder.new_binaryop_class('Add', 'add')
+    SUB = TypeBuilder.new_binaryop_class('Sub', 'sub')
+    MULT = TypeBuilder.new_binaryop_class('Mult', 'mult')
+    MATMULT = TypeBuilder.new_binaryop_class('Matmult', 'matmult')
+    DIV = TypeBuilder.new_binaryop_class('Div', 'div')
+    MOD = TypeBuilder.new_binaryop_class('Mod', 'mod')
+    POW = TypeBuilder.new_binaryop_class('Pow', 'pow')
+    LSHIFT = TypeBuilder.new_binaryop_class('LShift', 'lshift')
+    RSHIFT = TypeBuilder.new_binaryop_class('RShift', 'rshift')
+    BITOR = TypeBuilder.new_binaryop_class('BitOr', 'bitor')
+    BITXOR = TypeBuilder.new_binaryop_class('BitXOr', 'bitxor')
+    BITAND = TypeBuilder.new_binaryop_class('BitAnd', 'bitand')
+    FLOORDIV = TypeBuilder.new_binaryop_class('FloorDiv', 'floordiv')
 
     BINARY_OPERATORS = (
         ADD,
@@ -217,9 +191,9 @@ class Ops:
         FLOORDIV,
     )
 
-    INVERT = TypeBuilder.new_unaryop_trait('Invert', 'invert')
-    UADD = TypeBuilder.new_unaryop_trait('UAdd', 'uadd')
-    USUB = TypeBuilder.new_unaryop_trait('USub', 'usub')
+    INVERT = TypeBuilder.new_unaryop_class('Invert', 'invert')
+    UADD = TypeBuilder.new_unaryop_class('UAdd', 'uadd')
+    USUB = TypeBuilder.new_unaryop_class('USub', 'usub')
 
     UNARY_OPERATORS = (
         INVERT,
@@ -228,7 +202,7 @@ class Ops:
     )
 
 
-@TypeBuilder.trait_from_class('Hash')
+@TypeBuilder.type_class_from_class('Hash')
 class Hash:
     self_type = TypeBuilder.new_self_type()
     hash = TypeBuilder.new_function('hash', self=self_type, returns=Types.INT)
@@ -245,14 +219,14 @@ Types.SET = TypeBuilder.new_polymorphic_type(
 )
 
 
-@TypeBuilder.trait_from_class('Iter')
+@TypeBuilder.type_class_from_class('Iter')
 class Iter:
     self_type = TypeBuilder.new_self_type()
     next_type = TypeBuilder.new_type_parameter('T')
     next = TypeBuilder.new_function('next', self=self_type, returns=next_type)
 
 
-@TypeBuilder.trait_from_class('Index')
+@TypeBuilder.type_class_from_class('Index')
 class Index:
     self_type = TypeBuilder.new_self_type()
     index_type = TypeBuilder.new_type_parameter('T')
@@ -260,13 +234,13 @@ class Index:
     get_item = TypeBuilder.new_function('get_item', self=self_type, index=index_type, returns=value_type)
 
 
-class Traits:
+class Classes:
     HASH = Hash
     ITER = Iter
     INDEX = Index
 
 
-TypeBuilder.add_all_traits(
+TypeBuilder.add_all_classes(
     Types.INT,
     Ops.INVERT.with_parameters([Types.INT]),
     Ops.UADD.with_parameters([Types.INT]),
@@ -292,7 +266,7 @@ TypeBuilder.add_all_traits(
     Ops.POW.with_parameters([Types.FLOAT, Types.FLOAT]),
 )
 
-TypeBuilder.add_all_traits(
+TypeBuilder.add_all_classes(
     Types.FLOAT,
     Ops.ADD.with_parameters([Types.FLOAT, Types.FLOAT]),
     Ops.SUB.with_parameters([Types.FLOAT, Types.FLOAT]),
@@ -309,7 +283,7 @@ TypeBuilder.add_all_traits(
     Ops.POW.with_parameters([Types.INT, Types.FLOAT]),
 )
 
-TypeBuilder.add_all_traits(
+TypeBuilder.add_all_classes(
     Types.LIST,
     Iter.with_parameters([Types.LIST.parameters[0]]),
     Index.with_parameters([Types.INT, Types.LIST.parameters[0]]),

@@ -15,7 +15,7 @@ import typing
 @attr.s(kw_only=True, slots=True, eq=False)
 class AnalyzedType:
     name: str = attr.ib()
-    trait_implementations: typing.List[TypeTrait] = attr.ib(factory=list, repr=False)
+    class_implementations: typing.List[TypeClass] = attr.ib(factory=list, repr=False)
 
     def __str__(self) -> str:
         string = self.get_string()
@@ -23,8 +23,8 @@ class AnalyzedType:
 
     def is_compatible_with(self, type: AnalyzedType) -> bool:
         # NOTE: This is not communitive and must be used with care
-        # Specifically, type.is_compatible_with(trait) will work,
-        # trait.is_compatible_with(type) will not.
+        # Specifically, type.is_compatible_with(class) will work,
+        # class.is_compatible_with(type) will not.
         # The behavior for UnionType is the same.
         if self is UNKNOWN or type is UNKNOWN:
             return False
@@ -32,26 +32,26 @@ class AnalyzedType:
         if self is ANY or type is ANY:
             return True
 
-        if isinstance(type, TypeTrait):
-            return self.get_trait_implementation(type) is not None
+        if isinstance(type, TypeClass):
+            return self.get_class_implementation(type) is not None
 
         if isinstance(type, UnionType):
             return any(self.is_compatible_with(union_type) for union_type in type.types)
 
         return self is type
 
-    def add_trait_implementation(self, trait: TypeTrait) -> None:
-        if trait.has_uninitialized_parameters():
-            raise ValueError(f'{trait} has uninitialized parameters')
+    def add_class_implementation(self, type_class: TypeClass) -> None:
+        if type_class.has_uninitialized_parameters():
+            raise ValueError(f'{type_class} has uninitialized parameters')
 
-        self.trait_implementations.append(trait)
+        self.class_implementations.append(type_class)
 
-    def get_trait_implementation(self, trait: TypeTrait) -> typing.Optional[TypeTrait]:
-        if trait.has_uninitialized_parameters():
-            raise ValueError(f'{trait} has uninitialized parameters')
+    def get_class_implementation(self, type_class: TypeClass) -> typing.Optional[TypeClass]:
+        if type_class.has_uninitialized_parameters():
+            raise ValueError(f'{type_class} has uninitialized parameters')
 
-        for implementation in self.trait_implementations:
-            if implementation.is_compatible_with(trait):
+        for implementation in self.class_implementations:
+            if implementation.is_compatible_with(type_class):
                 return implementation
 
     def get_string(self, *, top_level: bool = True) -> str:
@@ -118,12 +118,12 @@ class TypeParameter(AnalyzedType):
     constraint: typing.Optional[AnalyzedType] = attr.ib(default=None)
 
     def get_string(self, *, top_level: bool = True) -> str:
-        name = f'{self.name}@{self.owner.name}'
+        name = f'\'{self.name}@{self.owner.name}'
 
         if self.constraint is not None:
-            return f'|{name}: {self.constraint}|'
+            return f'{name}: {self.constraint}'
 
-        return f'|{name}|'
+        return name
 
     def bind_with_parameters(self, type: PolymorphicType) -> AnalyzedType:
         for parameter, given_type in type.map_given_parameters():
@@ -149,35 +149,35 @@ class PolymorphicType(AnalyzedType):
     def map_given_parameters(self) -> typing.Iterator[typing.Tuple[TypeParameter, AnalyzedType]]:
         return zip(self.parameters, self.given_parameters)
 
-    def add_trait_implementation(self, trait: TypeTrait) -> None:
-        # The trait might contain a TypeParameter from self.given_parameters;
+    def add_class_implementation(self, type_class: TypeClass) -> None:
+        # The class might contain a TypeParameter from self.given_parameters;
         # if so, change it back to the corresponding parameter in self.parameters
         # because we are implementing it for the initial_type, not this specific instance
-        trait = trait.unbind_from_parameters(self)
+        type_class = type_class.unbind_from_parameters(self)
 
-        for parameter in trait.uninitialized_parameters():
+        for parameter in type_class.uninitialized_parameters():
             if parameter not in self.parameters:
-                raise ValueError(f'{trait} has a foreign uninitialized parameter {parameter}')
+                raise ValueError(f'{type_class} has a foreign uninitialized parameter {parameter}')
 
         initial_type = self.get_initial_type()
-        initial_type.trait_implementations.append(trait)
+        initial_type.class_implementations.append(type_class)
 
-    def get_trait_implementation(self, trait: TypeTrait) -> typing.Optional[TypeTrait]:
-        for parameter in trait.uninitialized_parameters():
+    def get_class_implementation(self, type_class: TypeClass) -> typing.Optional[TypeClass]:
+        for parameter in type_class.uninitialized_parameters():
             if (
                 parameter not in self.parameters
                 and parameter not in self.given_parameters
             ):
-                raise ValueError(f'{trait} has a foreign uninitialized parameter {parameter}')
+                raise ValueError(f'{type_class} has a foreign uninitialized parameter {parameter}')
 
         initial_type = self.get_initial_type()
-        for implementation in initial_type.trait_implementations:
-            if implementation.get_initial_type() is not trait.get_initial_type():
+        for implementation in initial_type.class_implementations:
+            if implementation.get_initial_type() is not type_class.get_initial_type():
                 continue
 
-            bound_trait = implementation.bind_with_parameters(self)
-            if bound_trait.is_compatible_with(trait):
-                return bound_trait
+            bound_class = implementation.bind_with_parameters(self)
+            if bound_class.is_compatible_with(type_class):
+                return bound_class
 
     def is_compatible_with(self, type: AnalyzedType) -> bool:
         if type is UNKNOWN:
@@ -186,8 +186,8 @@ class PolymorphicType(AnalyzedType):
         if type is ANY:
             return True
 
-        if isinstance(type, TypeTrait):
-            return self.get_trait_implementation(type) is not None
+        if isinstance(type, TypeClass):
+            return self.get_class_implementation(type) is not None
 
         if not isinstance(type, PolymorphicType):
             return False
@@ -286,8 +286,12 @@ class SelfType(AnalyzedType):
 
 
 @attr.s(kw_only=True, slots=True, eq=False)
-class TypeTrait(PolymorphicType):
-    tr_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
+class TypeClass(PolymorphicType):
+    propagated: bool = attr.ib(default=True)
+    cls_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
+
+    def complete_propagation(self) -> None:
+        self.propagated = True
 
     def is_compatible_with(self, type: AnalyzedType) -> bool:
         if type is UNKNOWN:
@@ -296,7 +300,7 @@ class TypeTrait(PolymorphicType):
         if type is ANY:
             return True
 
-        if not isinstance(type, TypeTrait):
+        if not isinstance(type, TypeClass):
             return False
 
         if self.get_initial_type() is not type.get_initial_type():
@@ -313,16 +317,16 @@ class TypeTrait(PolymorphicType):
         return True
 
     def get_function(self, name: str) -> FunctionType:
-        if name not in self.tr_functions:
+        if name not in self.cls_functions:
             raise ValueError(f'{self} has no function named {name}')
 
-        function = self.tr_functions[name]
+        function = self.cls_functions[name]
         return function.with_owner(self)
 
-    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> TypeTrait:
-        trait = super().with_parameters(parameters)
-        trait.tr_functions = self.tr_functions
-        return trait
+    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> TypeClass:
+        type_class = super().with_parameters(parameters)
+        type_class.cls_functions = self.cls_functions
+        return type_class
 
 
 @attr.s(kw_only=True, slots=True, eq=False)
@@ -431,47 +435,58 @@ class FunctionType(PolymorphicType):
 
 
 @attr.s(kw_only=True, slots=True, eq=False)
-class ClassAttribute:
+class StructField:
     name: str = attr.ib()
     type: AnalyzedType = attr.ib()
     # TODO: default?, kw_only?
 
 
-@attr.s(kw_only=True, slots=True, eq=False)
-class ClassType(PolymorphicType):
+@attr.s(kw_only=True, slots=True)
+class StructType(PolymorphicType):
     propagated: bool = attr.ib(default=True)
-    # The following attributes are static after propagation and they can
-    # exist on multiple ClassTypes (i.e. with_parameters)
-    cls_attributes: typing.Dict[str, ClassAttribute] = attr.ib(factory=dict)
-    cls_functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
+    struct_fields: typing.Dict[str, StructField] = attr.ib(factory=dict)
+
+    def complete_propagation(self) -> None:
+        self.propagated = True
+
+    def get_field_types(self) -> typing.List[AnalyzedType]:
+        return [self.get_field_type(name) for name in self.struct_fields]
+
+    def get_field_type(self, name: str) -> AnalyzedType:
+        if name not in self.struct_fields:
+            raise ValueError(f'{self} has no attribute named {name}')
+
+        type = self.struct_fields[name].type
+        return type.bind_with_parameters(self)
+
+    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> StructType:
+        structure = super().with_parameters(parameters)
+        structure.struct_fields = self.struct_fields        
+        return structure
+
+
+@attr.s(kw_only=True, slots=True)
+class TupleType(PolymorphicType):
+    propagated: bool = attr.ib()
+    tuple_fields: typing.List[AnalyzedType] = attr.ib()
 
     def complete_propagation(self) -> None:
         self.propagated = True
 
     def get_attribute_types(self) -> typing.List[AnalyzedType]:
-        return [self.get_attribute_type(name) for name in self.cls_attributes]
+        return [type.bind_with_parameters(self) for type in self.tuple_fields]
 
-    def get_attribute_type(self, name: str) -> AnalyzedType:
-        if name not in self.cls_attributes:
-            raise ValueError(f'{self} has no attribute named {name}')
+    def get_attribute_type(self, index: int) -> AnalyzedType:
+        if index >= len(self.tuple_fields):
+            raise ValueError(f'{index} out of range for {self}')
 
-        type = self.cls_attributes[name].type
+        type = self.tuple_fields[index]
         return type.bind_with_parameters(self)
 
-    def get_function(self, name: str) -> FunctionType:
-        if name not in self.cls_functions:
-            raise ValueError(f'{self} has not attribute named {name}')
-
-        function = self.cls_functions[name]
-        return function.with_owner(self)
-
-    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> ClassType:
-        cls = super().with_parameters(parameters)
-
-        cls.cls_attributes = self.cls_attributes
-        cls.cls_functions = self.cls_functions
-        
-        return cls
+    def with_parameters(self, parameters: typing.List[AnalyzedType]) -> TupleType:
+        tuple = super().with_parameters(parameters)
+        tuple.tuple_fields = self.tuple_fields        
+        return tuple
 
 
 AnalysisUnit = typing.Union[

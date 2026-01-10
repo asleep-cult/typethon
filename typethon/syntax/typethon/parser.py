@@ -171,6 +171,7 @@ class ASTParser:
         span: typing.Tuple[int, int],
         body: SequenceNode[ast.StatementNode],
     ) -> typing.Any:
+        body = self.parser.transform_flatten(span, body)
         return ast.ModuleNode(
             start=span[0],
             end=span[1],
@@ -711,6 +712,43 @@ class ASTParser:
             lambdef.parameters.append(parameter)
 
         return lambdef
+
+    def create_type_assignment(
+        self,
+        span: typing.Tuple[int, int],
+        name: IdentifierToken,
+        type: ast.TypeExpressionNode,
+    ) -> ast.TypeAssignmentNode:
+        return ast.TypeAssignmentNode(
+            start=span[0],
+            end=span[1],
+            name=name.content,
+            type=type,
+        )
+
+    def create_struct_type(
+        self,
+        span: typing.Tuple[int, int],
+        fields: SequenceNode[ast.StructFieldNode],
+    ) -> ast.StructTypeNode:
+        return ast.StructTypeNode(
+            start=span[0],
+            end=span[1],
+            fields=fields.items,
+        )
+
+    def create_struct_field(
+        self,
+        span: typing.Tuple[int, int],
+        name: IdentifierToken,
+        type: ast.TypeExpressionNode,
+    ) -> ast.StructFieldNode:
+        return ast.StructFieldNode(
+            start=span[0],
+            end=span[1],
+            name=name.content,
+            type=type,
+        )
 
     def create_type_parameter(
         self,

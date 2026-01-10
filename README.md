@@ -36,22 +36,28 @@ with special syntax for annotations and type parameters
 
 Here is what I've decided on so far:
 ```py
+# Gotchas:
+# 1) Single quote strings can only contain one character, 't represents a type parameter
+# 2) Classes do not represent functionality tied to a state. Instead, they classify
+# types with the same function (i.e. Haskell class, Java interface, Rust trait)
+
+# Data structures can be tuples or structures, that can be defined with type
+# assignment statements.
+
+type Structure = { field1: int, field2: str }
+
+type Tuple = (int, str)
+
 # Parametric polymorphism is achieved through the use of 't
 
-# Classes, Functions, (and in the future, Traits) can be parametrically polymorphic
-# However, a class can only be polymorphic over an attribute, and functions
-# can be polymorphic over an argument or the return value. A trait could be polymorphic
-# over any arbitrary type T.
+# Types and functions can be parametrically polymorphic. A data type can only be
+# polymorphic over a field, and functions can be polymorphic over an argument or
+# the return value. A class could be polymorphic over any arbitrary type t.
 
 def identity(x: 't) -> 't:
     return x
 
-class Box:
-    value: 't
-
-# Classes will automatically have initializers for the attributes defined
-# in their body. I'm unsure whether there will be getters, setters,
-# getattribute and other weird overrides.
+type Box = { value: 't }
 
 # You can pass type parameters to polymorphic functions and calsses by simply
 # calling it with a value. In places where you need a polymorphic class as a type,
@@ -69,25 +75,17 @@ def unbox_int(box: Box(int)) -> int:
 x = unbox(box) # type: int
 x = unbox_int(box) # type: int
 
-# It is not immediately clear whether explicit passing of type parameters
-# for functions will be necessary.
+# Not sure how to pass explicitly pass type parameters to functions 
 
 # Ad-hoc polymorphism is achieved by constraining a polymorphic type t
-# to what will eventually become traits. The with Trait for 't constrains
-# the type 't to a Trait.
+# to what will eventually become classes. The with class for 't constrains
+# the type 't to the class.
 
 def get_str_item(items: 't, index: int) -> str with Index(int, str) for 't:
     return items[index]
 
 def get_item(items: 't, index: 'u) -> 'v with Index('u, 'v) for 't:
     return items[index]
-
-def use_index(items: 't) -> SomeType with (
-    Index('u, 'v) for 't
-    DefaultTrait for 'u,
-    ValueTrait for 'v
-):
-    return items[u.default()].value()
 
 # If a function is polymorphic over it's return type, and it is not
 # used in any constraints, the caller must explicitly state the type.
@@ -100,9 +98,7 @@ items: [int] = new()  # Works fine
 
 # The Self type is a special type used to define a function on a type.
 
-class Identity:
-    def f(self: Self) -> Self:
-        return self
+type Identifier
 
 # Alternatively, Self can be used to define a function on a type outside of
 # the type by binding it with the Self(T) syntax.
@@ -117,11 +113,10 @@ x = x.g()
 # The Self type can be used in combination with the for syntax to denote
 # a function serves as the implementation function for a trait function.
 
-class Map:
-    mapping: {'k: 'v}
+type Map = { mapping: dict('k, 'v) }
 
-    def get_item(self: Self, key: 'k) -> 'v with Index('k, 'v) for Self:
-        return self.mapping[key]
+def get_item(self: Self(Map), key: 'k) -> 'v with Index('k, 'v) for Self:
+    return self.mapping[key]
 
 # I added a proof of concept lambda syntax that simply uses two colons
 # and allows multiline blocks with a delimeter. Here is how it looks:
@@ -162,31 +157,13 @@ class Map:
 # less expressive, which is one thing I would like to retain from Python.
 
 # Other notes:
-# *I think traits should be called classes and data types should simply be
-# (type, type) or {name: type} kind of like JS objects.
-
-type User = { name: str }
-
-def get_name(user: Self(User)) -> str:
-    return self.name
-
-type Something = (int, int)
-
-def print_name(named: { name: str }) -> str:
-    print(named.name)
-
-# Something like this would only work with a type that has
-# a single field called name, rather than any type with a name.
-
-# If so, we absolutely need to add something like Rust's impl.
-
 # *Function bodies are optional for prototyping
 
 def proto(foo: int) -> str
 
-# *Traits will probably look something like this
+# *Classes look like this
 
-trait Foo 't:
+class Foo 't:
     def proto(self: Self, foo: int) -> 't
 
 # *If expressions will be changed to the rejected form to add more flexibility
@@ -199,9 +176,11 @@ f(if x < 0: "negative" else: "positive")
 
 names = for names in usernames: name.lower()
 
-names = for name in usernames:
-    if name.len() < 10: name
-    else: f"{name[:10]}..."
+names = (
+    for name in usernames:
+        if name.len() < 10: name
+        else: f"{name[:10]}..."
+)
 
 # This is ambiguous
 
@@ -249,18 +228,6 @@ for (
 ):
     ...
 
-# *Class attributes should just behave exactly like function parameters
-
-class Box(
-    value: |T|,
-)
-
-class Collection(
-    items: |T|,
-) with Index|U, V| for T
-
-# If functions get defaults, kwonly args, etc., classes do as well.
-
 # *I think maybe there should be some monad-like builtin type and special syntax
 # for it. This could be used for things like handling. For this to work,
 # I think higher kinded types will be necessary which I barely understand.
@@ -277,4 +244,19 @@ result = some_function() in
 value -> other_function(value)
 
 # It definitely won't look like this
+
+# *I want to add something similar to impl in Rust, possibly like this:
+
+type Named = { name: str }
+
+use Self(Named):
+    def get_name(self: Self) -> str:
+        return self.name
+
+class String:
+    def to_string(self: Self) -> str
+
+use String for Self(Named):
+    def to_string(self: Self) -> str:
+        return self.get_name()
 ```

@@ -216,7 +216,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         span: typing.Tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
-    ) -> NodeItem[TokenKindT, KeywordKindT]:
+    ) -> SequenceNode[NodeItem[TokenKindT, KeywordKindT]]:
         sequence = SequenceNode[NodeItem[TokenKindT, KeywordKindT]](
             start=span[0], end=span[1], items=[]
         )

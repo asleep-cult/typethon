@@ -4,7 +4,7 @@ import typing
 import prettyprinter
 
 from . import types
-from .builder import Types, Ops, Traits, DEBUG
+from .builder import Types, Ops, Classes, DEBUG
 from .context import AnalysisContext, ContextFlags
 from ..diagnostics import DiagnosticReporter
 from ..syntax.typethon import ast
@@ -16,7 +16,7 @@ T = typing.TypeVar('T', bound=ast.StatementNode)
 # which will also make the expression it is used in unknown and the error
 # messages will begin the multiply. This might not be ideal.
 
-# TODO: All calls to get_trait_implementation could break if we do not
+# TODO: All calls to get_class_implementation could break if we do not
 # check for uninitialized parameters
 # In general, this really needs tests to find any edge cases
 # Sometimes we return UNKNOWN after reporting an error but it might be
@@ -100,10 +100,13 @@ class TypeAnalyzer:
                 symbol = Symbol(name=statement.name, content=type.to_instance())
                 parameters = self.walk_function_parameters(statement)
 
-            elif isinstance(statement, ast.ClassDefNode):
-                type = types.ClassType(propagated=False, name=statement.name)
+            elif (
+                isinstance(statement, ast.TypeAssignmentNode)
+                and isinstance(statement.type, ast.StructTypeNode)
+            ):
+                type = types.StructType(propagated=False, name=statement.name)
                 symbol = Symbol(name=statement.name, content=type)
-                parameters = self.walk_class_parameters(statement)
+                parameters = self.walk_struct_parameters(statement.type)
 
             else:
                 continue
@@ -121,7 +124,10 @@ class TypeAnalyzer:
                 child_scope.add_symbol(symbol)
                 type.parameters.append(type_parameter)
 
-            if statement.body is not None:
+            if (
+                isinstance(statement, ast.FunctionDefNode)
+                and statement.body is not None
+            ):
                 self.initialize_types(child_scope, statement.body)
 
     def walk_function_parameters(
@@ -130,12 +136,11 @@ class TypeAnalyzer:
         for parameter in statement.parameters:
             yield from self.walk_type_parameters(parameter.annotation)
 
-    def walk_class_parameters(
-        self, statement: ast.ClassDefNode
+    def walk_struct_parameters(
+        self, statement: ast.StructTypeNode
     ) -> typing.Generator[ast.TypeParameterNode]:
-        assignments = self.filter_statements(statement.body, ast.AnnAssignNode)
-        for assignment in assignments:
-            yield from self.walk_type_parameters(assignment.annotation)
+        for field in statement.fields:
+            yield from self.walk_type_parameters(field.type)
 
     def filter_statements(
         self,
@@ -162,15 +167,16 @@ class TypeAnalyzer:
                 for argument in expression.args:
                     yield from self.walk_type_parameters(argument)
 
-            case ast.DictTypeNode():
-                yield from self.walk_type_parameters(expression.key)
-                yield from self.walk_type_parameters(expression.value)
-
-            case ast.SetTypeNode():
-                yield from self.walk_type_parameters(expression.elt)
-
             case ast.ListTypeNode():
                 yield from self.walk_type_parameters(expression.elt)
+
+            case ast.StructTypeNode():
+                for field in expression.fields:
+                    yield from self.walk_type_parameters(field.type)
+
+            case ast.TupleTypeNode():
+                for elt in expression.elts:
+                    yield from self.walk_type_parameters(elt)
 
     def propagate_types(
         self,
@@ -212,32 +218,19 @@ class TypeAnalyzer:
                     if statement.body is not None:
                         self.propagate_types(function_scope, statement.body)
 
-                case ast.ClassDefNode():
-                    cls = scope.get_type(statement.name)
-                    assert isinstance(cls, types.ClassType)
+                case ast.TypeAssignmentNode() if isinstance(statement.type, ast.StructTypeNode):
+                    struct_scope = scope.get_child_scope(statement.name)
 
-                    class_scope = scope.get_child_scope(statement.name)
+                    struct = scope.get_type(statement.name)
+                    assert isinstance(struct, types.StructType)
 
-                    assignments = self.filter_statements(statement.body, ast.AnnAssignNode)
-                    for assignment in assignments:
-                        if not isinstance(assignment.target, ast.NameNode):
-                            assert False, '<Not implemented>'
-
+                    for field in statement.type.fields:
                         type = self.evaluate_type_expression(
-                            class_scope, assignment.annotation, cls,
+                            struct_scope, field.type, struct,
                         )
-                        cls.cls_attributes[assignment.target.value] = (
-                            types.ClassAttribute(name=assignment.target.value, type=type)
-                        )
+                        struct.struct_fields[field.name] = types.StructField(name=field.name, type=type)
 
-                    functions = self.filter_statements(statement.body, ast.FunctionDefNode)
-                    for function in functions:
-                        cls_function = class_scope.get_type(function.name)
-                        assert isinstance(cls_function, types.FunctionType)
-                        cls.cls_functions[function.name] = cls_function
-
-                    cls.complete_propagation()
-                    self.propagate_types(class_scope, statement.body)
+                    struct.complete_propagation()
 
     def evaluate_annotation(
         self,
@@ -381,19 +374,20 @@ class TypeAnalyzer:
                 type = self.evaluate_type_expression(scope, expression.value, owner)
                 return type.access_attribute(expression.attr)
 
-            case ast.DictTypeNode():
-                key = self.evaluate_type_expression(scope, expression.key, owner)
-                value = self.evaluate_type_expression(scope, expression.value, owner)
-
-                return Types.DICT.with_parameters([key, value])
-
-            case ast.SetTypeNode():
-                elt = self.evaluate_type_expression(scope, expression.elt, owner)
-                return Types.SET.with_parameters([elt])
-
             case ast.ListTypeNode():
                 elt = self.evaluate_type_expression(scope, expression.elt, owner)
                 return Types.LIST.with_parameters([elt])
+
+            case ast.StructTypeNode():
+                struct = types.StructType(name='<anonymous struct>')
+                for field in expression.fields:
+                    type = self.evaluate_type_expression(scope, field.type, owner)
+
+                    struct.struct_fields[field.name] = types.StructField(
+                        name=field.name, type=type,
+                    )
+
+                return struct
 
     def analyze_types(
         self,
@@ -415,7 +409,7 @@ class TypeAnalyzer:
 
                     if function.fn_self is not None:
                         if function.fn_self.owner is types.UNKNOWN:
-                            if not isinstance(ctx.outer_type, types.ClassType):
+                            if not isinstance(ctx.outer_type, types.TypeClass):
                                 self.report_error(
                                     statement.parameters[0],
                                     'Function `{0}` uses unbound Self outside of class. '
@@ -425,7 +419,7 @@ class TypeAnalyzer:
                             else:
                                 function.fn_self.owner = ctx.outer_type
                         elif (
-                            isinstance(ctx.outer_type, types.ClassType)
+                            isinstance(ctx.outer_type, types.TypeClass)
                             and function.fn_self.owner is not ctx.outer_type
                         ):
                             self.report_error(
@@ -450,13 +444,13 @@ class TypeAnalyzer:
 
                 case ast.ClassDefNode():
                     class_scope = scope.get_child_scope(statement.name)
-                    cls = scope.get_type(statement.name)
+                    type_class = scope.get_type(statement.name)
                     assert (
-                        isinstance(cls, types.ClassType)
-                        and cls.propagated
+                        isinstance(type_class, types.TypeClass)
+                        and type_class.propagated
                     )
 
-                    inner_ctx = ctx.create_inner_context(cls)
+                    inner_ctx = ctx.create_inner_context(type_class)
                     self.analyze_types(class_scope, inner_ctx, statement.body)
 
                 case ast.ReturnNode():
@@ -509,13 +503,13 @@ class TypeAnalyzer:
                     ctx.flags |= ContextFlags.ALLOW_LOOP_CONTROL
 
                     iterator = self.analyze_instance_type(scope, ctx, statement.iterator)
-                    implementation = iterator.type.get_trait_implementation(
-                        Traits.ITER.with_parameters([types.ANY])
+                    implementation = iterator.type.get_class_implementation(
+                        Classes.ITER.with_parameters([types.ANY])
                     )
                     if implementation is None:
                         return self.report_error(
                             statement,
-                            '`{0}` does not implement the Iter trait',
+                            '`{0}` does not implement the Iter class',
                             iterator.type.get_string(),
                         )
 
@@ -668,54 +662,54 @@ class TypeAnalyzer:
     ) -> types.InstanceOfType:
         match node.op:
             case ast.OperatorKind.ADD:
-                trait = Ops.ADD
+                type_class = Ops.ADD
                 name = 'add'
             case ast.OperatorKind.SUB:
-                trait = Ops.SUB
+                type_class = Ops.SUB
                 name = 'sub'
             case ast.OperatorKind.MULT:
-                trait = Ops.MULT
+                type_class = Ops.MULT
                 name = 'mult'
             case ast.OperatorKind.MATMULT:
-                trait = Ops.MATMULT
+                type_class = Ops.MATMULT
                 name = 'matmult'
             case ast.OperatorKind.DIV:
-                trait = Ops.DIV
+                type_class = Ops.DIV
                 name = 'div'
             case ast.OperatorKind.MOD:
-                trait = Ops.MOD
+                type_class = Ops.MOD
                 name = 'mod'
             case ast.OperatorKind.POW:
-                trait = Ops.POW
+                type_class = Ops.POW
                 name = 'pow'
             case ast.OperatorKind.LSHIFT:
-                trait = Ops.LSHIFT
+                type_class = Ops.LSHIFT
                 name = 'lshift'
             case ast.OperatorKind.RSHIFT:
-                trait = Ops.RSHIFT
+                type_class = Ops.RSHIFT
                 name = 'rshift'
             case ast.OperatorKind.BITOR:
-                trait = Ops.BITOR
+                type_class = Ops.BITOR
                 name = 'bitor'
             case ast.OperatorKind.BITXOR:
-                trait = Ops.BITXOR
+                type_class = Ops.BITXOR
                 name = 'bitxor'
             case ast.OperatorKind.BITAND:
-                trait = Ops.BITAND
+                type_class = Ops.BITAND
                 name = 'bitand'
             case ast.OperatorKind.FLOORDIV:
-                trait = Ops.FLOORDIV
+                type_class = Ops.FLOORDIV
                 name = 'floordiv'
 
-        implementation = left.type.get_trait_implementation(
-            trait.with_parameters([right.type, types.ANY])
+        implementation = left.type.get_class_implementation(
+            type_class.with_parameters([right.type, types.ANY])
         )
         if implementation is None:
             self.report_error(
                 node,
-                '`{0}` does not implement the `{1}` trait for `{2}`',
+                '`{0}` does not implement the `{1}` class for `{2}`',
                 left.type.get_string(),
-                trait.name,
+                type_class.name,
                 right.type.get_string(),
             )
             return types.UNKNOWN.to_instance()
@@ -723,8 +717,8 @@ class TypeAnalyzer:
         function = implementation.get_function(name)
         lhs_type = function.get_return_type()
 
-        implementation = right.type.get_trait_implementation(
-            trait.with_parameters([left.type, types.ANY])
+        implementation = right.type.get_class_implementation(
+            type_class.with_parameters([left.type, types.ANY])
         )
         if implementation is None:
             return lhs_type.to_instance()
@@ -737,8 +731,8 @@ class TypeAnalyzer:
                 node,
                 lhs_type,
                 rhs_type,
-                'Incompatible types for `{0}` trait',
-                trait.name,
+                'Incompatible types for `{0}` class',
+                type_class.name,
             )
             return types.UNKNOWN.to_instance()
 
@@ -771,26 +765,26 @@ class TypeAnalyzer:
 
                 match expression.op:
                     case ast.UnaryOperatorKind.INVERT:
-                        trait = Ops.INVERT
+                        type_class = Ops.INVERT
                         name = 'invert'
                     case ast.UnaryOperatorKind.NOT:
                         return Types.BOOL.to_instance()
                     case ast.UnaryOperatorKind.UADD:
-                        trait = Ops.UADD
+                        type_class = Ops.UADD
                         name = 'uadd'
                     case ast.UnaryOperatorKind.USUB:
-                        trait = Ops.USUB
+                        type_class = Ops.USUB
                         name = 'usub'
 
-                implementation = operand.type.get_trait_implementation(
-                    trait.with_parameters([types.ANY])
+                implementation = operand.type.get_class_implementation(
+                    type_class.with_parameters([types.ANY])
                 )
                 if implementation is None:
                     self.report_error(
                         expression,
-                        '`{0}` does not implement `{1}` trait',
+                        '`{0}` does not implement `{1}` class',
                         operand.type.get_string(),
-                        trait.name,
+                        type_class.name,
                     )
                     return types.UNKNOWN
 
@@ -815,13 +809,13 @@ class TypeAnalyzer:
                 assert len(expression.slices) == 0, 'TODO Maybe'
                 slice = self.analyze_instance_type(scope, ctx, expression.slices[0])
 
-                implementation = instance.type.get_trait_implementation(
-                    Traits.INDEX.with_parameters([slice.type, types.ANY])
+                implementation = instance.type.get_class_implementation(
+                    Classes.INDEX.with_parameters([slice.type, types.ANY])
                 )
                 if implementation is None:
                     self.report_error(
                         expression,
-                        '`{0}` does not implement the Index trait for {1}',
+                        '`{0}` does not implement the Index class for {1}',
                         instance.type.get_string(),
                         slice.type.get_string(),
                     )
@@ -838,8 +832,8 @@ class TypeAnalyzer:
                 match unit:
                     case types.FunctionType():
                         assert False, '<Cannot call a function type>'
-                    case types.ClassType():
-                        return self.analyze_class_initialization(scope, ctx, unit, expression)
+                    case types.StructType():
+                        return self.analyze_struct_initialization(scope, ctx, unit, expression)
                     case types.PolymorphicType():
                         assert False, '<Not yet implemented>'
                     case types.AnalyzedType():
@@ -917,16 +911,13 @@ class TypeAnalyzer:
 
         type = unit.type
         match type:
-            case types.ClassType():
-                if attribute.attr in type.cls_functions:
-                    return type.get_function(attribute.attr)
-
-                if attribute.attr in type.cls_attributes:
-                    return type.get_attribute_type(attribute.attr).to_instance()
+            case types.StructType():
+                if attribute.attr in type.struct_fields:
+                    return type.get_field_type(attribute.attr).to_instance()
 
                 self.report_error(
                     attribute,
-                    '`{0}` has no attribute named `{1}`',
+                    '`{0}` has no field named `{1}`',
                     type.get_string(),
                     attribute.attr,
                 )
@@ -988,7 +979,7 @@ class TypeAnalyzer:
     def resolve_type_parameters_from_arguments(
         self,
         node: ast.CallNode,
-        type: typing.Union[types.FunctionType, types.ClassType],
+        type: typing.Union[types.FunctionType, types.StructType],
         arguments: typing.List[types.InstanceOfType],
     ) -> typing.List[types.AnalyzedType]:
         # XXX: For a function such as f(x: [|T|]), f([]) -> T; will rightfully fail
@@ -999,7 +990,7 @@ class TypeAnalyzer:
         if isinstance(type, types.FunctionType):
             required_parameters = type.fn_parameters.values()
         else:
-            required_parameters = type.cls_attributes.values()
+            required_parameters = type.struct_fields.values()
 
         for required_parameter, argument in zip(required_parameters, arguments):
             if isinstance(required_parameter.type, types.TypeParameter):
@@ -1103,31 +1094,31 @@ class TypeAnalyzer:
 
         return function.get_return_type().to_instance()
 
-    def analyze_class_initialization(
+    def analyze_struct_initialization(
         self,
         scope: Scope,
         ctx: AnalysisContext,
-        cls: types.ClassType,
+        struct: types.StructType,
         node: ast.CallNode,
     ) -> types.InstanceOfType:
         arguments = [self.analyze_instance_type(scope, ctx, argument) for argument in node.args]
 
-        parameters = self.resolve_type_parameters_from_arguments(node, cls, arguments)
-        cls = cls.with_parameters(parameters)
-        attribute_types = cls.get_attribute_types()
+        parameters = self.resolve_type_parameters_from_arguments(node, struct, arguments)
+        struct = struct.with_parameters(parameters)
+        field_types = struct.get_field_types()
 
         for arg, instance in zip(node.args, arguments):
-            if not attribute_types:
+            if not field_types:
                 self.report_error(
                     arg,
                     '`{0}` received too many arguments, expected {1}, got {2}',
-                    cls.name,
-                    str(len(cls.cls_attributes)),
+                    struct.name,
+                    str(len(struct.struct_fields)),
                     str(len(node.args)),
                 )
                 break
 
-            type = attribute_types.pop(0)
+            type = field_types.pop(0)
             if not instance.type.is_compatible_with(type):
                 # TODO: What is it named??
                 self.report_type_incompatibility(
@@ -1135,19 +1126,19 @@ class TypeAnalyzer:
                     instance.type,
                     type,
                     'Incompatible type for parameter of `{0}`',
-                    cls.name,
+                    struct.name,
                 )
 
-        if attribute_types:
+        if field_types:
             self.report_error(
                 node,
                 '`{0}` received too few arguments, expected {1}, got {2}',
-                cls.name,
-                str(len(cls.cls_attributes)),
+                struct.name,
+                str(len(struct.struct_fields)),
                 str(len(node.args)),
             )
 
-        return cls.to_instance()
+        return struct.to_instance()
 
     def analyze_module(self) -> None:
         self.initialize_builtin_symbols()
