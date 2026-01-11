@@ -137,6 +137,7 @@ class KeywordKind(enum.Enum):
     PASS = enum.auto()
     RETURN = enum.auto()
     WHILE = enum.auto()
+    USE = enum.auto()
 
 
 KEYWORDS = (
@@ -162,6 +163,7 @@ KEYWORDS = (
     ('pass', KeywordKind.PASS),
     ('return', KeywordKind.RETURN),
     ('while', KeywordKind.WHILE),
+    ('use', KeywordKind.USE),
 )
 
 Token = TokenT[TokenKind, KeywordKind]

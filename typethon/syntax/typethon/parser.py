@@ -242,6 +242,34 @@ class ASTParser:
             returns=returns,
         )
 
+    def create_use_statement(
+        self,
+        span: typing.Tuple[int, int],
+        type: ast.TypeExpressionNode,
+        body: SequenceNode[ast.StatementNode],
+    ) -> ast.UseStatement:
+        return ast.UseStatement(
+            start=span[0],
+            end=span[1],
+            type=type,
+            body=body.items,
+        )
+
+    def create_use_for_statement(
+        self,
+        span: typing.Tuple[int, int],
+        type_class: ast.TypeExpressionNode,
+        type: ast.TypeExpressionNode,
+        body: SequenceNode[ast.StatementNode],
+    ) -> ast.UseForStatement:
+        return ast.UseForStatement(
+            start=span[0],
+            end=span[1],
+            type_class=type_class,
+            type=type,
+            body=body.items,
+        )
+
     def create_if_statement(
         self,
         span: typing.Tuple[int, int],
@@ -744,6 +772,17 @@ class ASTParser:
             lambdef.parameters.append(parameter)
 
         return lambdef
+
+    def create_self_type(
+        self,
+        span: typing.Tuple[int, int],
+        arg: OptionNode[ast.TypeExpressionNode],
+    ) -> ast.SelfTypeNode:
+        return ast.SelfTypeNode(
+            start=span[0],
+            end=span[1],
+            arg=arg.item,
+        )
 
     def create_type_assignment(
         self,

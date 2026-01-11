@@ -62,9 +62,6 @@ class TokenData(typing.Generic[TokenKindT]):
     start: int = attr.ib(eq=False)
     end: int = attr.ib(eq=False)
 
-    def is_keyword(self, *kinds: typing.Any) -> bool:
-        return False
-
 
 @attr.s(kw_only=True, slots=True)
 class IdentifierToken(TokenData[StdTokenKind.IDENTIFIER]):

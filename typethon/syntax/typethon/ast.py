@@ -18,7 +18,6 @@ from ..ast import (
 
 
 class ConstantKind(enum.IntEnum):
-    SELF = enum.auto()
     TRUE = enum.auto()
     FALSE = enum.auto()
     ELLIPSIS = enum.auto()
@@ -48,6 +47,19 @@ class ClassDefNode(Node):
     name: str = attr.ib()
     body: typing.List[StatementNode] = attr.ib()
     decorators: typing.List[ExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class UseStatement(Node):
+    type: TypeExpressionNode = attr.ib()
+    body: typing.List[StatementNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class UseForStatement(Node):
+    type_class: TypeExpressionNode = attr.ib()
+    type: TypeExpressionNode = attr.ib()
+    body: typing.List[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -294,6 +306,11 @@ class TypeParameterNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
+class SelfTypeNode(Node):
+    arg: typing.Optional[TypeExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class TypeCallNode(Node):
     type: TypeExpressionNode = attr.ib()
     args: typing.List[TypeExpressionNode] = attr.ib()
@@ -376,6 +393,7 @@ ExpressionNode = typing.Union[
 
 TypeExpressionNode = typing.Union[
     NameNode,
+    SelfTypeNode,
     TypeParameterNode,
     TypeCallNode,
     TypeAttributeNode,

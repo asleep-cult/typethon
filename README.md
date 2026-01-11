@@ -39,9 +39,9 @@ Here is what I've decided on so far:
 # Gotchas:
 # 1) Single quote strings can only contain one character, 't represents a type parameter
 # 2) Classes do not represent functionality tied to a state. Instead, they classify
-# types with the same function (i.e. Haskell class, Java interface, Rust trait)
+# types with the same functions (i.e. Haskell class, Java interface, Rust trait)
 
-# Data structures can be tuples or structures, that can be defined with type
+# Data types can be tuples or structures, they can be defined with type
 # assignment statements.
 
 type Structure = { field1: int, field2: str }
@@ -247,16 +247,21 @@ value -> other_function(value)
 
 # *I want to add something similar to impl in Rust, possibly like this:
 
-type Named = { name: str }
+type Person = { name: str }
 
-use Self(Named):
+use Person:
     def get_name(self: Self) -> str:
         return self.name
 
 class String:
     def to_string(self: Self) -> str
 
-use String for Self(Named):
+use String for Person:
     def to_string(self: Self) -> str:
         return self.get_name()
+
+# The last is equivalent to
+
+def to_string(self: Self(Person)) -> str with String for Self:
+    return self.get_name()
 ```

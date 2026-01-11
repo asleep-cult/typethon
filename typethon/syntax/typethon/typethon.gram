@@ -9,6 +9,7 @@ statement:
     # | !for_statement
     | !if_statement
     | !while_statement
+    | !use_statement
 
 simple_statements:
     #[@prepend]
@@ -52,6 +53,12 @@ function_parameter:
 class_def:
     #[create_class]
     | !decorators? "class" !IDENTIFIER ":" !block
+
+use_statement:
+    #[create_use_statement]
+    | "use" !type_expression ":" !block
+    #[create_use_for_statement]
+    | "use" !type_expression "for" !type_expression ":" !block
 
 # for_statement:
     # [create_for_statement]
@@ -278,7 +285,7 @@ type_atom:
     | !type_struct
     #[create_type_parameter]
     | "'" !IDENTIFIER
-    #[create_constant]
-    | !"Self"
+    #[create_self_type]
+    | "Self" ("(" !type_expression ")")?
     #[create_name]
     | !IDENTIFIER

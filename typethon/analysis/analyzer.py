@@ -180,6 +180,9 @@ class TypeAnalyzer:
                 for elt in expression.elts:
                     yield from self.walk_type_parameters(elt)
 
+            case ast.SelfTypeNode() if expression.arg is not None:
+                yield from self.walk_type_parameters(expression.arg)
+
     def propagate_types(
         self,
         scope: Scope,
@@ -262,20 +265,8 @@ class TypeAnalyzer:
         expression: ast.TypeExpressionNode,
         owner: typing.Optional[types.AnalyzedType],
     ) -> types.AnalyzedType:
-        # FIXME: Passing the instance of owner isn't necessary
-        # we just need to find somewhere reasonable to put Self that this
-        # function can access
         match expression:
             case ast.NameNode():
-                if expression.value == 'Self':
-                    # TODO; Invalid Syntax
-                    assert isinstance(owner, types.FunctionType)
-
-                    if owner.fn_self is None:
-                        owner.fn_self = types.SelfType()
-
-                    return owner.fn_self
-
                 symbol = scope.get_symbol(expression.value)
                 if symbol is UNRESOLVED:
                     self.report_error(
@@ -294,6 +285,17 @@ class TypeAnalyzer:
 
                 return symbol.content
 
+            case ast.SelfTypeNode():
+                type = types.SelfType()
+
+                if expression.arg is not None:
+                    type.owner = self.evaluate_type_expression(scope, expression.arg, owner)
+
+                if isinstance(owner, types.FunctionType):
+                    owner.fn_self = type
+
+                return type
+
             case ast.TypeParameterNode():
                 type = scope.get_type(expression.name)
                 assert isinstance(type, types.TypeParameter)
@@ -308,23 +310,11 @@ class TypeAnalyzer:
                 return type
 
             case ast.TypeCallNode():
-                # TODO: Make Self(T) invalid except as first function argument
-                # probably through the parser
                 callee = self.evaluate_type_expression(
                     scope,
                     expression.type,
                     owner,
                 )
-                if isinstance(callee, types.SelfType):
-                    if not expression.args:
-                        return callee
-
-                    callee.owner = self.evaluate_type_expression(
-                        scope,
-                        expression.args[0],
-                        owner
-                    )
-                    return callee
 
                 if not isinstance(callee, types.PolymorphicType):
                     self.report_error(
