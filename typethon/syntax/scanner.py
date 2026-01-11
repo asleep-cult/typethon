@@ -101,6 +101,9 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         self.match_stack_bottom = 0
         self.match_bottom_stack: typing.List[int] = []
 
+    def is_match_stack_effectively_empty(self) -> bool:
+        return len(self.match_stack) - self.match_stack_bottom <= 0
+
     def enter_nested_stack(self) -> None:
         self.match_bottom_stack.append(self.match_stack_bottom)
         self.match_stack_bottom = len(self.match_stack)
@@ -351,7 +354,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         char = self.consume_char()
         assert char == '\n'
 
-        if self.is_newline or len(self.match_stack) - self.match_stack_bottom > 0:
+        if self.is_newline or not self.is_match_stack_effectively_empty():
             return None
 
         self.is_newline = True

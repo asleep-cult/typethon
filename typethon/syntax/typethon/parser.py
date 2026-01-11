@@ -21,6 +21,7 @@ from ..tokens import (
     NumberTokenFlags,
     StringToken,
     StringTokenFlags,
+    StdTokenKind,
 )
 
 from ...grammar import (
@@ -119,6 +120,7 @@ class ASTParser:
             return inspect.ismethod(member) and (
                 member.__name__.startswith('create_')
                 or member.__name__ == 'add_lambda_parameters'
+                or member.__name__ == 'exit_lambda_block'
             )
         
         for _, function in inspect.getmembers(self, is_transformer):
@@ -465,6 +467,19 @@ class ASTParser:
             operand=operand,
         )
 
+    def create_call(
+        self,
+        span: typing.Tuple[int, int],
+        callee: ast.ExpressionNode,
+        args: OptionNode[SequenceNode[ast.ExpressionNode]]
+    ) -> ast.CallNode:
+        return ast.CallNode(
+            start=span[0],
+            end=span[1],
+            callee=callee,
+            args=args.sequence().items,
+        )
+
     def create_slice(
         self,
         span: typing.Tuple[int, int],
@@ -619,6 +634,17 @@ class ASTParser:
             elts=elts.items,
         )
 
+    def potentially_enter_lambda_stack(self) -> None:
+        position = self.scanner.position
+        self.scanner.enter_nested_stack()
+        token = self.parser.peek_token(2)
+        if token.kind is not StdTokenKind.NEWLINE:
+            # Its an expression lambda, we need to backtrack
+            last_token = self.parser.tokens.pop()
+            assert token is last_token
+            self.scanner.exit_nested_stack()
+            self.scanner.position = position
+
     def create_tuple_or_lambda_parameters(
         self,
         span: typing.Tuple[int, int],
@@ -644,7 +670,7 @@ class ASTParser:
             )
             parameters.append(parameter)
 
-        self.scanner.enter_nested_stack()
+        self.potentially_enter_lambda_stack()
         return SequenceNode(
             start=span[0],
             end=span[1],
@@ -669,19 +695,26 @@ class ASTParser:
             name=expression.value,
         )
 
-        self.scanner.enter_nested_stack()
+        self.potentially_enter_lambda_stack()
         return SequenceNode(
             start=span[0],
             end=span[1],
             items=[parameter],
         )
 
+    def exit_lambda_block(
+        self,
+        span: typing.Tuple[int, int],
+        body: SequenceNode[ast.StatementNode],
+    ) -> SequenceNode[ast.StatementNode]:
+        self.scanner.exit_nested_stack()
+        return body
+
     def create_block_lambda(
         self,
         span: typing.Tuple[int, int],
         body: SequenceNode[ast.StatementNode],
     ) -> ast.BlockLambdaNode:
-        self.scanner.exit_nested_stack()
         return ast.BlockLambdaNode(
             start=span[0],
             end=span[1],
@@ -694,7 +727,6 @@ class ASTParser:
         span: typing.Tuple[int, int],
         body: ast.ExpressionNode,
     ) -> ast.ExpressionNode:
-        self.scanner.exit_nested_stack()
         return ast.ExpressionLambdaNode(
             start=span[0],
             end=span[1],
@@ -760,6 +792,19 @@ class ASTParser:
             end=span[1],
             name=name.content,
             constraint=None,
+        )
+
+    def create_type_call(
+        self,
+        span: typing.Tuple[int, int],
+        type: ast.TypeExpressionNode,
+        args: OptionNode[SequenceNode[ast.TypeExpressionNode]],
+    ) -> ast.TypeCallNode:
+        return ast.TypeCallNode(
+            start=span[0],
+            end=span[1],
+            type=type,
+            args=args.sequence().items,
         )
 
     def parse(self) -> NodeItem:

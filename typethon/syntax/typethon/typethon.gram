@@ -72,7 +72,6 @@ while_statement:
 
 expression:
     | !disjunction
-    | !lambda
 
 disjunction:
     #[create_disjunction]
@@ -173,7 +172,8 @@ power:
 primary:
     #[create_attribute]
     | !primary "." !IDENTIFIER
-    # | !primary "(" !arguments? ")"
+    #[create_call]
+    | !primary "(" !arguments? ")"
     #[create_subscript]
     | !primary "[" !slices "]"
     | !atom
@@ -186,6 +186,10 @@ slice:
     #[create_slice]
     | !expression ":" !expression (":" !expression)?
     | !expression
+
+arguments:
+    #[@prepend]
+    | !expression ("," !expression)* ","?
 
 atom:
     #[create_constant]
@@ -214,9 +218,13 @@ expressions:
     | !expression_list
     | !expression
 
+lambda_block:
+    #[exit_lambda_block]
+    | !complex_block
+
 lambda:
     #[create_block_lambda]
-    | "::" !complex_block "::"
+    | "::" !lambda_block "::"
     #[create_expression_lambda]
     | "::" !expression
 
@@ -243,7 +251,16 @@ type_assignment:
     | "type" !IDENTIFIER "=" !type_expression
 
 type_expression:
+    | !type_primary
+
+type_primary:
+    #[create_type_call]
+    | !type_primary "(" !type_arguments? ")"
     | !type_atom
+
+type_arguments:
+    #[@prepend]
+    | !type_expression ("," !type_expression)* ","?
 
 type_struct:
     #[create_struct_type]

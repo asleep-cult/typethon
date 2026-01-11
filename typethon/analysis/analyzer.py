@@ -136,6 +136,8 @@ class TypeAnalyzer:
         for parameter in statement.parameters:
             yield from self.walk_type_parameters(parameter.annotation)
 
+        yield from self.walk_type_parameters(statement.returns)
+
     def walk_struct_parameters(
         self, statement: ast.StructTypeNode
     ) -> typing.Generator[ast.TypeParameterNode]:
@@ -828,7 +830,7 @@ class TypeAnalyzer:
                 return instance
 
             case ast.CallNode():
-                unit = self.analyze_type(scope, ctx, expression.func)
+                unit = self.analyze_type(scope, ctx, expression.callee)
                 match unit:
                     case types.FunctionType():
                         assert False, '<Cannot call a function type>'

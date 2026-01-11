@@ -277,9 +277,10 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
                 if entry != UNSET_ACTION
             ]
             string = ', '.join(symbols)
+            source = self.scanner.source[self.scanner.position - 20:self.scanner.position + 20]
             raise UnexpectedTokenError(
                 f'Automaton encountered an unexpected token {terminal_symbol!r} in state #{current_state}. '
-                f'The next token should have been one of the following: {string}. ({self.scanner.position})'
+                f'The next token should have been one of the following: {string}. ({source!r})'
             )
 
         action = entry[0]

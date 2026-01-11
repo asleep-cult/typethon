@@ -192,7 +192,7 @@ class ComparatorNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class CallNode(Node):
-    func: ExpressionNode = attr.ib()
+    callee: ExpressionNode = attr.ib()
     args: typing.List[ExpressionNode] = attr.ib()
 
 
