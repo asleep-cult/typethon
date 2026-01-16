@@ -27,6 +27,7 @@ simple_statement:
     #[create_expr_statement]
     | !expressions
     | !type_assignment
+    | !function_prototype
 
 complex_block:
     #[@flatten]
@@ -38,9 +39,13 @@ block:
 
 decorators: ("@" !expression NEWLINE)+
 
+function_prototype:
+    #[create_function_prototype]
+    | !decorators? "def" !IDENTIFIER "(" !function_parameters? ")" "->" !type_expression
+
 function_def:
-    #[create_function]
-    | !decorators? "def" !IDENTIFIER "(" !function_parameters? ")" "->" !type_expression (":" !block)?
+    #[add_function_body]
+    | !function_prototype ":" !block
 
 function_parameters:
     #[@prepend]
@@ -52,7 +57,7 @@ function_parameter:
 
 class_def:
     #[create_class]
-    | !decorators? "class" !IDENTIFIER ":" !block
+    | !decorators? "class" !IDENTIFIER ("(" !type_parameter_list ")")? ":" !block
 
 use_statement:
     #[create_use_statement]
@@ -285,13 +290,20 @@ type_struct_field:
     #[create_struct_field]
     | !IDENTIFIER ":" !type_expression
 
+type_parameter:
+    #[create_type_parameter]
+    | "'" !IDENTIFIER
+
+type_parameter_list:
+    #[@prepend]
+    | !type_parameter ("," !type_parameter)* ","?
+
 type_atom:
     | !type_struct
     | !type_tuple
-    #[create_type_parameter]
-    | "'" !IDENTIFIER
+    | !type_parameter
     #[create_self_type]
-    | "Self" ("(" !type_expression ")")?
+    | "Self"
     #[create_name]
     | !IDENTIFIER
     | "(" !type_atom ")"

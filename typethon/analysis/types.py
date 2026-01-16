@@ -11,6 +11,9 @@ if typing.TYPE_CHECKING:
     from .scope import Scope
 
 
+# TODO: Stop creating copies on substitution it doesnt work well
+# There needs to be an id for everything and a single data structure
+
 class SingletonType(enum.Enum):
     UNIT = enum.auto()
     UNKNOWN = enum.auto()

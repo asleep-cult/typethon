@@ -45,6 +45,7 @@ class FunctionDefNode(Node):
 @attr.s(kw_only=True, slots=True)
 class ClassDefNode(Node):
     name: str = attr.ib()
+    parameters: typing.List[TypeParameterNode] = attr.ib()
     body: typing.List[StatementNode] = attr.ib()
     decorators: typing.List[ExpressionNode] = attr.ib()
 
@@ -65,11 +66,6 @@ class UseForNode(Node):
 @attr.s(kw_only=True, slots=True)
 class ReturnNode(Node):
     value: typing.Optional[ExpressionNode] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class DeleteNode(Node):
-    targets: typing.List[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -307,7 +303,7 @@ class TypeParameterNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class SelfTypeNode(Node):
-    arg: typing.Optional[TypeExpressionNode] = attr.ib()
+    ...
 
 
 @attr.s(kw_only=True, slots=True)
@@ -354,7 +350,6 @@ StatementNode = typing.Union[
     FunctionDefNode,
     ClassDefNode,
     ReturnNode,
-    DeleteNode,
     AssignNode,
     AugAssignNode,
     AnnAssignNode,

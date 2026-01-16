@@ -1,11 +1,10 @@
 # BINARY OPERATORS
 
-
 class Add('t, 'u):
     def add(self: Self, rhs: 't) -> 'u
 
 class Sub('t, 'u):
-    def sub(self: Self, rhs: 'Self.t) -> 'Self.u
+    def sub(self: Self, rhs: 't) -> 'u
 
 class Mult('t, 'u):
     def mult(self: Self, rhs: 't) -> 'u

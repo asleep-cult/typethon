@@ -34,11 +34,9 @@ class TypeAnalyzer:
                     function_type = types.FunctionType(name=statement.name, scope=function_scope)
 
                     for parameter in statement.parameters:
-                        type_parameters = self.walk_type_parameters(parameter.annotation)
-                        self.initialize_type_parameters(function_scope, type_parameters)
+                        self.initialize_type_parameters(function_scope, parameter.annotation)
 
-                    type_parameters = self.walk_type_parameters(statement.returns)
-                    self.initialize_type_parameters(function_scope, type_parameters)
+                    self.initialize_type_parameters(function_scope, statement.returns)
 
                     if function_scope.type_parameters:
                         function_type = types.PolymorphicType(
@@ -54,9 +52,18 @@ class TypeAnalyzer:
                 case ast.ClassDefNode():
                     class_scope = scope.create_child_scope()
                     type_class = types.TypeClass(name=statement.name, scope=class_scope)
-                    scope.add_symbol(statement.name, type_class)
+
+                    for parameter in statement.parameters:
+                        self.initialize_type_parameters(class_scope, parameter)
+
+                    if class_scope.type_parameters:
+                        type_class = types.PolymorphicType(
+                            type=type_class,
+                            parameters=list(class_scope.type_parameters.values()),
+                        )
 
                     self.initialize_types(class_scope, statement.body)
+                    scope.add_symbol(statement.name, type_class)
 
                 case ast.TypeAssignmentNode():
                     child_scope = scope.create_child_scope()
@@ -68,8 +75,7 @@ class TypeAnalyzer:
                     else:
                         type = types.TypeAlias(name=statement.name, scope=child_scope)
  
-                    parameters = self.walk_type_parameters(statement.type)
-                    self.initialize_type_parameters(child_scope, parameters)
+                    self.initialize_type_parameters(child_scope, statement.type)
 
                     if child_scope.type_parameters:
                         type = types.PolymorphicType(
@@ -83,48 +89,35 @@ class TypeAnalyzer:
                     assert False, 'Not implemented'
                     self.initialize_types(scope, statement.body)
 
-                case _:
-                    continue
-
-    def walk_type_parameters(
-        self,
-        type_expression: ast.TypeExpressionNode,
-    ) -> typing.Generator[ast.TypeParameterNode]:
-        match type_expression:
-            case ast.SelfTypeNode() if type_expression.arg is not None:
-                yield from self.walk_type_parameters(type_expression.arg)
-
-            case ast.TypeParameterNode():
-                yield type_expression
-
-            case ast.TypeCallNode():
-                yield from self.walk_type_parameters(type_expression.type)
-                for argument in type_expression.args:
-                    yield from self.walk_type_parameters(argument)
-
-            case ast.TypeAttributeNode():
-                yield from self.walk_type_parameters(type_expression.value)
-
-            case ast.ListTypeNode():
-                yield from self.walk_type_parameters(type_expression.elt)
-
-            case ast.StructTypeNode():
-                for field in type_expression.fields:
-                    yield from self.walk_type_parameters(field.type)
-
-            case ast.TupleTypeNode():
-                for elt in type_expression.elts:
-                    yield from self.walk_type_parameters(elt)
-
     def initialize_type_parameters(
         self,
         scope: Scope,
-        parameters: typing.Iterable[ast.TypeParameterNode],
+        type_expression: ast.TypeExpressionNode,
     ) -> None:
-        for parameter in parameters:
-            existing_parameter = scope.get_type_parameter(parameter.name)
-            if existing_parameter is None:
-                scope.add_type_parameter(types.TypeParameter(name=parameter.name))
+        match type_expression:
+            case ast.TypeParameterNode():
+                existing_parameter = scope.get_type_parameter(type_expression.name)
+                if existing_parameter is None:
+                    scope.add_type_parameter(types.TypeParameter(name=type_expression.name))
+
+            case ast.TypeCallNode():
+                self.initialize_type_parameters(scope, type_expression.type)
+                for argument in type_expression.args:
+                    self.initialize_type_parameters(scope, argument)
+
+            case ast.TypeAttributeNode():
+                self.initialize_type_parameters(scope, type_expression.value)
+
+            case ast.ListTypeNode():
+                self.initialize_type_parameters(scope, type_expression.elt)
+
+            case ast.StructTypeNode():
+                for field in type_expression.fields:
+                    self.initialize_type_parameters(scope, field.type)
+
+            case ast.TupleTypeNode():
+                for elt in type_expression.elts:
+                    self.initialize_type_parameters(scope, elt)
 
     def propagate_types(self, scope: Scope, statements: typing.List[ast.StatementNode]) -> None:
         for statement in statements:
@@ -247,10 +240,6 @@ class TypeAnalyzer:
 
             case ast.SelfTypeNode():
                 assert allow_self, 'Self not allowed'
-
-                if type_expression.arg is not None:
-                    arg = self.evaluate_concrete_type_expression(scope, type_expression.arg)
-
                 assert False, 'Not implemented'
 
             case ast.ListTypeNode():
@@ -319,6 +308,19 @@ class TypeAnalyzer:
                         scope=function_type.scope,
                         flags=AnalysisFlags.ALLOW_RETURN,
                         returnable_type=function_type.returns,
+                    )
+                    self.analyze_types(inner_ctx, statement.body)
+
+                case ast.ClassDefNode():
+                    type_class = ctx.scope.get_symbol(statement.name)
+                    if isinstance(type_class, types.PolymorphicType):
+                        type_class = type_class.type
+
+                    assert isinstance(type_class, types.TypeClass)
+
+                    inner_ctx = AnalysisContext(
+                        scope=type_class.scope,
+                        flags=AnalysisFlags.NONE,
                     )
                     self.analyze_types(inner_ctx, statement.body)
 

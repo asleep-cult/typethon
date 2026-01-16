@@ -89,10 +89,6 @@ I initially tried to implement this as a transformer for the
 :: token, but the parser will already scan the next token
 before we can a chance to update the stack bottom. 
 
-The parser generator slowed down quite significantly baceuse this
-added 1000 new states. (Everytime I think it's fast enough
-it get slower.)
-
 I have also realized that the assignment syntax will
 be ambiguous as well. I think I will just make assignments
 an expression.
@@ -119,10 +115,13 @@ class ASTParser:
         def is_transformer(member: typing.Any) -> bool:
             return inspect.ismethod(member) and (
                 member.__name__.startswith('create_')
-                or member.__name__ == 'add_lambda_parameters'
-                or member.__name__ == 'exit_lambda_block'
+                or member.__name__ in (
+                    'add_lambda_parameters',
+                    'exit_lambda_block',
+                    'add_function_body',
+                )
             )
-        
+
         for _, function in inspect.getmembers(self, is_transformer):
             if transformer_wrapper is not None:
                 function = transformer_wrapper(function).__get__(self)
@@ -223,23 +222,48 @@ class ASTParser:
             default=default.item,
         )
 
-    def create_function(
+    def create_function_prototype(
         self,
         span: typing.Tuple[int, int],
         decorators: OptionNode[SequenceNode[ast.ExpressionNode]],
         name: IdentifierToken,
         parameters: OptionNode[SequenceNode[ast.FunctionParameterNode]],
         returns: ast.TypeExpressionNode,
-        body: OptionNode[SequenceNode[ast.StatementNode]],
     ) -> ast.FunctionDefNode:
         return ast.FunctionDefNode(
             start=span[0],
             end=span[1],
             name=name.content,
             parameters=parameters.sequence().items,
-            body=body.map(lambda flatten: flatten.items),
+            body=None,
             decorators=decorators.sequence().items,
             returns=returns,
+        )
+
+    def add_function_body(
+        self,
+        span: typing.Tuple[int, int],
+        function: ast.FunctionDefNode,
+        body: SequenceNode[ast.StatementNode],
+    ) -> ast.FunctionDefNode:
+        function.body = body.items
+        return function
+
+    def create_class(
+        self,
+        span: typing.Tuple[int, int],
+        decorators: OptionNode[SequenceNode[ast.ExpressionNode]],
+        name: IdentifierToken,
+        parameters: OptionNode[SequenceNode[ast.TypeParameterNode]],
+        body: SequenceNode[ast.StatementNode],
+    ) -> ast.ClassDefNode:
+        return ast.ClassDefNode(
+            start=span[0],
+            end=span[1],
+            name=name.content,
+            parameters=parameters.sequence().items,
+            body=body.items,
+            decorators=decorators.sequence().items,
         )
 
     def create_use_statement(
@@ -776,12 +800,10 @@ class ASTParser:
     def create_self_type(
         self,
         span: typing.Tuple[int, int],
-        arg: OptionNode[ast.TypeExpressionNode],
     ) -> ast.SelfTypeNode:
         return ast.SelfTypeNode(
             start=span[0],
             end=span[1],
-            arg=arg.item,
         )
 
     def create_type_assignment(
