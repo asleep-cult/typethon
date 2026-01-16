@@ -81,10 +81,10 @@ x = unbox_int(box) # type: int
 # to what will eventually become classes. The with class for 't constrains
 # the type 't to the class.
 
-def get_str_item(items: 't, index: int) -> str with Index(int, str) for 't:
+def get_str_item(items: 't, index: int) -> str with 't: Index(int, str):
     return items[index]
 
-def get_item(items: 't, index: 'u) -> 'v with Index('u, 'v) for 't:
+def get_item(items: 't, index: 'u) -> 'v with 't: Index('u, 'v):
     return items[index]
 
 # If a function is polymorphic over it's return type, and it is not
@@ -96,27 +96,25 @@ def new() -> 'u:
 items = new()  # Impossible to resolve U
 items: [int] = new()  # Works fine
 
-# The Self type is a special type used to define a function on a type.
+# Use blocked can be used to define a function on a type.
 
-type Identifier
+type Identity = ()
 
-# Alternatively, Self can be used to define a function on a type outside of
-# the type by binding it with the Self(T) syntax.
-
-def g(self: Self(Identity)) -> Self:
-    return self
+use Identity:
+    def f(self: Self) -> Self:
+        return self
 
 x = Identity()
 x = x.f()
-x = x.g()
 
-# The Self type can be used in combination with the for syntax to denote
-# a function serves as the implementation function for a trait function.
+# The use/for syntax can be used to denote
+# a function serves as the implementation function for a type class function.
 
 type Map = { mapping: dict('k, 'v) }
 
-def get_item(self: Self(Map), key: 'k) -> 'v with Index('k, 'v) for Self:
-    return self.mapping[key]
+use Index('k, 'v) for Map('k, 'v):
+    def get_item(self: Self, key: 'k) -> 'v:
+        return self.mapping[key]
 
 # I added a proof of concept lambda syntax that simply uses two colons
 # and allows multiline blocks with a delimeter. Here is how it looks:
@@ -163,7 +161,7 @@ def proto(foo: int) -> str
 
 # *Classes look like this
 
-class Foo 't:
+class Foo('t):
     def proto(self: Self, foo: int) -> 't
 
 # *If expressions will be changed to the rejected form to add more flexibility

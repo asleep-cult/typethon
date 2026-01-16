@@ -262,16 +262,20 @@ type_expression:
 
 type_primary:
     #[create_type_call]
-    | !type_primary "(" !type_arguments? ")"
+    | !type_primary "(" !type_expression_list? ")"
     | !type_atom
 
-type_arguments:
+type_expression_list:
     #[@prepend]
     | !type_expression ("," !type_expression)* ","?
 
 type_struct:
     #[create_struct_type]
     | "{" !type_struct_fields "}"
+
+type_tuple:
+    #[create_tuple_type]
+    | "(" !type_expression_list? ")"
 
 type_struct_fields:
     #[@prepend]
@@ -283,9 +287,11 @@ type_struct_field:
 
 type_atom:
     | !type_struct
+    | !type_tuple
     #[create_type_parameter]
     | "'" !IDENTIFIER
     #[create_self_type]
     | "Self" ("(" !type_expression ")")?
     #[create_name]
     | !IDENTIFIER
+    | "(" !type_atom ")"

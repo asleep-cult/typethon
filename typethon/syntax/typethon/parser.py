@@ -821,6 +821,17 @@ class ASTParser:
             type=type,
         )
 
+    def create_tuple_type(
+        self,
+        span: typing.Tuple[int, int],
+        elts: OptionNode[SequenceNode[ast.TypeExpressionNode]],
+    ) -> ast.TupleTypeNode:
+        return ast.TupleTypeNode(
+            start=span[0],
+            end=span[1],
+            elts=elts.sequence().items,
+        )
+
     def create_type_parameter(
         self,
         span: typing.Tuple[int, int],
