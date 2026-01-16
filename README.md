@@ -51,10 +51,10 @@ type Tuple = (int, str)
 # Data types can also be unions
 
 type Expr = 
-    Number(int)
-    Attribute(Expr, str)
-    Add(Expr, Expr)
-    Sub(Expr, Expr)
+    | Number(int)
+    | Attribute(Expr, str)
+    | Add(Expr, Expr)
+    | Sub(Expr, Expr)
 
 # Parametric polymorphism is achieved through the use of 't
 
