@@ -44,9 +44,17 @@ Here is what I've decided on so far:
 # Data types can be tuples or structures, they can be defined with type
 # assignment statements.
 
-type Structure = { field1: int, field2: str }
+type Structure { field1: int, field2: str }
 
-type Tuple = (int, str)
+type Tuple(int, str)
+
+# Data types can also be unions
+
+type Expr
+    | Number(int)
+    | Attribute(Expr, str)
+    | Add(Expr, Expr)
+    | Sub(Expr, Expr)
 
 # Parametric polymorphism is achieved through the use of 't
 
@@ -242,24 +250,4 @@ result = some_function() in
 value -> other_function(value)
 
 # It definitely won't look like this
-
-# *I want to add something similar to impl in Rust, possibly like this:
-
-type Person = { name: str }
-
-use Person:
-    def get_name(self: Self) -> str:
-        return self.name
-
-class String:
-    def to_string(self: Self) -> str
-
-use String for Person:
-    def to_string(self: Self) -> str:
-        return self.get_name()
-
-# The last is equivalent to
-
-def to_string(self: Self(Person)) -> str with String for Self:
-    return self.get_name()
 ```

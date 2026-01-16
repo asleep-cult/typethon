@@ -806,27 +806,16 @@ class ASTParser:
             end=span[1],
         )
 
-    def create_type_assignment(
-        self,
-        span: typing.Tuple[int, int],
-        name: IdentifierToken,
-        type: ast.TypeExpressionNode,
-    ) -> ast.TypeAssignmentNode:
-        return ast.TypeAssignmentNode(
-            start=span[0],
-            end=span[1],
-            name=name.content,
-            type=type,
-        )
-
     def create_struct_type(
         self,
         span: typing.Tuple[int, int],
+        name: IdentifierToken,
         fields: SequenceNode[ast.StructFieldNode],
     ) -> ast.StructTypeNode:
         return ast.StructTypeNode(
             start=span[0],
             end=span[1],
+            name=name.content,
             fields=fields.items,
         )
 
@@ -846,12 +835,27 @@ class ASTParser:
     def create_tuple_type(
         self,
         span: typing.Tuple[int, int],
+        name: IdentifierToken,
         elts: OptionNode[SequenceNode[ast.TypeExpressionNode]],
     ) -> ast.TupleTypeNode:
         return ast.TupleTypeNode(
             start=span[0],
             end=span[1],
+            name=name.content,
             elts=elts.sequence().items,
+        )
+
+    def create_union_type(
+        self,
+        span: typing.Tuple[int, int],
+        name: IdentifierToken,
+        types: SequenceNode[ast.TypeStatementNode],
+    ) -> ast.UnionTypeNode:
+        return ast.UnionTypeNode(
+            start=span[0],
+            end=span[1],
+            name=name.content,
+            types=types.items,
         )
 
     def create_type_parameter(

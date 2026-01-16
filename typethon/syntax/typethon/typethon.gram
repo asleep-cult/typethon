@@ -10,6 +10,7 @@ statement:
     | !if_statement
     | !while_statement
     | !use_statement
+    | !union_type_statement
 
 simple_statements:
     #[@prepend]
@@ -26,8 +27,8 @@ simple_statement:
     | "return" !expression?
     #[create_expr_statement]
     | !expressions
-    | !type_assignment
     | !function_prototype
+    | "type" !type_statement
 
 complex_block:
     #[@flatten]
@@ -258,9 +259,11 @@ group_or_lambda:
     #[add_lambda_parameters]
     | !group_or_lambda_parameters !lambda
 
-type_assignment:
-    #[create_type_assignment]
-    | "type" !IDENTIFIER "=" !type_expression
+type_statement:
+    #[create_struct_type]
+    | !IDENTIFIER "{" !type_struct_fields "}"
+    #[create_tuple_type]
+    | !IDENTIFIER "(" !type_expression_list? ")"
 
 type_expression:
     | !type_primary
@@ -274,14 +277,6 @@ type_expression_list:
     #[@prepend]
     | !type_expression ("," !type_expression)* ","?
 
-type_struct:
-    #[create_struct_type]
-    | "{" !type_struct_fields "}"
-
-type_tuple:
-    #[create_tuple_type]
-    | "(" !type_expression_list? ")"
-
 type_struct_fields:
     #[@prepend]
     | !type_struct_field ("," !type_struct_field)* ","?
@@ -289,6 +284,10 @@ type_struct_fields:
 type_struct_field:
     #[create_struct_field]
     | !IDENTIFIER ":" !type_expression
+
+union_type_statement:
+    #[create_union_type]
+    | "type" !IDENTIFIER NEWLINE INDENT ("|" !type_statement NEWLINE)+ DEDENT
 
 type_parameter:
     #[create_type_parameter]
@@ -299,8 +298,6 @@ type_parameter_list:
     | !type_parameter ("," !type_parameter)* ","?
 
 type_atom:
-    | !type_struct
-    | !type_tuple
     | !type_parameter
     #[create_self_type]
     | "Self"

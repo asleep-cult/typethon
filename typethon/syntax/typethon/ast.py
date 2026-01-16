@@ -325,12 +325,6 @@ class ListTypeNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeAssignmentNode(Node):
-    name: str = attr.ib()
-    type: TypeExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class StructFieldNode(Node):
     name: str = attr.ib()
     type: TypeExpressionNode = attr.ib()
@@ -338,12 +332,20 @@ class StructFieldNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class StructTypeNode(Node):
+    name: str = attr.ib()
     fields: typing.List[StructFieldNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleTypeNode(Node):
+    name: str = attr.ib()
     elts: typing.List[TypeExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class UnionTypeNode(Node):
+    name: str = attr.ib()
+    types: typing.List[TypeStatementNode] = attr.ib()
 
 
 StatementNode = typing.Union[
@@ -362,7 +364,8 @@ StatementNode = typing.Union[
     PassNode,
     BreakNode,
     ContinueNode,
-    TypeAssignmentNode,
+    StructTypeNode,
+    TupleTypeNode,
     UseNode,
     UseForNode,
 ]
@@ -387,6 +390,11 @@ ExpressionNode = typing.Union[
     SliceNode,
 ]
 
+TypeStatementNode = typing.Union[
+    StructTypeNode,
+    TupleTypeNode,
+    UnionTypeNode,
+]
 
 TypeExpressionNode = typing.Union[
     NameNode,
@@ -395,6 +403,4 @@ TypeExpressionNode = typing.Union[
     TypeCallNode,
     TypeAttributeNode,
     ListTypeNode,
-    StructTypeNode,
-    TupleTypeNode,
 ]
