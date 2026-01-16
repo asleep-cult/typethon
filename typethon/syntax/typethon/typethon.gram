@@ -10,7 +10,7 @@ statement:
     | !if_statement
     | !while_statement
     | !use_statement
-    | !union_type_statement
+    | !sum_type_statement
 
 simple_statements:
     #[@prepend]
@@ -28,7 +28,7 @@ simple_statement:
     #[create_expr_statement]
     | !expressions
     | !function_prototype
-    | "type" !type_statement
+    | !type_assignment
 
 complex_block:
     #[@flatten]
@@ -259,11 +259,15 @@ group_or_lambda:
     #[add_lambda_parameters]
     | !group_or_lambda_parameters !lambda
 
-type_statement:
+type_assignment:
+    #[create_type_assignment]
+    | "type" !IDENTIFIER "=" !type_expression
+
+data_type:
     #[create_struct_type]
-    | !IDENTIFIER "{" !type_struct_fields "}"
+    | "{" !type_struct_fields "}"
     #[create_tuple_type]
-    | !IDENTIFIER "(" !type_expression_list? ")"
+    | "(" !type_expression_list? ")"
 
 type_expression:
     | !type_primary
@@ -285,9 +289,13 @@ type_struct_field:
     #[create_struct_field]
     | !IDENTIFIER ":" !type_expression
 
-union_type_statement:
-    #[create_union_type]
-    | "type" !IDENTIFIER NEWLINE INDENT ("|" !type_statement NEWLINE)+ DEDENT
+sum_type_statement:
+    #[create_sum_type]
+    | "type" !IDENTIFIER "=" NEWLINE INDENT ("|" !sum_type_field NEWLINE)+ DEDENT
+
+sum_type_field:
+    #[create_sum_field]
+    | !IDENTIFIER !data_type?
 
 type_parameter:
     #[create_type_parameter]
@@ -304,3 +312,4 @@ type_atom:
     #[create_name]
     | !IDENTIFIER
     | "(" !type_atom ")"
+    | !data_type

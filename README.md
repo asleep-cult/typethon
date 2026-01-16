@@ -44,17 +44,17 @@ Here is what I've decided on so far:
 # Data types can be tuples or structures, they can be defined with type
 # assignment statements.
 
-type Structure { field1: int, field2: str }
+type Structure = { field1: int, field2: str }
 
-type Tuple(int, str)
+type Tuple = (int, str)
 
 # Data types can also be unions
 
-type Expr
-    | Number(int)
-    | Attribute(Expr, str)
-    | Add(Expr, Expr)
-    | Sub(Expr, Expr)
+type Expr = 
+    Number(int)
+    Attribute(Expr, str)
+    Add(Expr, Expr)
+    Sub(Expr, Expr)
 
 # Parametric polymorphism is achieved through the use of 't
 
