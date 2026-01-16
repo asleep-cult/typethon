@@ -50,13 +50,13 @@ class ClassDefNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class UseStatement(Node):
+class UseNode(Node):
     type: TypeExpressionNode = attr.ib()
     body: typing.List[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class UseForStatement(Node):
+class UseForNode(Node):
     type_class: TypeExpressionNode = attr.ib()
     type: TypeExpressionNode = attr.ib()
     body: typing.List[StatementNode] = attr.ib()
@@ -368,6 +368,8 @@ StatementNode = typing.Union[
     BreakNode,
     ContinueNode,
     TypeAssignmentNode,
+    UseNode,
+    UseForNode,
 ]
 
 ExpressionNode = typing.Union[

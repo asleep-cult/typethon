@@ -247,8 +247,8 @@ class ASTParser:
         span: typing.Tuple[int, int],
         type: ast.TypeExpressionNode,
         body: SequenceNode[ast.StatementNode],
-    ) -> ast.UseStatement:
-        return ast.UseStatement(
+    ) -> ast.UseNode:
+        return ast.UseNode(
             start=span[0],
             end=span[1],
             type=type,
@@ -261,8 +261,8 @@ class ASTParser:
         type_class: ast.TypeExpressionNode,
         type: ast.TypeExpressionNode,
         body: SequenceNode[ast.StatementNode],
-    ) -> ast.UseForStatement:
-        return ast.UseForStatement(
+    ) -> ast.UseForNode:
+        return ast.UseForNode(
             start=span[0],
             end=span[1],
             type_class=type_class,

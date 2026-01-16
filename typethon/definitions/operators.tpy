@@ -1,0 +1,176 @@
+# BINARY OPERATORS
+
+
+class Add('t, 'u):
+    def add(self: Self, rhs: 't) -> 'u
+
+class Sub('t, 'u):
+    def sub(self: Self, rhs: 'Self.t) -> 'Self.u
+
+class Mult('t, 'u):
+    def mult(self: Self, rhs: 't) -> 'u
+
+class MatMult('t, 'u):
+    def matmult(self: Self, rhs: 't) -> 'u
+
+class Div('t, 'u):
+    def div(self: Self, rhs: 't) -> 'u
+
+class Mod('t, 'u):
+    def mod(self: Self, rhs: 't) -> 'u
+
+class Pow('t, 'u):
+    def pow(self, rhs: 't) -> 'u
+
+class LShift('t, 'u):
+    def lshift(self: Self, rhs: 't) -> 'u
+
+class RShift('t, 'u):
+    def rshift(self: Self, rhs: 't) -> 'u
+
+class BitOr('t, 'u):
+    def bitor(self: Self, rhs: 't) -> 'u
+
+class BitXor('t, 'u):
+    def bitxor(self: Self, rhs: 't) -> 'u
+
+class BitAnd('t, 'u):
+    def bitand(self: Self, rhs: 't) -> 'u
+
+class FloorDiv('t, 'u):
+    def floordiv(self: Self, rhs: 't) -> 'u
+
+
+# UNARY OPERATORS
+
+class Invert('t):
+    def invert(self: Self) -> 't
+
+class UAdd('t):
+    def uadd(self: Self) -> 't
+
+class USub('t):
+    def usub(self: Self) -> 't
+
+
+# OTHER TYPE CLASSES
+
+class Hash:
+    def hash(self: Self) -> int
+
+class Iter('t):
+    def next(self: Self) -> 't
+
+
+# INT UNARY OPERATORS
+
+use Invert(int) for int:
+    def invert(self: Self) -> int
+
+use UAdd(int) for int:
+    def uadd(self: Self) -> int
+
+use USub(int) for int:
+    def usub(self: Self) -> int
+
+
+# INT BINARY OPERATORS WITH INT
+
+use Add(int, int) for int:    
+    def add(self: Self, rhs: int) -> int
+
+use Sub(int, int) for int:    
+    def sub(self: Self, rhs: int) -> int
+
+use Mult(int, int) for int:    
+    def mult(self: Self, rhs: int) -> int
+
+use Div(int, int) for int:    
+    def div(self: Self, rhs: int) -> int
+
+use Mod(int, int) for int:    
+    def mod(self: Self, rhs: int) -> int
+
+use Pow(int, int) for int:    
+    def pow(self: Self, rhs: int) -> int
+
+use LShift(int, int) for int:    
+    def lshift(self: Self, rhs: int) -> int
+
+use RShift(int, int) for int:    
+    def rshift(self: Self, rhs: int) -> int
+
+use BitOr(int, int) for int:    
+    def bitor(self: Self, rhs: int) -> int
+
+use BitXor(int, int) for int:    
+    def bitxor(self: Self, rhs: int) -> int
+
+use BitAnd(int, int) for int:    
+    def bitand(self: Self, rhs: int) -> int
+
+use FloorDiv(int, int) for int:    
+    def floordiv(self: Self, rhs: int) -> int
+
+
+# INT BINARY OPERATORS WITH FLOAT
+
+use Add(float, float) for int:    
+    def add(self: Self, rhs: float) -> int
+
+use Sub(float, float) for int:    
+    def sub(self: Self, rhs: float) -> int
+
+use Mult(float, float) for int:    
+    def mult(self: Self, rhs: float) -> int
+
+use Div(float, float) for int:    
+    def div(self: Self, rhs: float) -> int
+
+use Mod(float, float) for int:    
+    def mod(self: Self, rhs: float) -> int
+
+use Pow(float, float) for int:    
+    def pow(self: Self, rhs: float) -> int
+
+
+# FLOAT BINARY OPERATORS WITH FLOAT
+
+use Add(float, float) for float:    
+    def add(self: Self, rhs: float) -> int
+
+use Sub(float, float) for float:    
+    def sub(self: Self, rhs: float) -> int
+
+use Mult(float, float) for float:    
+    def mult(self: Self, rhs: float) -> int
+
+use Div(float, float) for float:    
+    def div(self: Self, rhs: float) -> int
+
+use Mod(float, float) for float:    
+    def mod(self: Self, rhs: float) -> int
+
+use Pow(float, float) for float:    
+    def pow(self: Self, rhs: float) -> int
+
+
+# FLOAT BINARY OPERATORS WITH INT
+
+use Add(int, float) for float:    
+    def add(self: Self, rhs: int) -> int
+
+use Sub(int, float) for float:    
+    def sub(self: Self, rhs: int) -> int
+
+use Mult(int, float) for float:    
+    def mult(self: Self, rhs: int) -> int
+
+use Div(int, float) for float:    
+    def div(self: Self, rhs: int) -> int
+
+use Mod(int, float) for float:    
+    def mod(self: Self, rhs: int) -> int
+
+use Pow(int, float) for float:    
+    def pow(self: Self, rhs: int) -> int
