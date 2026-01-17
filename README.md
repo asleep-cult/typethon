@@ -259,7 +259,7 @@ else: 20
 # This would clearly be an expression because there is no newline, indent, etc.
 # And someting like this would then be invalid because return is not an expression:
 
-if x = y: return 10
+if x == y: return 10
 
 # The idea that every block can be an expression is interesting, but it's
 # fundementally incompatible with Python's syntax, and one could argue that
@@ -291,4 +291,26 @@ result = some_function() in
 value -> other_function(value)
 
 # It definitely won't look like this
+
+# *Potential solution to the mutable binding problem
+
+let x = 0 in
+for i in range(10):
+    let x = x + i
+
+# let/in brings the binding into the next scope, allowing it to be shadowed
+
+let x = f(10) in
+if some_condition:
+    let x = g(x)
+
+# For cases where it's nested
+
+let x = 0 in
+if some_condition:
+    let x in
+    if some_condition:
+        let x = 10
+
+# I will have to decide whether this is too verbose
 ```
