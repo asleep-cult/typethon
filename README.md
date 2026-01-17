@@ -40,6 +40,7 @@ Here is what I've decided on so far:
 # 1) Single quote strings can only contain one character, 't represents a type parameter
 # 2) Classes do not represent functionality tied to a state. Instead, they classify
 # types with the same functions (i.e. Haskell class, Java interface, Rust trait)
+# 3) Scoping is stricter and bindings must be created using the let keyword
 
 # Data types can be tuples or structures, they can be defined with type
 # assignment statements.
@@ -55,6 +56,51 @@ type Expr =
     | Attribute(Expr, str)
     | Add(Expr, Expr)
     | Sub(Expr, Expr)
+
+# "Variables" can be created using the let keyword.
+
+def f():
+    let i
+    if some_condition:
+        i = 10
+    else:
+        i = 20
+
+# They can only be assigned to once on all code paths and must be assigned
+# to on all code paths before they can be used.
+
+# I do not want to add a special syntax for creating mutable bindings and I am wondering
+# if I can get by without them. As far as I know, the only thing that would become impossible
+# are loops with states, so they would need to look more like recursive functions with
+# parameters if we go down this road. I also dont know to what extent the memory model
+# would rely on the existance of mutable bindings.
+# If shadowing is forbidden, there would quickly become a deficit of variable names.
+# if not, we have to consider whether
+let x = f(x)
+let x = g(x)
+
+# is too limiting or less expressive than
+var x = f(x)
+x = g(x)
+
+# And we also need to consider the fact that shadowing is on a scope basis,
+# so setting x to g(x) conditionally wouldn't actually be possible without another
+# variable
+let real_x
+let x = f(10)
+if some_condition:
+    real_x = g(x)
+else:
+    real_x = x
+
+# for reference
+var x = f(10)
+if some_condtion:
+    x = f(x)
+
+# Yes, I know this is terrible. If I find a solution to loops that can be applied
+# to this situation as well, I will refrain from adding mutable bindings. But the way
+# it looks now, the solution that doesn't become FP is really just mutable bindings...
 
 # Parametric polymorphism is achieved through the use of 't
 
@@ -101,8 +147,8 @@ def get_item(items: 't, index: 'u) -> 'v with 't: Index('u, 'v):
 def new() -> 'u:
     return u()
 
-items = new()  # Impossible to resolve U
-items: [int] = new()  # Works fine
+let items = new()  # Impossible to resolve U
+let items: [int] = new()  # Works fine
 
 # Use blocked can be used to define a function on a type.
 
@@ -146,10 +192,7 @@ use Index('k, 'v) for Map('k, 'v):
 
 # I want to allow type annotation but due to ambiguity issues
 # it will either need to a) allow either all annotations or no annotations,
-# i.e. no annotating one but not the other, b) use a new syntax for the
-# argument list such as, c) add a weird a: b expression only valid in tuples:
-
-|a, b, c| x
+# i.e. no annotating one but not the other, b) add a weird a: b expression only valid in tuples:
 
 # I'm unsure how traits would be handled as of right now because:
 # 1. Other languages use def f(x: Trait) for dynamic dispatch and def f(x: 't) with Trait for 't
@@ -178,34 +221,19 @@ f(if x < 0: "negative" else: "positive")
 
 # This is ambiguous
 
-# *Comprehensions will be similarly changed
+# *No comperhensions for now
 
-names = for names in usernames: name.lower()
-
-names = (
-    for name in usernames:
-        if name.len() < 10: name
-        else: f"{name[:10]}..."
-)
-
-# This is ambiguous
-
-# *For statements and expressions might have an optional guard
+# *For statements might have an optional guard
 
 for name in usernames if name.len() < 10:
     ...
-
-names = for name in usernames if name.len() < 10: name
-
-# *I might make assignments expressions but I wont introduce
-# an "assignment expression" operator.
 
 # The ideas above range from highly likely to certain, the ones
 # below might not happen at all.
 
 # *There might be a mechanism for specifying the loop for break/continue
 
-while True:
+while true:
     for letter in input():
         if letter == 'c':
             break while
@@ -214,16 +242,29 @@ while True:
 # the same type of loop. This could be solved with labels, but I am not willing
 # to add labels.
 
-# *Match statements might become a complex expression. (They  will almost certainly
-# use else.)
+# *Theoretical match expression
 
 result = match operator:
-    case Operators.ADD: self.add(left, right)
-    case operator.SUB: self.sub(left, right)
-    else: UnknownOperatorError()
+| Operators.ADD: self.add(left, right)
+| Operator.SUB: self.sub(left, right)
+| else:  UnknownOperatorError()
 
-# Not sure how the statement form will work but I want to avoid the deep nesting
-# that comes from indented case blocks.
+# I think match and if should work similarly. They should have a statement and
+# an expression form, and which it is dependens upon whether the colon has a newline
+# after it. So it would be similar to lambda, but without the extraordinary nesting behaviour.
+
+if x = y: 10
+else: 20
+
+# This would clearly be an expression because there is no newline, indent, etc.
+# And someting like this would then be invalid because return is not an expression:
+
+if x = y: return 10
+
+# The idea that every block can be an expression is interesting, but it's
+# fundementally incompatible with Python's syntax, and one could argue that
+# that a more explicit approach is preferrable anyways. If and match expressions with
+# corresponding statements seems like a reasonable middleground.
 
 # *I have been considering  allowing multiple iterators in for loops
 # to avoid the long winded zip() function. For example:

@@ -338,6 +338,19 @@ class ASTParser:
             body=body.items,
         )
 
+    def create_assignment(
+        self,
+        span: typing.Tuple[int, int],
+        target: ast.ExpressionNode,
+        value: ast.ExpressionNode,
+    ) -> ast.AssignNode:
+        return ast.AssignNode(
+            start=span[0],
+            end=span[1],
+            target=target,
+            value=value,
+        )
+
     def create_disjunction(
         self,
         span: typing.Tuple[int, int],
@@ -350,6 +363,21 @@ class ASTParser:
             end=span[1],
             op=ast.BoolOperatorKind.OR,
             values=sequence.items,
+        )
+
+    def create_declaration(
+        self,
+        span: typing.Tuple[int, int],
+        target: IdentifierToken,
+        type: OptionNode[ast.TypeExpressionNode],
+        value: OptionNode[ast.ExpressionNode],
+    ) -> ast.DeclarationNode:
+        return ast.DeclarationNode(
+            start=span[0],
+            end=span[1],
+            target=target.content,
+            type=type.item,
+            value=value.item,
         )
 
     def create_conjunction(
@@ -806,13 +834,13 @@ class ASTParser:
             end=span[1],
         )
 
-    def create_type_assignment(
+    def create_type_declaration(
         self,
         span: typing.Tuple[int, int],
         name: IdentifierToken,
         type: ast.TypeExpressionNode,
-    ) -> ast.TypeAssignmentNode:
-        return ast.TypeAssignmentNode(
+    ) -> ast.TypeDeclarationNode:
+        return ast.TypeDeclarationNode(
             start=span[0],
             end=span[1],
             name=name.content,

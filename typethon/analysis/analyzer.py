@@ -65,7 +65,14 @@ class TypeAnalyzer:
                     self.initialize_types(class_scope, statement.body)
                     scope.add_symbol(statement.name, type_class)
 
-                case ast.TypeAssignmentNode():
+                case ast.TypeDeclarationNode():
+                    if (
+                        isinstance(statement.type, ast.TupleTypeNode)
+                        and not statement.type.elts
+                    ):
+                        scope.add_symbol(statement.name, types.SingletonType.UNIT)
+                        continue
+ 
                     child_scope = scope.create_child_scope()
 
                     if isinstance(statement.type, ast.StructTypeNode):
@@ -159,7 +166,7 @@ class TypeAnalyzer:
 
                     self.propagate_types(type_class.scope, statement.body)
 
-                case ast.TypeAssignmentNode():
+                case ast.TypeDeclarationNode():
                     if isinstance(statement.type, ast.StructTypeNode):
                         struct_type = scope.get_symbol(statement.name)
                         if isinstance(struct_type, types.PolymorphicType):
@@ -172,6 +179,9 @@ class TypeAnalyzer:
                             struct_type.fields[field.name] = types.StructField(name=field.name, type=field_type)
 
                     elif isinstance(statement.type, ast.TupleTypeNode):
+                        if not statement.type.elts:
+                            continue
+
                         tuple_type = scope.get_symbol(statement.name)
                         if isinstance(tuple_type, types.PolymorphicType):
                             tuple_type = tuple_type.type
@@ -196,7 +206,6 @@ class TypeAnalyzer:
         scope: Scope,
         type_expression: ast.TypeExpressionNode,
         *,
-        allow_self: bool = False,
         allow_instance: bool = False,  # allow_module?
         allow_polymorphic: bool = False,
     ) -> Symbol:
@@ -218,7 +227,6 @@ class TypeAnalyzer:
                     scope,
                     type_expression,
                     allow_instance=True,
-                    allow_polymorphic=False,
                 )
                 assert False, 'Not Implemented'
 
@@ -239,8 +247,7 @@ class TypeAnalyzer:
                 return parameter
 
             case ast.SelfTypeNode():
-                assert allow_self, 'Self not allowed'
-                assert False, 'Not implemented'
+                return types.SingletonType.SELF
 
             case ast.ListTypeNode():
                 elt = self.evaluate_concrete_type_expression(scope, type_expression.elt)
@@ -256,6 +263,9 @@ class TypeAnalyzer:
                 return struct_type
 
             case ast.TupleTypeNode():
+                if not type_expression.elts:
+                    return types.SingletonType.UNIT
+
                 tuple_type = types.TupleType(name='inline tuple', scope=scope)
 
                 for elt in type_expression.elts:
@@ -268,6 +278,8 @@ class TypeAnalyzer:
         self,
         scope: Scope,
         type_expression: ast.TypeExpressionNode,
+        *,
+        allow_self: bool = False,
     ) -> types.ConcreteType:
         type = self.evaluate_type_expression(scope, type_expression)
         assert not isinstance(type, (types.PolymorphicType, TypeInstance))
@@ -324,6 +336,21 @@ class TypeAnalyzer:
                     )
                     self.analyze_types(inner_ctx, statement.body)
 
+                case ast.DeclarationNode():
+                    type = types.SingletonType.UNDECLARED
+                    if statement.type is not None:
+                        type = self.evaluate_concrete_type_expression(ctx.scope, statement.type)
+
+                    if statement.value is not None:
+                        value = self.analyze_instance_of_expression(ctx, statement.value)
+
+                        if type is types.SingletonType.UNDECLARED:
+                            type = value.type
+                        elif not self.check_type_compatibility(value.type, type):
+                            assert False, 'Incompatibility.'
+
+                    ctx.scope.add_symbol(statement.target, TypeInstance(type=type))
+
                 case ast.ReturnNode():
                     if not ctx.flags & AnalysisFlags.ALLOW_RETURN:
                         assert False, 'Return is not valid here'
@@ -338,6 +365,9 @@ class TypeAnalyzer:
                     if not compatible:
                         assert False, f'incompatible return type, {return_type.to_string()}, {ctx.returnable_type.to_string()}'
 
+                case ast.ExprNode():
+                    self.analyze_type_of_expression(ctx, statement.expr)
+
     def analyze_type_of_expression(
         self,
         ctx: AnalysisContext,
@@ -346,7 +376,10 @@ class TypeAnalyzer:
         match expression:
             case ast.NameNode():
                 symbol = ctx.scope.get_symbol(expression.value)
-                assert symbol is not None, 'symbol not defined'
+                assert symbol is not None, f'symbol {expression.value} not defined'
+
+                if symbol is types.SingletonType.UNDECLARED:
+                    assert False, 'Cannot discern type of symbol before declaration'
 
                 return symbol
 
@@ -359,6 +392,22 @@ class TypeAnalyzer:
                     return TypeInstance(type=type)  # This is wrong
                 else:
                     return self.get_type_attribute(symbol, expression.attr)
+
+            case ast.AssignNode():
+                if not isinstance(expression.target, ast.NameNode):
+                    assert False, 'Only names are supported for targets'
+
+                symbol = ctx.scope.get_symbol(expression.target.value)
+                if not isinstance(symbol, TypeInstance):
+                    assert False, f'Cannot assign to {symbol}'
+
+                value = self.analyze_instance_of_expression(ctx, expression.value)
+                if symbol.type is types.SingletonType.UNDECLARED:
+                    ctx.scope.add_symbol(expression.target.value, value)
+                elif not self.check_type_compatibility(value.type, symbol.type):
+                    assert False, 'Incompatible assignment'
+
+                return types.SingletonType.UNIT
 
         assert False
 

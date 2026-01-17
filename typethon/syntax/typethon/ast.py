@@ -69,8 +69,15 @@ class ReturnNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
+class DeclarationNode(Node):
+    target: str = attr.ib()
+    type: typing.Optional[TypeExpressionNode] = attr.ib()
+    value: typing.Optional[ExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class AssignNode(Node):
-    targets: typing.List[ExpressionNode] = attr.ib()
+    target: ExpressionNode = attr.ib()
     value: ExpressionNode = attr.ib()
 
 
@@ -79,13 +86,6 @@ class AugAssignNode(Node):
     target: ExpressionNode = attr.ib()
     op: OperatorKind = attr.ib()
     value: ExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class AnnAssignNode(Node):
-    target: ExpressionNode = attr.ib()
-    annotation: TypeExpressionNode = attr.ib()
-    value: typing.Optional[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -325,7 +325,7 @@ class ListTypeNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeAssignmentNode(Node):
+class TypeDeclarationNode(Node):
     name: str = attr.ib()
     type: TypeExpressionNode = attr.ib()
 
@@ -362,9 +362,7 @@ StatementNode = typing.Union[
     FunctionDefNode,
     ClassDefNode,
     ReturnNode,
-    AssignNode,
-    AugAssignNode,
-    AnnAssignNode,
+    DeclarationNode,
     ForNode,
     WhileNode,
     IfNode,
@@ -374,13 +372,15 @@ StatementNode = typing.Union[
     PassNode,
     BreakNode,
     ContinueNode,
-    TypeAssignmentNode,
+    TypeDeclarationNode,
     SumTypeNode,
     UseNode,
     UseForNode,
 ]
 
 ExpressionNode = typing.Union[
+    AssignNode,
+    AugAssignNode,
     ExpressionLambdaNode,
     BlockLambdaNode,
     BoolOpNode,

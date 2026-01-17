@@ -15,8 +15,10 @@ if typing.TYPE_CHECKING:
 # There needs to be an id for everything and a single data structure
 
 class SingletonType(enum.Enum):
+    UNDECLARED = enum.auto()
     UNIT = enum.auto()
     UNKNOWN = enum.auto()
+    SELF = enum.auto()
 
     def to_string(self) -> str:
         return self.name

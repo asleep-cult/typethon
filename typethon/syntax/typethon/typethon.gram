@@ -6,10 +6,10 @@ statement:
     | !simple_statements
     | !function_def
     | !class_def
+    | !use_statement
     # | !for_statement
     | !if_statement
     | !while_statement
-    | !use_statement
     | !sum_type_statement
 
 simple_statements:
@@ -26,9 +26,10 @@ simple_statement:
     #[create_return_statement]
     | "return" !expression?
     #[create_expr_statement]
-    | !expressions
+    | !expression
     | !function_prototype
-    | !type_assignment
+    | !type_declaration
+    | !declaration_statement
 
 complex_block:
     #[@flatten]
@@ -37,6 +38,10 @@ complex_block:
 block:
     | !complex_block
     | !simple_statements
+
+declaration_statement:
+    #[create_declaration]
+    | "let" !IDENTIFIER (":" !type_expression)? ("=" !expression)?
 
 decorators: ("@" !expression NEWLINE)+
 
@@ -85,6 +90,8 @@ while_statement:
 
 expression:
     | !disjunction
+    #[create_assignment]
+    | !expression "=" !expression
 
 disjunction:
     #[create_disjunction]
@@ -206,9 +213,9 @@ arguments:
 
 atom:
     #[create_constant]
-    | !"True"
+    | !"true"
     #[create_constant]
-    | !"False"
+    | !"false"
     #[create_constant]
     | !"..."
     #[create_name]
@@ -225,11 +232,6 @@ expression_list:
     | !expression ("," !expression)+ ","?
     #[@sequence]
     | !expression ","
-
-expressions:
-    #[create_tuple]
-    | !expression_list
-    | !expression
 
 lambda_block:
     #[exit_lambda_block]
@@ -259,8 +261,8 @@ group_or_lambda:
     #[add_lambda_parameters]
     | !group_or_lambda_parameters !lambda
 
-type_assignment:
-    #[create_type_assignment]
+type_declaration:
+    #[create_type_declaration]
     | "type" !IDENTIFIER "=" !type_expression
 
 data_type:

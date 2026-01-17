@@ -115,6 +115,7 @@ TOKENS: TokenMap[TokenKind] = (
 
 
 class KeywordKind(enum.Enum):
+    LET = enum.auto()
     SELF = enum.auto()
     TYPE = enum.auto()
     TRUE = enum.auto()
@@ -141,10 +142,11 @@ class KeywordKind(enum.Enum):
 
 
 KEYWORDS = (
+    ('let', KeywordKind.LET),
     ('Self', KeywordKind.SELF),
     ('type', KeywordKind.TYPE),
-    ('True', KeywordKind.TRUE),
-    ('False', KeywordKind.FALSE),
+    ('true', KeywordKind.TRUE),
+    ('false', KeywordKind.FALSE),
     ('and', KeywordKind.AND),
     ('break', KeywordKind.BREAK),
     ('class', KeywordKind.CLASS),
