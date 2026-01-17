@@ -336,7 +336,7 @@ class TypeAnalyzer:
 
                     compatible = self.check_type_compatibility(return_type, ctx.returnable_type)
                     if not compatible:
-                        assert False, 'incompatible return type'
+                        assert False, f'incompatible return type, {return_type.to_string()}, {ctx.returnable_type.to_string()}'
 
     def analyze_type_of_expression(
         self,
@@ -350,6 +350,16 @@ class TypeAnalyzer:
 
                 return symbol
 
+            case ast.AttributeNode():
+                symbol = self.analyze_type_of_expression(ctx, expression.value)
+                assert not isinstance(symbol, types.PolymorphicType)
+
+                if isinstance(symbol, TypeInstance):
+                    type = self.get_type_attribute(symbol.type, expression.attr, is_instance=True)
+                    return TypeInstance(type=type)  # This is wrong
+                else:
+                    return self.get_type_attribute(symbol, expression.attr)
+
         assert False
 
     def analyze_instance_of_expression(
@@ -359,9 +369,35 @@ class TypeAnalyzer:
     ) -> TypeInstance:
         symbol = self.analyze_type_of_expression(ctx, expression)
         if not isinstance(symbol, TypeInstance):
-            assert False, 'Expected a type instance'
+            assert False, f'Expected a type instance {symbol}'
 
         return symbol
+
+    def get_type_attribute(
+        self,
+        type: types.ConcreteType,
+        name: str,
+        *,
+        is_instance: bool = False,
+    ) -> types.ConcreteType:
+        attribute = None
+        match type:
+            case types.ParameterizedType():
+                attribute = self.get_type_attribute(type.type, name, is_instance=is_instance)
+                if isinstance(attribute, types.TypeParameter) and attribute in type.type_map:
+                    attribute = type.type_map[attribute]
+                else:
+                    attribute = types.ParameterizedType(type=attribute, type_map=type.type_map)
+            case types.TypeAlias():
+                attribute = self.get_type_attribute(type.type, name, is_instance=is_instance)
+            case types.StructType() if is_instance:
+                if name in type.fields:
+                    attribute = type.fields[name].type
+            case types.TypeClass():
+                attribute = type.functions.get(name)
+
+        assert attribute is not None, f'{type}.{name}'
+        return attribute
 
     def analyze_module(self) -> None:
         self.initialize_types(self.scope, self.module.body)
