@@ -7,12 +7,6 @@ from itertools import count
 
 TYPE_PARAMETER_COUNT = count()
 
-if typing.TYPE_CHECKING:
-    from .scope import Scope
-
-
-# TODO: Stop creating copies on substitution it doesnt work well
-# There needs to be an id for everything and a single data structure
 
 class SingletonType(enum.Enum):
     UNDECLARED = enum.auto()
@@ -27,7 +21,6 @@ class SingletonType(enum.Enum):
 @attr.s(kw_only=True, slots=True)
 class TypeAlias:
     name: str = attr.ib()
-    scope: Scope = attr.ib()
     type: ConcreteType = attr.ib(default=SingletonType.UNKNOWN)
 
     def to_string(self) -> str:
@@ -46,7 +39,6 @@ class StructField:
 @attr.s(kw_only=True, slots=True)
 class StructType:
     name: str = attr.ib()
-    scope: Scope = attr.ib()
     fields: typing.Dict[str, StructField] = attr.ib(factory=dict)
 
     def to_string(self) -> str:
@@ -56,7 +48,6 @@ class StructType:
 @attr.s(kw_only=True, slots=True)
 class TupleType:
     name: str = attr.ib()
-    scope: Scope = attr.ib()
     fields: typing.List[ConcreteType] = attr.ib(factory=list)
 
     def to_string(self) -> str:
@@ -75,7 +66,6 @@ class FunctionParameter:
 @attr.s(kw_only=True, slots=True)
 class FunctionType:
     name: str = attr.ib()
-    scope: Scope = attr.ib()
     parameters: typing.Dict[str, FunctionParameter] = attr.ib(factory=dict)
     returns: ConcreteType = attr.ib(default=SingletonType.UNIT)
 
@@ -86,7 +76,6 @@ class FunctionType:
 @attr.s(kw_only=True, slots=True)
 class TypeClass:
     name: str = attr.ib()
-    scope: Scope = attr.ib()
     functions: typing.Dict[str, FunctionType] = attr.ib(factory=dict)
 
     def to_string(self) -> str:

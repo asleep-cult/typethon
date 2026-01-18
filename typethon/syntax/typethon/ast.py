@@ -205,13 +205,6 @@ class CallNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class FormattedValueNode(Node):
-    value: ExpressionNode = attr.ib()
-    conversion: typing.Optional[int] = attr.ib()
-    spec: typing.Optional[ExpressionNode] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class ConstantNode(Node):
     kind: typing.Any = attr.ib()  # fix this
 
@@ -390,7 +383,6 @@ ExpressionNode = typing.Union[
     SetNode,
     CompareNode,
     CallNode,
-    FormattedValueNode,
     ConstantNode,
     AttributeNode,
     SubscriptNode,

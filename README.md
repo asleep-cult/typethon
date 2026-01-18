@@ -57,7 +57,7 @@ type Expr =
     | Add(Expr, Expr)
     | Sub(Expr, Expr)
 
-# "Variables" can be created using the let keyword.
+# Bindings can be created using the let keyword.
 
 def f():
     let i
@@ -66,41 +66,10 @@ def f():
     else:
         i = 20
 
-# They can only be assigned to once on all code paths and must be assigned
-# to on all code paths before they can be used.
+# They are immutable and can only be assigned to once on all code paths.
+# They also must be assigned to on all code paths before they can be used.
 
-# I do not want to add a special syntax for creating mutable bindings and I am wondering
-# if I can get by without them. As far as I know, the only thing that would become impossible
-# are loops with states, so they would need to look more like recursive functions with
-# parameters if we go down this road. I also dont know to what extent the memory model
-# would rely on the existance of mutable bindings.
-# If shadowing is forbidden, there would quickly become a deficit of variable names.
-# if not, we have to consider whether
-let x = f(x)
-let x = g(x)
-
-# is too limiting or less expressive than
-var x = f(x)
-x = g(x)
-
-# And we also need to consider the fact that shadowing is on a scope basis,
-# so setting x to g(x) conditionally wouldn't actually be possible without another
-# variable
-let real_x
-let x = f(10)
-if some_condition:
-    real_x = g(x)
-else:
-    real_x = x
-
-# for reference
-var x = f(10)
-if some_condtion:
-    x = f(x)
-
-# Yes, I know this is terrible. If I find a solution to loops that can be applied
-# to this situation as well, I will refrain from adding mutable bindings. But the way
-# it looks now, the solution that doesn't become FP is really just mutable bindings...
+# I think there should only be mutable references and no mutable bindings.
 
 # Parametric polymorphism is achieved through the use of 't
 
@@ -291,26 +260,4 @@ result = some_function() in
 value -> other_function(value)
 
 # It definitely won't look like this
-
-# *Potential solution to the mutable binding problem
-
-let x = 0 in
-for i in range(10):
-    let x = x + i
-
-# let/in brings the binding into the next scope, allowing it to be shadowed
-
-let x = f(10) in
-if some_condition:
-    let x = g(x)
-
-# For cases where it's nested
-
-let x = 0 in
-if some_condition:
-    let x in
-    if some_condition:
-        let x = 10
-
-# I will have to decide whether this is too verbose
 ```
