@@ -1,24 +1,50 @@
 import attr
 import typing
-import enum
 
 from . import types
 from .context import AnalysisContext, AnalysisFlags, TypeInstance, Symbol
 from ..syntax.typethon import ast
 
+ImplementationMap = typing.Dict[
+    typing.Union[types.NonParameterizedConcreteType, types.PolymorphicType],
+    'TypeImplementation',
+]
+
 
 @attr.s(kw_only=True, slots=True)
 class ImplementationFunction:
     function: types.FunctionType = attr.ib()
-    inverse_parameter_map: typing.Optional[
-        typing.Dict[types.ConcreteType, types.TypeParameter]
+    parameter_map: typing.Optional[
+        typing.Dict[types.TypeParameter, types.ConcreteType]
+    ] = attr.ib()
+    # I am storing parameter_map on both ImplementationFunction
+    # and ImplementationClass so you can have things like
+    # use Type(int), where the implementation is only defined 
+    # for Type(int) and not, for example, Type(str). Or
+    # Type('t), where 't is constrained to a certain type class.
+    # There will need to be some work to get the parameter and return
+    # types right because the functions in the use block will
+    # have their own type parameters
+    # Right now, I've actually only implemented this "unification"
+    # class_parameter_map and it seems to work.
+
+
+@attr.s(kw_only=True, slots=True)
+class ImplementationClass:
+    type_class: types.TypeClass = attr.ib()
+    parameter_map: typing.Optional[
+        typing.Dict[types.TypeParameter, types.ConcreteType]
+    ] = attr.ib()
+    class_parameter_map: typing.Optional[
+        typing.Dict[types.TypeParameter, types.ConcreteType]
     ] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TypeImplementation:
-    type: typing.Union[types.NonParameterizedConcreteType, types.PolymorphicType] = attr.ib(repr=False)
+    type: typing.Union[types.NonParameterizedConcreteType, types.PolymorphicType] = attr.ib()
     functions: typing.Dict[str, ImplementationFunction] = attr.ib(factory=dict)
+    type_classes: typing.List[ImplementationClass] = attr.ib(factory=list)
 
 
 class TypeAnalyzer:
@@ -40,6 +66,62 @@ class TypeAnalyzer:
             self.implementations[type] = implementation
 
         return implementation
+
+    def get_class_implementation(
+        self,
+        type: types.ConcreteType,
+        type_class: typing.Union[types.ParameterizedType, types.TypeClass],
+    ) -> typing.Optional[ImplementationClass]:
+        # If the type class is polymorphic, type_class must be parameterized type
+        # This implementation kind of sucks I think
+        assert not isinstance(type, types.ParameterizedType), 'Not implemented'
+
+        parameter_map: typing.Optional[typing.Dict[types.TypeParameter, types.ConcreteType]] = None
+        if isinstance(type_class, types.ParameterizedType):
+            parameter_map = type_class.parameter_map
+
+            assert isinstance(type_class.type, types.TypeClass)
+            type_class = type_class.type
+
+        implementation = self.implementations.get(type)
+        if implementation is None:
+            return None
+
+        for implementation_class in implementation.type_classes:
+            if implementation_class.type_class is not type_class:
+                continue
+
+            if implementation_class.class_parameter_map is not None:
+                assert parameter_map is not None
+
+                compatible = all(
+                    self.check_parameter_compatibility(
+                        parameter_map[parameter],
+                        implementation_class.class_parameter_map[parameter],
+                    ) for parameter in parameter_map
+                )
+                if compatible:
+                    return implementation_class
+
+            else:
+                assert parameter_map is None
+                return implementation_class
+
+    def check_parameter_compatibility(
+        self,
+        parameterized_type: types.ConcreteType,
+        implementation_type: types.ConcreteType,
+    ) -> bool:
+        if isinstance(implementation_type, types.TypeParameter):
+            # TODO: Does the parameterized type satisfy the constraint
+            # of the implementation type
+            return True
+
+        if isinstance(parameterized_type, types.TypeParameter):
+            # Vice-versa??
+            return True
+
+        return self.check_type_compatibility(parameterized_type, implementation_type)
 
     def initialize_types(
         self,
@@ -323,15 +405,37 @@ class TypeAnalyzer:
                         sum_type.fields[field.name] = types.SumField(name=field.name, data=data)
 
                 case ast.UseNode() | ast.UseForNode():
-                    assert not isinstance(statement, ast.UseForNode)
                     use_ctx = ctx.get_child_context(context_index)
 
                     use_type = self.evaluate_concrete_type_expression(use_ctx, statement.type)
                     implementation = self.find_type_implementation(use_type)
 
-                    inverse_parameter_map = None
+                    parameter_map = None
                     if isinstance(use_type, types.ParameterizedType):
-                        inverse_parameter_map = {value: key for key, value in use_type.parameter_map.items()}
+                        parameter_map = use_type.parameter_map
+
+                    if isinstance(statement, ast.UseForNode):
+                        type_class = self.evaluate_concrete_type_expression(
+                            use_ctx,
+                            statement.type_class,
+                        )
+
+                        class_parameter_map = None
+                        if isinstance(type_class, types.ParameterizedType):
+                            class_parameter_map = type_class.parameter_map
+                            type_class = type_class.type
+
+                        assert isinstance(type_class, types.TypeClass)
+
+                        implementation_class = ImplementationClass(
+                            type_class=type_class,
+                            parameter_map=parameter_map,
+                            class_parameter_map=class_parameter_map,
+                        )
+                        implementation.type_classes.append(implementation_class)
+
+                        self.propagate_types(use_ctx, statement.body)
+                        continue
 
                     for inner_statement in statement.body:
                         if not isinstance(inner_statement, ast.FunctionDefNode):
@@ -342,7 +446,7 @@ class TypeAnalyzer:
 
                         implementation_function = ImplementationFunction(
                             function=function_type,
-                            inverse_parameter_map=inverse_parameter_map,
+                            parameter_map=parameter_map,
                         )
                         implementation.functions[function_type.name] = implementation_function
 
@@ -451,6 +555,12 @@ class TypeAnalyzer:
             or type2 is types.SingletonType.UNKNOWN
         ):
             return False
+
+        if (
+            type1 is types.SingletonType.ANY
+            or type2 is types.SingletonType.ANY
+        ):
+            return True
 
         if type1 is type2:
             return True

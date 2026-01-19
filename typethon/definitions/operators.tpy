@@ -1,5 +1,3 @@
-# BINARY OPERATORS
-
 class Add('t, 'u):
     def add(self: Self, rhs: 't) -> 'u
 
@@ -19,7 +17,7 @@ class Mod('t, 'u):
     def mod(self: Self, rhs: 't) -> 'u
 
 class Pow('t, 'u):
-    def pow(self, rhs: 't) -> 'u
+    def pow(self: Self, rhs: 't) -> 'u
 
 class LShift('t, 'u):
     def lshift(self: Self, rhs: 't) -> 'u

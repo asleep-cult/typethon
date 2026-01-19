@@ -12,6 +12,7 @@ def next_type_id() -> int:
 
 
 class SingletonType(enum.Enum):
+    ANY = enum.auto()
     UNDECLARED = enum.auto()
     UNIT = enum.auto()
     UNKNOWN = enum.auto()
@@ -118,7 +119,7 @@ class PolymorphicType:
         parameters = ', '.join(parameter.to_string() for parameter in self.parameters)
         return f'polmorohic({self.type.to_string()}, {parameters})'
 
-    def with_parameters(self, parameters: typing.List[ConcreteType]) -> ConcreteType:
+    def with_parameters(self, parameters: typing.List[ConcreteType]) -> ParameterizedType:
         if len(self.parameters) != len(parameters):
             raise ValueError(f'{self} requires {len(self.parameters)}, got {len(parameters)}')
 
