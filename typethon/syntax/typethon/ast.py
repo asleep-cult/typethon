@@ -4,7 +4,6 @@ import attr
 import typing
 import enum
 from ..ast import (
-    ParameterKind,
     BoolOperatorKind,
     OperatorKind,
     UnaryOperatorKind,
@@ -126,11 +125,6 @@ class ExprNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class PassNode(Node):
-    ...
-
-
-@attr.s(kw_only=True, slots=True)
 class BreakNode(Node):
     ...
 
@@ -174,16 +168,6 @@ class BinaryOpNode(Node):
 class UnaryOpNode(Node):
     op: UnaryOperatorKind = attr.ib()
     operand: ExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class DictNode(Node):
-    elts: typing.List[DictElt] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class SetNode(Node):
-    elts: typing.List[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -271,7 +255,6 @@ class SliceNode(Node):
 @attr.s(kw_only=True, slots=True)
 class FunctionParameterNode(Node):
     name: str = attr.ib()
-    kind: ParameterKind = attr.ib()
     annotation: TypeExpressionNode = attr.ib()
     default: typing.Optional[ExpressionNode] = attr.ib()
 
@@ -362,7 +345,6 @@ StatementNode = typing.Union[
     ImportNode,
     ImportFromNode,
     ExprNode,
-    PassNode,
     BreakNode,
     ContinueNode,
     TypeDeclarationNode,
@@ -379,8 +361,6 @@ ExpressionNode = typing.Union[
     BoolOpNode,
     BinaryOpNode,
     UnaryOpNode,
-    DictNode,
-    SetNode,
     CompareNode,
     CallNode,
     ConstantNode,

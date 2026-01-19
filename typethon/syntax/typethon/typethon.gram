@@ -17,8 +17,6 @@ simple_statements:
     | !simple_statement (";" !simple_statement)* ";"? NEWLINE
 
 simple_statement:
-    #[create_pass_statement]
-    | "pass"
     #[create_break_statement]
     | "break"
     #[create_continue_statement]
@@ -132,6 +130,8 @@ comparator:
     | !"in" !bitwise_or
     #[create_comparator_two]
     | !"is" !"not" !bitwise_or
+    #[create_comparator_one]
+    | !"is" !bitwise_or
 
 bitwise_or:
     #[create_binary_operator]
@@ -263,7 +263,11 @@ group_or_lambda:
 
 type_declaration:
     #[create_type_declaration]
-    | "type" !IDENTIFIER "=" !type_expression
+    | "type" !IDENTIFIER "=" !type_declaration_expression
+
+type_declaration_expression:
+    | !type_expression
+    | !data_type
 
 data_type:
     #[create_struct_type]
@@ -314,4 +318,3 @@ type_atom:
     #[create_name]
     | !IDENTIFIER
     | "(" !type_atom ")"
-    | !data_type

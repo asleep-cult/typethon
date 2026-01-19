@@ -7,10 +7,39 @@ from .context import AnalysisContext, AnalysisFlags, TypeInstance, Symbol
 from ..syntax.typethon import ast
 
 
+@attr.s(kw_only=True, slots=True)
+class ImplementationFunction:
+    function: types.FunctionType = attr.ib()
+    inverse_parameter_map: typing.Optional[
+        typing.Dict[types.ConcreteType, types.TypeParameter]
+    ] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class TypeImplementation:
+    type: typing.Union[types.NonParameterizedConcreteType, types.PolymorphicType] = attr.ib(repr=False)
+    functions: typing.Dict[str, ImplementationFunction] = attr.ib(factory=dict)
+
+
 class TypeAnalyzer:
     def __init__(self, module: ast.ModuleNode) -> None:
         self.module = module
         self.ctx = AnalysisContext()
+        self.implementations: typing.Dict[
+            typing.Union[types.NonParameterizedConcreteType, types.PolymorphicType],
+            TypeImplementation,
+        ] = {}
+
+    def find_type_implementation(self, type: types.Type) -> TypeImplementation:
+        if isinstance(type, types.ParameterizedType):
+            type = type.type
+
+        implementation = self.implementations.get(type)
+        if implementation is None:
+            implementation = TypeImplementation(type=type)
+            self.implementations[type] = implementation
+
+        return implementation
 
     def initialize_types(
         self,
@@ -93,6 +122,27 @@ class TypeAnalyzer:
                         type = types.PolymorphicType(
                             type=type,
                             parameters=list(child_ctx.type_parameters.values()),
+                        )
+
+                    ctx.add_symbol(statement.name, type)
+
+                case ast.SumTypeNode():
+                    sum_ctx = ctx.create_child_context(
+                        context_index,
+                        flags=AnalysisFlags.NONE,
+                        returnable_type=types.SingletonType.UNIT,
+                    )
+
+                    type = types.SumType(name=statement.name)
+
+                    for field in statement.fields:
+                        if field.data_type is not None:
+                            self.initialize_type_parameters(sum_ctx, field.data_type)
+
+                    if sum_ctx.type_parameters:
+                        type = types.PolymorphicType(
+                            type=type,
+                            parameters=list(sum_ctx.type_parameters.values())
                         )
 
                     ctx.add_symbol(statement.name, type)
@@ -220,7 +270,10 @@ class TypeAnalyzer:
                                 struct_ctx,
                                 field.type,
                             )
-                            struct_type.fields[field.name] = types.StructField(name=field.name, type=field_type)
+                            struct_type.fields[field.name] = types.StructField(
+                                name=field.name,
+                                type=field_type,
+                            )
 
                     elif isinstance(statement.type, ast.TupleTypeNode):
                         if not statement.type.elts:
@@ -250,8 +303,49 @@ class TypeAnalyzer:
                             statement.type,
                         )
 
+                case ast.SumTypeNode():
+                    sum_type = ctx.get_symbol(statement.name)
+                    if isinstance(sum_type, types.PolymorphicType):
+                        sum_type = sum_type.type
+                    
+                    assert isinstance(sum_type, types.SumType)
+                    sum_ctx = ctx.get_child_context(context_index)
+
+                    for field in statement.fields:
+                        data = None
+                        if field.data_type is not None:
+                            data = self.evaluate_concrete_type_expression(
+                                sum_ctx,
+                                field.data_type,
+                            )
+                            assert isinstance(data, (types.StructType, types.TupleType))
+
+                        sum_type.fields[field.name] = types.SumField(name=field.name, data=data)
+
                 case ast.UseNode() | ast.UseForNode():
+                    assert not isinstance(statement, ast.UseForNode)
                     use_ctx = ctx.get_child_context(context_index)
+
+                    use_type = self.evaluate_concrete_type_expression(use_ctx, statement.type)
+                    implementation = self.find_type_implementation(use_type)
+
+                    inverse_parameter_map = None
+                    if isinstance(use_type, types.ParameterizedType):
+                        inverse_parameter_map = {value: key for key, value in use_type.parameter_map.items()}
+
+                    for inner_statement in statement.body:
+                        if not isinstance(inner_statement, ast.FunctionDefNode):
+                            assert False, 'Only functions in use statement'
+
+                        function_type = use_ctx.get_symbol(inner_statement.name)
+                        assert isinstance(function_type, types.FunctionType)
+
+                        implementation_function = ImplementationFunction(
+                            function=function_type,
+                            inverse_parameter_map=inverse_parameter_map,
+                        )
+                        implementation.functions[function_type.name] = implementation_function
+
                     self.propagate_types(use_ctx, statement.body)
 
                 case ast.ForNode() | ast.WhileNode() | ast.IfNode():
@@ -271,6 +365,7 @@ class TypeAnalyzer:
         *,
         allow_instance: bool = False,  # allow_module?
         allow_polymorphic: bool = False,
+        allow_inline_data: bool = False,
     ) -> Symbol:
         match type_expression:
             case ast.NameNode():
@@ -317,6 +412,7 @@ class TypeAnalyzer:
                 assert False, 'Not implemented'
 
             case ast.StructTypeNode():
+                assert allow_inline_data
                 struct_type = types.StructType(name='inline struct')
 
                 for field in type_expression.fields:
@@ -326,6 +422,7 @@ class TypeAnalyzer:
                 return struct_type
 
             case ast.TupleTypeNode():
+                assert allow_inline_data
                 if not type_expression.elts:
                     return types.SingletonType.UNIT
 
@@ -424,13 +521,14 @@ class TypeAnalyzer:
 
                     compatible = self.check_type_compatibility(return_type, ctx.returnable_type)
                     if not compatible:
-                        assert False, f'incompatible return type, {return_type.to_string()}, {ctx.returnable_type.to_string()}'
+                        assert False, f'{return_type.to_string()}, {ctx.returnable_type.to_string()}'
 
                 case ast.UseNode() | ast.UseForNode():
                     use_ctx = ctx.get_child_context(context_index)
                     self.analyze_types(use_ctx, statement.body)
 
                 case ast.ForNode() | ast.WhileNode() | ast.IfNode():
+                    # TODO: For creates a new name
                     child_ctx = ctx.get_child_context(context_index)
                     self.analyze_types(child_ctx, statement.body)
 
@@ -438,6 +536,12 @@ class TypeAnalyzer:
                         context_index += 1
                         else_ctx = ctx.get_child_context(context_index)
                         self.analyze_types(else_ctx, statement.else_body)
+
+                case ast.BreakNode():
+                    assert ctx.flags & AnalysisFlags.ALLOW_BREAK
+
+                case ast.ContinueNode():
+                    assert ctx.flags & AnalysisFlags.ALLOW_CONTINUE
 
                 case ast.ExprNode():
                     self.analyze_type_of_expression(ctx, statement.expr)
@@ -448,12 +552,17 @@ class TypeAnalyzer:
         expression: ast.ExpressionNode,
     ) -> Symbol:
         match expression:
+            # AugAssignNode | BoolOpNode | BinaryOpNode | UnaryOpNode 
+            # | CompareNode | CallNode | SubscriptNode | ListNode | SliceNode
+            # I realize that block lambdas need to have analysis contexts and what-not
+            # which is actually non-trivial
             case ast.NameNode():
                 symbol = ctx.get_symbol(expression.value)
                 assert symbol is not None, f'symbol {expression.value} not defined'
 
                 if symbol is types.SingletonType.UNDECLARED:
-                    assert False, 'Cannot discern type of symbol before declaration'
+                    assert False, 'Cannot discern type of symbol before at least one assignment'
+                    # Anything more is up to control flow analysis
 
                 return symbol
 
@@ -463,7 +572,7 @@ class TypeAnalyzer:
 
                 if isinstance(symbol, TypeInstance):
                     type = self.get_type_attribute(symbol.type, expression.attr, is_instance=True)
-                    return TypeInstance(type=type)  # This is wrong
+                    return TypeInstance(type=type)  # This is wrong, i think
                 else:
                     return self.get_type_attribute(symbol, expression.attr)
 
@@ -477,11 +586,43 @@ class TypeAnalyzer:
 
                 value = self.analyze_instance_of_expression(ctx, expression.value)
                 if symbol.type is types.SingletonType.UNDECLARED:
-                    ctx.add_symbol(expression.target.value, value)
+                    symbol.type = value.type
                 elif not self.check_type_compatibility(value.type, symbol.type):
                     assert False, 'Incompatible assignment'
 
-                return types.SingletonType.UNIT
+                return TypeInstance(type=types.SingletonType.UNIT)
+
+            case ast.TupleNode():
+                elts: typing.List[types.ConcreteType] = []
+
+                for elt in expression.elts:
+                    instance = self.analyze_instance_of_expression(ctx, elt)
+                    elts.append(instance.type)
+
+                type = types.TupleType(name='anonymous tuple', fields=elts)
+                return TypeInstance(type=type)
+
+            case ast.ConstantNode():
+                return TypeInstance(type=self.analyze_constant(expression))
+
+        assert False
+
+    def analyze_constant(self, constant: ast.ConstantNode) -> types.SingletonType:
+        match constant.kind:
+            case ast.ConstantKind.TRUE | ast.ConstantKind.FALSE:
+                return types.SingletonType.BOOL
+            case ast.ConstantKind.ELLIPSIS:
+                assert False, '<TODO>'  # XXX: Does this really need to exist...
+            case ast.ConstantKind.INTEGER:
+                return types.SingletonType.INT
+            case ast.ConstantKind.FLOAT:
+                return types.SingletonType.FLOAT
+            case ast.ConstantKind.COMPLEX:
+                return types.SingletonType.COMPLEX
+            case ast.ConstantKind.STRING:
+                return types.SingletonType.STR
+            case ast.ConstantKind.BYTES:
+                assert False
 
         assert False
 
@@ -507,10 +648,11 @@ class TypeAnalyzer:
         match type:
             case types.ParameterizedType():
                 attribute = self.get_type_attribute(type.type, name, is_instance=is_instance)
-                if isinstance(attribute, types.TypeParameter) and attribute in type.type_map:
-                    attribute = type.type_map[attribute]
+                if isinstance(attribute, types.TypeParameter) and attribute in type.parameter_map:
+                    attribute = type.parameter_map[attribute]
                 else:
-                    attribute = types.ParameterizedType(type=attribute, type_map=type.type_map)
+                    # TODO: If it's already a parameterized type, don't nest it
+                    attribute = types.ParameterizedType(type=attribute, parameter_map=type.parameter_map)
             case types.TypeAlias():
                 attribute = self.get_type_attribute(type.type, name, is_instance=is_instance)
             case types.StructType() if is_instance:
@@ -523,6 +665,17 @@ class TypeAnalyzer:
         return attribute
 
     def analyze_module(self) -> None:
+        singleton_types = (
+            ('bool', types.SingletonType.BOOL),
+            ('int', types.SingletonType.INT),
+            ('float', types.SingletonType.FLOAT),
+            ('complex', types.SingletonType.COMPLEX),
+            ('str', types.SingletonType.STR),
+        )
+
+        for name, type in singleton_types:
+            self.ctx.add_symbol(name, type)
+
         self.initialize_types(self.ctx, self.module.body)
         self.propagate_types(self.ctx, self.module.body)
         self.analyze_types(self.ctx, self.module.body)

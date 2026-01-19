@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 GRAMMAR_PATH = './typethon.gram'
 GRAMMAR_CACHE_PATH = './parsertables.bin'
-EXPERIMENTAL_LAMBDAS = True
+EXPERIMENTAL_LAMBDAS = False
 """
 The syntax for experimental lambdas is as follows:
 (args...) :: expr
@@ -59,39 +59,23 @@ for the argument list, such as |x, y, z| (as in Rust).
 |x, y, z| ::
     print(x, y, z)
 ::
-The delimiter at the end of the block is unavoidable
-because a dedent that can be followed by an expression
-is a very bad idea.
-
-Without them, something like this would be actually call
-the lambda:
-(a, b) ::
-    print(a, b)
-(1, 2)
-
-I also preliminarily added tuples, retaining Python's
-no-parenthesis syntax slop.
 
 Aside from the ambiguity issue, the lambda has another
 problem as well. When the scanner is in any sort of
 parenthesis, it skips all newlines and indentation.
 So, for the block lambda to work, it has "trick"
 the scanner into thinking there are no parenthesis.
-The way I did this was by a new stack bottom that the
-scanner uses to determine whether to use whitespace.
+The way I did this was with a new stack bottom state that the
+scanner uses to determine whether to skip whitespace.
 So, at the star, something like this ((x) :: * would have
 a stack like this [`(`], suggesting the scanner should
-skip newlines. However, in the parameter list we use a lookahead
-to determine whether to give a sequence of parameters or a
+skip newlines. In the parameter list, we use a lookahead
+to determine whether to create a sequence of parameters or a
 tuple/group. If the next token is a double colon, it returns
 the parameter list and sets the bottom of the stack to 1.
 I initially tried to implement this as a transformer for the
 :: token, but the parser will already scan the next token
-before we can a chance to update the stack bottom. 
-
-I have also realized that the assignment syntax will
-be ambiguous as well. I think I will just make assignments
-an expression.
+before we can a chance to update the stack bottom.
 """
 
 
@@ -179,9 +163,6 @@ class ASTParser:
             body=body.items,
         )
 
-    def create_pass_statement(self, span: typing.Tuple[int, int]) -> ast.PassNode:
-        return ast.PassNode(start=span[0], end=span[1])
-
     def create_break_statement(self, span: typing.Tuple[int, int]) -> ast.BreakNode:
         return ast.BreakNode(start=span[0], end=span[1])
 
@@ -217,7 +198,6 @@ class ASTParser:
             start=span[0],
             end=span[1],
             name=name.content,
-            kind=ast.ParameterKind.ARG,
             annotation=annotation,
             default=default.item,
         )
@@ -440,6 +420,8 @@ class ASTParser:
                 op = ast.CmpOperatorKind.GT
             case KeywordKind.IN:
                 op = ast.CmpOperatorKind.IN
+            case KeywordKind.IS:
+                op = ast.CmpOperatorKind.IS
             case _:
                 # What is the point of this accepting arguments
                 # but no type checks works
@@ -702,19 +684,9 @@ class ASTParser:
             value=identifier.content,
         )
 
-    def create_tuple(
-        self,
-        span: typing.Tuple[int, int],
-        elts: SequenceNode[ast.ExpressionNode],
-    ) -> ast.TupleNode:
-        # Unparenthesized
-        return ast.TupleNode(
-            start=span[0],
-            end=span[1],
-            elts=elts.items,
-        )
-
     def potentially_enter_lambda_stack(self) -> None:
+        assert EXPERIMENTAL_LAMBDAS, 'Lambdas not allowed'
+
         position = self.scanner.position
         self.scanner.enter_nested_stack()
         token = self.parser.peek_token(2)

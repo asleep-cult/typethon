@@ -3,7 +3,6 @@ from __future__ import annotations
 import typing
 import enum
 from ..ast import (
-    ParameterKind,
     BoolOperatorKind,
     OperatorKind,
     UnaryOperatorKind,
@@ -25,6 +24,14 @@ class ConstandKind(enum.IntEnum):
     COMPLEX = enum.auto()
     STRING = enum.auto()
     BYTES = enum.auto()
+
+
+class ParameterKind(enum.IntEnum):
+    ARG = enum.auto()
+    VARARG = enum.auto()
+    VARKWARG = enum.auto()
+    POSONLY = enum.auto()
+    KWONLY = enum.auto()
 
 
 @attr.s(kw_only=True, slots=True)

@@ -28,7 +28,6 @@ class TokenKind(enum.Enum):
     PERCENT = enum.auto()
     TILDE = enum.auto()
     CIRCUMFLEX = enum.auto()
-    QUESTION = enum.auto()
     TICK = enum.auto()
 
     DOUBLECOLON = enum.auto()

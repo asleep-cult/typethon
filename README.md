@@ -95,8 +95,8 @@ def unbox(box: Box('t)) -> 't:
 def unbox_int(box: Box(int)) -> int:
     return box.value
 
-x = unbox(box) # type: int
-x = unbox_int(box) # type: int
+let x = unbox(box) # type: int
+let x = unbox_int(box) # type: int
 
 # Not sure how to pass explicitly pass type parameters to functions 
 
@@ -127,8 +127,8 @@ use Identity:
     def f(self: Self) -> Self:
         return self
 
-x = Identity()
-x = x.f()
+let x = Identity()
+let x = x.f()
 
 # The use/for syntax can be used to denote
 # a function serves as the implementation function for a type class function.
@@ -222,7 +222,7 @@ result = match operator:
 # an expression form, and which it is dependens upon whether the colon has a newline
 # after it. So it would be similar to lambda, but without the extraordinary nesting behaviour.
 
-if x = y: 10
+if x == y: 10
 else: 20
 
 # This would clearly be an expression because there is no newline, indent, etc.

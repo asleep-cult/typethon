@@ -1,17 +1,8 @@
 from __future__ import annotations
 
 import enum
-import typing
 
 import attr
-
-
-class ParameterKind(enum.IntEnum):
-    ARG = enum.auto()
-    VARARG = enum.auto()
-    VARKWARG = enum.auto()
-    POSONLY = enum.auto()
-    KWONLY = enum.auto()
 
 
 class BoolOperatorKind(enum.IntEnum):
