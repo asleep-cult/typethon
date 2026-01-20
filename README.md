@@ -5,12 +5,12 @@ This means removing Python's footguns such as inheritance-style classes,
 exceptions-style errors, null values, loosely defined scopes, and dynamic
 typing. I believe that the future of Python is limited by a poor foundation
 that no amount of new type features can rectify. Python is still a popular
-language because of the similicity it offers, but all to often it trades
+language because of the similicity it offers, but all too often it trades
 simplicity for correctness. With a better foundation, many of Python's
 benefits can be retained, and a language that is in many respects superior
 can emerge. With that being said, the two most important factors for
 developing this language are correctness, followed by simplicity. Naturally,
-the two languages that should influence this Typethon most are Python and Rust.
+the two languages that should influence Typethon most are Python and Rust.
 Everything outlined below is both semantically and syntactically accurate
 to my vision of the language with the possible exception of the type parameter
 constriant syntax.
@@ -28,7 +28,7 @@ more important real-world obligations, means that I will have to postpone develo
 of this project until further notice. Instead, my current goals are much less ambitious:
     1. Port the LR(1) parser generator into OCaml, allowing the parser table to be dumped
     and run in any language.
-    2. Start moderately complex project in Rust to learn the rules of the borrow checker
+    2. Start a moderately complex project in Rust to learn the rules of the borrow checker
     and type system.
     3. Deeply research the Rust compiler development guide and resources that explain
     complex functional theories.
