@@ -28,7 +28,7 @@ class RShift('t, 'u):
 class BitOr('t, 'u):
     def bitor(self: Self, rhs: 't) -> 'u
 
-class BitXor('t, 'u):
+class BitXOr('t, 'u):
     def bitxor(self: Self, rhs: 't) -> 'u
 
 class BitAnd('t, 'u):
@@ -100,7 +100,7 @@ use RShift(int, int) for int:
 use BitOr(int, int) for int:    
     def bitor(self: Self, rhs: int) -> int
 
-use BitXor(int, int) for int:    
+use BitXOr(int, int) for int:    
     def bitxor(self: Self, rhs: int) -> int
 
 use BitAnd(int, int) for int:    

@@ -5,65 +5,27 @@ from . import types
 from .context import AnalysisContext, AnalysisFlags, TypeInstance, Symbol
 from ..syntax.typethon import ast
 
-ImplementationMap = typing.Dict[
-    typing.Union[types.NonParameterizedConcreteType, types.PolymorphicType],
-    'TypeImplementation',
-]
-
-
-@attr.s(kw_only=True, slots=True)
-class ImplementationFunction:
-    function: types.FunctionType = attr.ib()
-    parameter_map: typing.Optional[
-        typing.Dict[types.TypeParameter, types.ConcreteType]
-    ] = attr.ib()
-    # I am storing parameter_map on both ImplementationFunction
-    # and ImplementationClass so you can have things like
-    # use Type(int), where the implementation is only defined 
-    # for Type(int) and not, for example, Type(str). Or
-    # Type('t), where 't is constrained to a certain type class.
-    # There will need to be some work to get the parameter and return
-    # types right because the functions in the use block will
-    # have their own type parameters
-    # Right now, I've actually only implemented this "unification"
-    # class_parameter_map and it seems to work.
-
-
-@attr.s(kw_only=True, slots=True)
-class ImplementationClass:
-    type_class: types.TypeClass = attr.ib()
-    parameter_map: typing.Optional[
-        typing.Dict[types.TypeParameter, types.ConcreteType]
-    ] = attr.ib()
-    class_parameter_map: typing.Optional[
-        typing.Dict[types.TypeParameter, types.ConcreteType]
-    ] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class TypeImplementation:
-    type: typing.Union[types.NonParameterizedConcreteType, types.PolymorphicType] = attr.ib()
-    functions: typing.Dict[str, ImplementationFunction] = attr.ib(factory=dict)
-    type_classes: typing.List[ImplementationClass] = attr.ib(factory=list)
-
 
 class TypeAnalyzer:
-    def __init__(self, module: ast.ModuleNode) -> None:
+    def __init__(
+        self,
+        type_cache: types.TypeCache,
+        module: ast.ModuleNode,
+        operators: typing.Optional[typing.Dict[str, types.PolymorphicType]] = None,
+    ) -> None:
         self.module = module
+        self.type_cache = type_cache
         self.ctx = AnalysisContext()
-        self.implementations: typing.Dict[
-            typing.Union[types.NonParameterizedConcreteType, types.PolymorphicType],
-            TypeImplementation,
-        ] = {}
+        self.operators = operators
 
-    def find_type_implementation(self, type: types.Type) -> TypeImplementation:
+    def find_type_implementation(self, type: types.Type) -> types.TypeImplementation:
         if isinstance(type, types.ParameterizedType):
             type = type.type
 
-        implementation = self.implementations.get(type)
+        implementation = self.type_cache.implementations.get(type)
         if implementation is None:
-            implementation = TypeImplementation(type=type)
-            self.implementations[type] = implementation
+            implementation = types.TypeImplementation(type=type)
+            self.type_cache.implementations[type] = implementation
 
         return implementation
 
@@ -71,7 +33,7 @@ class TypeAnalyzer:
         self,
         type: types.ConcreteType,
         type_class: typing.Union[types.ParameterizedType, types.TypeClass],
-    ) -> typing.Optional[ImplementationClass]:
+    ) -> typing.Optional[types.ImplementationClass]:
         # If the type class is polymorphic, type_class must be parameterized type
         # This implementation kind of sucks I think
         assert not isinstance(type, types.ParameterizedType), 'Not implemented'
@@ -83,7 +45,7 @@ class TypeAnalyzer:
             assert isinstance(type_class.type, types.TypeClass)
             type_class = type_class.type
 
-        implementation = self.implementations.get(type)
+        implementation = self.type_cache.implementations.get(type)
         if implementation is None:
             return None
 
@@ -94,15 +56,16 @@ class TypeAnalyzer:
             if implementation_class.class_parameter_map is not None:
                 assert parameter_map is not None
 
-                compatible = all(
-                    self.check_parameter_compatibility(
+                compatible = True
+                for parameter in parameter_map:
+                    if not self.check_type_compatibility(
                         parameter_map[parameter],
                         implementation_class.class_parameter_map[parameter],
-                    ) for parameter in parameter_map
-                )
+                    ):
+                        compatible = False
+
                 if compatible:
                     return implementation_class
-
             else:
                 assert parameter_map is None
                 return implementation_class
@@ -139,13 +102,12 @@ class TypeAnalyzer:
                         flags=AnalysisFlags.NONE,
                         returnable_type=types.SingletonType.UNIT,
                     )
-                    function_type = types.FunctionType(name=statement.name)
+                    function_type = self.type_cache.create_function_type(statement.name)
 
                     for parameter in statement.parameters:
                         self.initialize_type_parameters(function_ctx, parameter.annotation)
 
                     self.initialize_type_parameters(function_ctx, statement.returns)
-
                     if function_ctx.type_parameters:
                         function_type = types.PolymorphicType(
                             type=function_type,
@@ -163,7 +125,7 @@ class TypeAnalyzer:
                         flags=AnalysisFlags.NONE,
                         returnable_type=types.SingletonType.UNIT,
                     )
-                    type_class = types.TypeClass(name=statement.name)
+                    type_class = self.type_cache.create_type_class(statement.name)
 
                     for parameter in statement.parameters:
                         self.initialize_type_parameters(class_ctx, parameter)
@@ -192,11 +154,11 @@ class TypeAnalyzer:
                     )
 
                     if isinstance(statement.type, ast.StructTypeNode):
-                        type = types.StructType(name=statement.name)
+                        type = self.type_cache.create_struct_type(statement.name)
                     elif isinstance(statement.type, ast.TupleTypeNode):
-                        type = types.TupleType(name=statement.name)
+                        type = self.type_cache.create_tuple_type(statement.name)
                     else:
-                        type = types.TypeAlias(name=statement.name)
+                        type = self.type_cache.create_type_alias(statement.name)
  
                     self.initialize_type_parameters(child_ctx, statement.type)
 
@@ -214,8 +176,7 @@ class TypeAnalyzer:
                         flags=AnalysisFlags.NONE,
                         returnable_type=types.SingletonType.UNIT,
                     )
-
-                    type = types.SumType(name=statement.name)
+                    type = self.type_cache.create_sum_type(statement.name)
 
                     for field in statement.fields:
                         if field.data_type is not None:
@@ -235,7 +196,6 @@ class TypeAnalyzer:
                         flags=AnalysisFlags.NONE,
                         returnable_type=types.SingletonType.UNIT,
                     )
-
                     self.initialize_type_parameters(use_ctx, statement.type)
 
                     if isinstance(statement, ast.UseForNode):
@@ -269,7 +229,7 @@ class TypeAnalyzer:
             case ast.TypeParameterNode():
                 existing_parameter = ctx.get_type_parameter(type_expression.name)
                 if existing_parameter is None:
-                    ctx.add_type_parameter(types.TypeParameter(name=type_expression.name))
+                    ctx.add_type_parameter(self.type_cache.create_type_parameter(type_expression.name))
 
             case ast.TypeCallNode():
                 self.initialize_type_parameters(ctx, type_expression.type)
@@ -399,6 +359,7 @@ class TypeAnalyzer:
                             data = self.evaluate_concrete_type_expression(
                                 sum_ctx,
                                 field.data_type,
+                                allow_inline_data=True,
                             )
                             assert isinstance(data, (types.StructType, types.TupleType))
 
@@ -427,7 +388,7 @@ class TypeAnalyzer:
 
                         assert isinstance(type_class, types.TypeClass)
 
-                        implementation_class = ImplementationClass(
+                        implementation_class = types.ImplementationClass(
                             type_class=type_class,
                             parameter_map=parameter_map,
                             class_parameter_map=class_parameter_map,
@@ -444,7 +405,7 @@ class TypeAnalyzer:
                         function_type = use_ctx.get_symbol(inner_statement.name)
                         assert isinstance(function_type, types.FunctionType)
 
-                        implementation_function = ImplementationFunction(
+                        implementation_function = types.ImplementationFunction(
                             function=function_type,
                             parameter_map=parameter_map,
                         )
@@ -517,7 +478,7 @@ class TypeAnalyzer:
 
             case ast.StructTypeNode():
                 assert allow_inline_data
-                struct_type = types.StructType(name='inline struct')
+                struct_type = self.type_cache.create_struct_type('inline struct')
 
                 for field in type_expression.fields:
                     field_type = self.evaluate_concrete_type_expression(ctx, field.type)
@@ -530,7 +491,7 @@ class TypeAnalyzer:
                 if not type_expression.elts:
                     return types.SingletonType.UNIT
 
-                tuple_type = types.TupleType(name='inline tuple')
+                tuple_type = self.type_cache.create_tuple_type('inline tuple')
 
                 for elt in type_expression.elts:
                     elt_type = self.evaluate_concrete_type_expression(ctx, elt)
@@ -543,9 +504,9 @@ class TypeAnalyzer:
         ctx: AnalysisContext,
         type_expression: ast.TypeExpressionNode,
         *,
-        allow_self: bool = False,
+        allow_inline_data: bool = False,
     ) -> types.ConcreteType:
-        type = self.evaluate_type_expression(ctx, type_expression)
+        type = self.evaluate_type_expression(ctx, type_expression, allow_inline_data=allow_inline_data)
         assert not isinstance(type, (types.PolymorphicType, TypeInstance))
         return type
 
@@ -709,11 +670,17 @@ class TypeAnalyzer:
                     instance = self.analyze_instance_of_expression(ctx, elt)
                     elts.append(instance.type)
 
-                type = types.TupleType(name='anonymous tuple', fields=elts)
+                type = self.type_cache.create_tuple_type('anonymous tuple')
+                type.fields = elts
                 return TypeInstance(type=type)
 
             case ast.ConstantNode():
                 return TypeInstance(type=self.analyze_constant(expression))
+
+            case ast.BinaryOpNode():
+                left = self.analyze_instance_of_expression(ctx, expression.left)
+                right = self.analyze_instance_of_expression(ctx, expression.right)
+                return self.analyze_binary_operation(expression, left, right)
 
         assert False
 
@@ -735,6 +702,88 @@ class TypeAnalyzer:
                 assert False
 
         assert False
+
+    def analyze_binary_operation(
+        self,
+        node: typing.Union[ast.BinaryOpNode, ast.AugAssignNode],
+        left: TypeInstance,
+        right: TypeInstance,
+    ) -> TypeInstance:
+        assert self.operators is not None
+        match node.op:
+            case ast.OperatorKind.ADD:
+                type_class = self.operators['Add']
+                name = 'add'
+            case ast.OperatorKind.SUB:
+                type_class = self.operators['Sub']
+                name = 'sub'
+            case ast.OperatorKind.MULT:
+                type_class = self.operators['Mult']
+                name = 'mult'
+            case ast.OperatorKind.MATMULT:
+                type_class = self.operators['MatMult']
+                name = 'matmult'
+            case ast.OperatorKind.DIV:
+                type_class = self.operators['Div']
+                name = 'div'
+            case ast.OperatorKind.MOD:
+                type_class = self.operators['Mod']
+                name = 'mod'
+            case ast.OperatorKind.POW:
+                type_class = self.operators['Pow']
+                name = 'pow'
+            case ast.OperatorKind.LSHIFT:
+                type_class = self.operators['LShift']
+                name = 'lshift'
+            case ast.OperatorKind.RSHIFT:
+                type_class = self.operators['RShift']
+                name = 'rshift'
+            case ast.OperatorKind.BITOR:
+                type_class = self.operators['BitOr']
+                name = 'bitor'
+            case ast.OperatorKind.BITXOR:
+                type_class = self.operators['BitXOr']
+                name = 'bitxor'
+            case ast.OperatorKind.BITAND:
+                type_class = self.operators['BitAnd']
+                name = 'bitand'
+            case ast.OperatorKind.FLOORDIV:
+                type_class = self.operators['FloorDiv']
+                name = 'floordiv'
+
+        implementation = self.get_class_implementation(
+            left.type,
+            type_class.with_parameters([right.type, types.SingletonType.ANY])
+        )
+        if implementation is None:
+            assert False, f'{left.type.to_string()} {right.type.to_string()}'
+            return types.UNKNOWN.to_instance()
+
+        #function = implementation.get_class_function(name)
+        #lhs_type = function.get_return_type()
+        # TODO: There must be a parameterized function type that remaps the parameter types.
+        # We do not handle polymorphic types properly yet.
+        # There can be situations like this
+        # class Class('t)
+        # use Class('t) for Type
+        # i.e. it's impossible to know 't just from Type
+
+        implementation = self.get_class_implementation(
+            right.type,
+            type_class.with_parameters([left.type, types.SingletonType.ANY])
+        )
+        if implementation is None:
+            assert False
+            return lhs_type.to_instance()
+
+        #function = implementation.get_class_function(name)
+        #rhs_type = function.get_return_type()
+
+        #if not self.check_type_compatibility(lhs_type, rhs_type):
+        #    assert False
+        #    return types.UNKNOWN.to_instance()
+
+        #return lhs_type.to_instance()
 
     def analyze_instance_of_expression(
         self,
