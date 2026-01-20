@@ -1,45 +1,45 @@
 ## Typethon
-This is where I experiment with my statically typed 'Python' compiler.
-So far, I've implemented most of the syntax and am currently working
-on type analysis. I intend to use a similar approach to compilation
-that is seen in Golang.
+The goal of this project is to create a Python-like programming language
+that is built from the ground up with a strong emphasis on correctness.
+This means removing Python's footguns such as inheritance-style classes,
+exceptions-style errors, null values, loosely defined scopes, and dynamic
+typing. I believe that the future of Python is limited by a poor foundation
+that no amount of new type features can rectify. Python is still a popular
+language because of the similicity it offers, but all to often it trades
+simplicity for correctness. With a better foundation, many of Python's
+benefits can be retained, and a language that is in many respects superior
+can emerge. With that being said, the two most important factors for
+developing this language are correctness, followed by simplicity. Naturally,
+the two languages that should influence this Typethon most are Python and Rust.
+Everything outlined below is both semantically and syntactically accurate
+to my vision of the language with the possible exception of the type parameter
+constriant syntax.
 
-So, the compiler will look something like this:
+#### Notes on progress
+* The parser is implemented as a custom LR(1) generator with a pushdown automaton
+and most of the AST has been defined.
+* I have began working on type-analysis, but I am not a fan of the direction it is
+heading in. Because I believe this problem can only be solved by improving my
+understanding of static analysis overall, I will begin doing more research on the
+internals of the Rust compiler. In addition, my inability to fully understand certain
+functional concepts that could serve our goal of correctness suggests that it might
+be necessary to do more research in that area as well. This, and the fact that I have
+more important real-world obligations, means that I will have to postpone development
+of this project until further notice. Instead, my current goals are much less ambitious:
+    1. Port the LR(1) parser generator into OCaml, allowing the parser table to be dumped
+    and run in any language.
+    2. Start moderately complex project in Rust to learn the rules of the borrow checker
+    and type system.
+    3. Deeply research the Rust compiler development guide and resources that explain
+    complex functional theories.
+* Upon "further notice", I will make a decision about whether the entire project should
+be ported to Rust, Ocaml, or maybe even Zig.
 
-#### Compiler frontend
-1. Syntax (Scan and Parse into AST)
-2. Analysis (Check AST types and memory safety)
-3. Intermediate (Convert AST into IR AST and optimize)
-
-#### Compiler middle-end
-5. SSA (Convert IR AST into SSA and optimize)
-
-#### Compiler backend
-6. Compile (Convert to machine code and optimize)
-
-This language is not intended to be identical to Python and it
-will encourage alternative approaches in many areas. For example,
-it might not permit inheritance, exceptions will be handled differently,
-and there will probably be Rust-style traits.
-
-#### Progress
-* The pasrser has been completely implemented for regular Python code
-with special syntax for annotations and type parameters
-* Type checking has been implemented for most statements and expressions
-
-##### To-Do
-* Rewrite the parser to be more efficient and remove unused Python syntax
-* Create tests for the parser and type analyzer
-* Implement constraints for type parameters and the rest of type analysis
-* Decide on mutable/constant and reference semantics
-* Implement the compiler backend
-
-Here is what I've decided on so far:
 ```py
 # Gotchas:
 # 1) Single quote strings can only contain one character, 't represents a type parameter
 # 2) Classes do not represent functionality tied to a state. Instead, they classify
-# types with the same functions (i.e. Haskell class, Java interface, Rust trait)
+# types with the same functions (i.e. Haskell class, Java interface, Rust traits)
 # 3) Scoping is stricter and bindings must be created using the let keyword
 
 # Data types can be tuples or structures, they can be defined with type
@@ -200,17 +200,6 @@ for name in usernames if name.len() < 10:
 # The ideas above range from highly likely to certain, the ones
 # below might not happen at all.
 
-# *There might be a mechanism for specifying the loop for break/continue
-
-while true:
-    for letter in input():
-        if letter == 'c':
-            break while
-
-# This would be a nice feature, but it still has ambiguity when nesting in
-# the same type of loop. This could be solved with labels, but I am not willing
-# to add labels.
-
 # *Theoretical match expression
 
 result = match operator:
@@ -243,21 +232,4 @@ for (
     user in users if len(user.name) < 10
 ):
     ...
-
-# *I think maybe there should be some monad-like builtin type and special syntax
-# for it. This could be used for things like handling. For this to work,
-# I think higher kinded types will be necessary which I barely understand.
-
-def some_function() -> Result(int, Error)
-
-# So someting like this: 
-result = some_function()
-if not result.is_error():
-    other_function(result.value)
-
-# Might be written as:
-result = some_function() in
-value -> other_function(value)
-
-# It definitely won't look like this
 ```
