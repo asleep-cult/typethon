@@ -7,7 +7,11 @@ import typing
 
 class SingletonType(enum.Enum):
     INVALID = enum.auto()
+    INFERRED = enum.auto()
+    UNDECLARED = enum.auto()
+
     SELF = enum.auto()
+    BOOL = enum.auto()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -34,6 +38,7 @@ class SumType:
 class FunctionType:
     name: str = attr.ib()
     parameters: typing.Dict[str, Type] = attr.ib()
+    returns: Type = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -46,6 +51,17 @@ class TypeClass:
 class TypeParameter:
     name: str = attr.ib()
 
+
+@attr.s(kw_only=True, slots=True)
+class TypeInstance:
+    type: Type = attr.ib()
+
+
+def to_instance(type: Type) -> TypeInstance:
+    return TypeInstance(type=type)
+
+
+UNIT = TupleType(name='unit', is_declaration=False, elts=[])
 
 Type = typing.Union[
     SingletonType,

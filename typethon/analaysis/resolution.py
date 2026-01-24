@@ -250,15 +250,16 @@ class SymbolResolver:
     def resolve_symbols_for_statement(self, statement: ast.StatementNode) -> None:
         match statement:
             case ast.FunctionDefNode():
+                self.enter_node(statement)
+
+                for parameter in statement.parameters:
+                    self.resolve_symbols_for_type_expression(parameter.annotation)
+
+                self.resolve_symbols_for_type_expression(statement.returns)
                 if statement.body is not None:
-                    self.enter_node(statement)
-
-                    for parameter in statement.parameters:
-                        self.resolve_symbols_for_type_expression(parameter.annotation)
-
-                    self.resolve_symbols_for_type_expression(statement.returns)
                     self.resolve_symbols_for_block(statement.body)
-                    self.exit_node(statement)
+
+                self.exit_node(statement)
 
             case ast.ClassDefNode():
                 self.enter_node(statement)
