@@ -133,13 +133,20 @@ class SymbolResolver:
                 if statement.value is not None:
                     self.initialize_lambda_scopes(statement.value)
 
-            case ast.ForNode() | ast.WhileNode():
+            case ast.ForNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
                 self.initialize_symbols_for_block(scope, statement.body)
+                self.initialize_lambda_scopes(statement.iterator)
+
+            case ast.WhileNode():
+                self.create_scope(statement.id, ScopeKind.BLOCK)
+                self.initialize_symbols_for_block(scope, statement.body)
+                self.initialize_lambda_scopes(statement.condition)
 
             case ast.IfNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
                 self.initialize_symbols_for_block(scope, statement.body)
+                self.initialize_lambda_scopes(statement.condition)
 
                 if statement.else_statement is not None:
                     self.create_scope(statement.else_statement.id, ScopeKind.BLOCK)
@@ -289,12 +296,20 @@ class SymbolResolver:
                 if statement.value is not None:
                     self.resolve_symbols_for_expression(statement.value)
 
-            case ast.ForNode() | ast.WhileNode():
+            case ast.ForNode():
+                self.resolve_symbols_for_expression(statement.iterator)
+                self.enter_node(statement)
+                self.resolve_symbols_for_block(statement.body)
+                self.exit_node(statement)
+
+            case ast.WhileNode():
+                self.resolve_symbols_for_expression(statement.condition)
                 self.enter_node(statement)
                 self.resolve_symbols_for_block(statement.body)
                 self.exit_node(statement)
 
             case ast.IfNode():
+                self.resolve_symbols_for_expression(statement.condition)
                 self.enter_node(statement)
                 self.resolve_symbols_for_block(statement.body)
                 self.exit_node(statement)
