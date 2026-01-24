@@ -80,6 +80,7 @@ if_statement:
 else_statement:
     #[create_elif_statement]
     | "elif" !expression ":" !block !else_statement?
+    #[create_else_statement]
     | "else" ":" !block
 
 while_statement:

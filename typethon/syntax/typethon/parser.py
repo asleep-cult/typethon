@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 GRAMMAR_PATH = './typethon.gram'
 GRAMMAR_CACHE_PATH = './parsertables.bin'
-EXPERIMENTAL_LAMBDAS = False
+EXPERIMENTAL_LAMBDAS = True
 """
 The syntax for experimental lambdas is as follows:
 (args...) :: expr
@@ -279,14 +279,14 @@ class ASTParser:
         span: typing.Tuple[int, int],
         condition: ast.ExpressionNode,
         body: SequenceNode[ast.StatementNode],
-        else_statement: OptionNode[SequenceNode[ast.StatementNode]],
+        else_statement: OptionNode[ast.ElseNode],
     ) -> ast.IfNode:
         return ast.IfNode(
             start=span[0],
             end=span[1],
             condition=condition,
             body=body.items,
-            else_body=else_statement.sequence().items,
+            else_statement=else_statement.item,
         )
 
     def create_elif_statement(
@@ -294,16 +294,27 @@ class ASTParser:
         span: typing.Tuple[int, int],
         condition: ast.ExpressionNode,
         body: SequenceNode[ast.StatementNode],
-        else_statement: OptionNode[SequenceNode[ast.StatementNode]],
-    ) -> SequenceNode[ast.StatementNode]:
+        else_statement: OptionNode[ast.ElseNode],
+    ) -> ast.ElseNode:
         node = ast.IfNode(
             start=span[0],
             end=span[1],
             condition=condition,
             body=body.items,
-            else_body=else_statement.sequence().items,
+            else_statement=else_statement.item,
         )
-        return SequenceNode(start=span[0], end=span[1], items=[node])
+        return ast.ElseNode(start=span[0], end=span[1], body=[node])
+
+    def create_else_statement(
+        self,
+        span: typing.Tuple[int, int],
+        body: SequenceNode[ast.StatementNode],
+    ) -> ast.ElseNode:
+        return ast.ElseNode(
+            start=span[0],
+            end=span[1],
+            body=body.items,
+        )
 
     def create_while_statement(
         self,

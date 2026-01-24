@@ -3,17 +3,67 @@ from __future__ import annotations
 import attr
 import typing
 import enum
-from ..ast import (
-    BoolOperatorKind,
-    OperatorKind,
-    UnaryOperatorKind,
-    CmpOperatorKind,
-    StringFlags,
-    Node,
-)
+from itertools import count
+
+NODE_ID_COUND = count()
 
 # TODO: Seperate LHS expression,
 # Rename *Type enums to *Kind
+
+
+class BoolOperatorKind(enum.IntEnum):
+    AND = enum.auto()
+    OR = enum.auto()
+
+
+class OperatorKind(enum.IntEnum):
+    ADD = enum.auto()
+    SUB = enum.auto()
+    MULT = enum.auto()
+    MATMULT = enum.auto()
+    DIV = enum.auto()
+    MOD = enum.auto()
+    POW = enum.auto()
+    LSHIFT = enum.auto()
+    RSHIFT = enum.auto()
+    BITOR = enum.auto()
+    BITXOR = enum.auto()
+    BITAND = enum.auto()
+    FLOORDIV = enum.auto()
+
+
+class UnaryOperatorKind(enum.IntEnum):
+    INVERT = enum.auto()
+    NOT = enum.auto()
+    UADD = enum.auto()
+    USUB = enum.auto()
+
+
+class CmpOperatorKind(enum.IntEnum):
+    EQ = enum.auto()
+    NOTEQ = enum.auto()
+    LT = enum.auto()
+    LTE = enum.auto()
+    GT = enum.auto()
+    GTE = enum.auto()
+    IS = enum.auto()
+    ISNOT = enum.auto()
+    IN = enum.auto()
+    NOTIN = enum.auto()
+
+
+class StringFlags(enum.IntFlag):
+    NONE = 0
+    RAW = enum.auto()
+    BYTES = enum.auto()
+    FORMAT = enum.auto()
+
+
+@attr.s(kw_only=True, slots=True)
+class Node:
+    id: int = attr.ib(factory=lambda: next(NODE_ID_COUND))
+    start: int = attr.ib()
+    end: int = attr.ib()
 
 
 class ConstantKind(enum.IntEnum):
@@ -104,7 +154,12 @@ class WhileNode(Node):
 class IfNode(Node):
     condition: ExpressionNode = attr.ib()
     body: typing.List[StatementNode] = attr.ib()
-    else_body: typing.List[StatementNode] = attr.ib()
+    else_statement: typing.Optional[ElseNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ElseNode(Node):
+    body: typing.List[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -290,7 +345,7 @@ class TypeCallNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class TypeAttributeNode(Node):
-    value: TypeExpressionNode = attr.ib()
+    type: TypeExpressionNode = attr.ib()
     attr: str = attr.ib()
 
 
@@ -386,3 +441,75 @@ TypeExpressionNode = typing.Union[
     ListTypeNode,
     DataTypeNode,
 ]
+
+def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionNode]:
+    # NOTE: This omits everything within lambda nodes
+    # Probably because it's only purpose is to find lambda nodes and it should
+    # be named accordingly?
+    yield expression
+
+    match expression:
+        case AssignNode():
+            # No, a lambda is not a valid target
+            yield from walk_expressions(expression.target)
+            yield from walk_expressions(expression.value)
+        case AugAssignNode():
+            # Ditto
+            yield from walk_expressions(expression.target)
+            yield from walk_expressions(expression.value)
+        case BoolOpNode():
+            for value in expression.values:
+                yield from walk_expressions(value)
+        case BinaryOpNode():
+            yield from walk_expressions(expression.left)
+            yield from walk_expressions(expression.right)
+        case UnaryOpNode():
+            yield from walk_expressions(expression.operand)
+        case CompareNode():
+            yield from walk_expressions(expression.left)
+            for comparator in expression.comparators:
+                yield from walk_expressions(comparator.value)
+        case CallNode():
+            yield from walk_expressions(expression.callee)
+            for argument in expression.args:
+                yield from walk_expressions(argument)
+        case AttributeNode():
+            yield from walk_expressions(expression.value)
+        case SubscriptNode():
+            yield from walk_expressions(expression.value)
+            for slice in expression.slices:
+                yield from walk_expressions(slice)
+        case ListNode() | TupleNode():
+            for elt in expression.elts:
+                yield from walk_expressions(elt)
+        case SliceNode():
+            if expression.start_index is not None:
+                yield from walk_expressions(expression.start_index)
+
+            if expression.stop_index is not None:
+                yield from walk_expressions(expression.stop_index)
+
+            if expression.step_index is not None:
+                yield from walk_expressions(expression.step_index)
+
+
+def walk_type_expressions(
+    type_expression: TypeExpressionNode
+) -> typing.Generator[TypeExpressionNode]:
+    yield type_expression
+
+    match type_expression:
+        case TypeCallNode():
+            yield from walk_type_expressions(type_expression.type)
+            for argument in type_expression.args:
+                yield from walk_type_expressions(argument)
+        case TypeAttributeNode():
+            yield from walk_type_expressions(type_expression.type)
+        case ListTypeNode():
+            yield from walk_type_expressions(type_expression.elt)
+        case StructTypeNode():
+            for field in type_expression.fields:
+                yield from walk_type_expressions(field.type)
+        case TupleTypeNode():
+            for elt in type_expression.elts:
+                yield from walk_type_expressions(elt)
