@@ -5,9 +5,6 @@ import typing
 
 import attr
 
-TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
-KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
-
 
 class StdTokenKind(enum.Enum):
     EOF = enum.auto()
@@ -57,7 +54,7 @@ class StringTokenFlags(enum.IntFlag):
 
 
 @attr.s(kw_only=True, slots=True)
-class TokenData(typing.Generic[TokenKindT]):
+class TokenData[TokenKindT: enum.Enum]:
     kind: TokenKindT = attr.ib(eq=True)
     start: int = attr.ib(eq=False)
     end: int = attr.ib(eq=False)
@@ -123,8 +120,8 @@ type Token[TokenKindT: enum.Enum, KeywordKindT: enum.Enum] = (
     | DirectiveToken
 )
 
-TokenMap = tuple[tuple[str, TokenKindT], ...]
-KeywordMap = tuple[tuple[str, KeywordKindT], ...]
+type TokenMap[TokenKindT: enum.Enum] = tuple[tuple[str, TokenKindT], ...]
+type KeywordMap[KeywordKindT: enum.Enum] = tuple[tuple[str, KeywordKindT], ...]
 
 
 STD_TOKENS: TokenMap[StdTokenKind] = (

@@ -319,12 +319,6 @@ class AliasNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class DictElt(Node):
-    key: ExpressionNode | None = attr.ib()
-    value: ExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class TypeParameterNode(Node):
     name: str = attr.ib()
     constraint: TypeExpressionNode | None = attr.ib()
@@ -389,16 +383,16 @@ class TupleTypeNode(Node):
 type StatementNode = (
     FunctionDefNode
     | ClassDefNode
-    | ReturnNode
     | DeclarationNode
     | ForNode
     | WhileNode
     | IfNode
     | ImportNode
     | ImportFromNode
-    | ExprNode
+    | ReturnNode
     | BreakNode
     | ContinueNode
+    | ExprNode
     | TypeDeclarationNode
     | SumTypeNode
     | UseNode

@@ -55,6 +55,18 @@ class SymbolResolver:
         for statement in body:
             self.initialize_symbols_for_statement(owner_field, scope, statement)
 
+    def add_local_declaration(
+        self,
+        statement: ast.DeclarationNode,
+    ) -> hir.LocalDeclaration:
+        scope = self.scope_stack[-1]
+        declaration = hir.LocalDeclaration(
+            name=statement.target,
+            node_id=statement.id,
+        )
+        scope.local_declarations[statement.target] = declaration
+        return declaration
+
     def initialize_symbols_for_statement(
         self,
         owner_field: hir.HirField,
@@ -186,11 +198,7 @@ class SymbolResolver:
                 self.initialize_symbols_for_block(use_def, scope, statement.body)
 
             case ast.DeclarationNode():
-                # TODO: What about shadowing?
-                scope.local_declarations[statement.target] = hir.LocalDeclaration(
-                    name=statement.target,
-                    node_id=statement.id,
-                )
+                # Declarations are not initialized on the first pass to allow shadowing
                 if statement.value is not None:
                     self.initialize_lambdas(owner_field, statement.value)
 

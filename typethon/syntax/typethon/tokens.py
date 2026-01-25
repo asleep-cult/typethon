@@ -165,7 +165,7 @@ KEYWORDS = (
     ("use", KeywordKind.USE),
 )
 
-Token = TokenT[TokenKind, KeywordKind]
+type Token = TokenT[TokenKind, KeywordKind]
 
 MATCHED_TOKENS = {
     TokenKind.OPENPAREN: TokenKind.CLOSEPAREN,

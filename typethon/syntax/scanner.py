@@ -19,9 +19,6 @@ from .tokens import (
 
 __all__ = ("Scanner",)
 
-TokenKindT = typing.TypeVar("TokenKindT", bound=enum.Enum)
-KeywordKindT = typing.TypeVar("KeywordKindT", bound=enum.Enum)
-
 type TokenLookupTable[TokenKindT: enum.Enum] = dict[
     str, tuple[TokenLookupTable[TokenKindT], TokenKindT | None]
 ]
@@ -73,7 +70,7 @@ def is_binary(char: str) -> bool:
     return char in "01"
 
 
-class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
+class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def __init__(
         self,
         source: str,

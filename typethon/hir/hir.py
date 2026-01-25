@@ -3,18 +3,19 @@ from __future__ import annotations
 import attr
 from itertools import count
 
+from .code import HirBody
 from ..diagnostics import DiagnosticReporter
+from ..syntax.typethon import ast
 
 HIR_ID_COUNT = count()
 
-"""
-This is the high level intermediate representation.
-It is inspired by the Rust compiler.
 
-The HIR is very similar to the AST, but all symbols are defined
-and resolved. Every attribute access that isn't on a local declaration
-gets resolved as well.
-"""
+# This is the high level intermediate representation.
+# It is inspired by the Rust compiler.
+
+# The HIR is very similar to the AST, but all symbols are defined
+# and resolved. Every attribute access that isn't on a local declaration
+# gets resolved as well.
 
 
 @attr.s(kw_only=True, slots=True)
@@ -34,6 +35,7 @@ class ModuleDef(DefId):
     types: dict[str, TypeDeclaration] = attr.ib(factory=dict)
     classes: dict[str, ClassDef] = attr.ib(factory=dict)
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
+    body: HirBody | None = attr.ib(default=None)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -85,6 +87,7 @@ class FunctionDef(DefId):
     name: str = attr.ib()
     parameters: dict[str, HirType] = attr.ib(factory=dict)
     returns: HirType = attr.ib(default=UNIT)
+    body: HirBody | None = attr.ib(default=None)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -154,9 +157,14 @@ class ListType:
     elt: HirType = attr.ib()
 
 
-type HirType = Path | ClassDef | TypeParameter | ListType | TypeDeclaration
+@attr.s(kw_only=True, slots=True)
+class HirError:
+    node: ast.Node = attr.ib()
+
+
+type HirType = Path | ClassDef | TypeParameter | ListType | TypeDeclaration | HirError
 
 type HirPathResult = (
-    # HirType, bit without type parameters
-    ClassDef | TypeParameter | ListType | TypeDeclaration | HirField
+    # HirType, but without type parameters
+    ClassDef | TypeParameter | ListType | TypeDeclaration | HirField | HirError
 )
