@@ -20,13 +20,13 @@ StateID = int
 class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
     def __init__(
         self,
-        interned_symbols: typing.List[Symbol[TokenKindT, KeywordKindT]],
+        interned_symbols: list[Symbol[TokenKindT, KeywordKindT]],
     ) -> None:
-        self.interned_symbols: typing.List[FrozenSymbol] = []
-        self.interned_terminal_lookup: typing.Dict[
+        self.interned_symbols: list[FrozenSymbol] = []
+        self.interned_terminal_lookup: dict[
             str, InternedFrozenSymbol
         ] = {}
-        self.interned_nonterminal_lookup: typing.Dict[str, InternedFrozenSymbol] = {}
+        self.interned_nonterminal_lookup: dict[str, InternedFrozenSymbol] = {}
         for symbol in interned_symbols:
             if isinstance(symbol, TerminalSymbol):
                 frozen_symbol = symbol.kind.name
@@ -37,8 +37,8 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
 
             self.interned_symbols.append(frozen_symbol)
 
-        self.interned_productions: typing.List[FrozenProduction] = []
-        self.production_action_lookup: typing.Dict[InternedFrozenProduction, str] = {}
+        self.interned_productions: list[FrozenProduction] = []
+        self.production_action_lookup: dict[InternedFrozenProduction, str] = {}
 
     def get_interned_terminal(self, name: str) -> InternedFrozenSymbol:
         return self.interned_terminal_lookup[name]
@@ -59,7 +59,7 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         lhs: InternedFrozenSymbol,
         rhs_length: int,
-        captured: typing.Tuple[int, ...],
+        captured: tuple[int, ...],
     ) -> FrozenProduction:
         frozen_production = FrozenProduction(
             id=len(self.interned_productions),
@@ -79,7 +79,7 @@ class FrozenProduction:
     id: int = attr.ib()
     lhs: InternedFrozenSymbol = attr.ib()
     rhs_length: int = attr.ib()
-    captured: typing.Tuple[int, ...] = attr.ib()
+    captured: tuple[int, ...] = attr.ib()
 
 
 class ActionKind(enum.IntEnum):
@@ -100,10 +100,10 @@ class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
         frozen_symbols: FrozenSymbolTable[TokenKindT, KeywordKindT]
     ) -> None:
         self.frozen_symbols = frozen_symbols
-        self.actions: typing.List[
-            typing.List[typing.Tuple[ActionKind, typing.Union[StateID, InternedFrozenProduction]]]
+        self.actions: list[
+            list[tuple[ActionKind, typing.Union[StateID, InternedFrozenProduction]]]
         ] = []
-        self.gotos: typing.List[typing.List[StateID]] = []
+        self.gotos: list[list[StateID]] = []
 
         for _ in range(number_of_states):
             self.actions.append([UNSET_ACTION] * len(frozen_symbols.interned_terminal_lookup))
@@ -111,7 +111,7 @@ class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
         for _ in range(number_of_states):
             self.gotos.append([UNSET_GOTO] * len(frozen_symbols.interned_nonterminal_lookup))
 
-    def get_action(self, state_id: StateID, interned_symbol: InternedFrozenSymbol) -> typing.Tuple[
+    def get_action(self, state_id: StateID, interned_symbol: InternedFrozenSymbol) -> tuple[
         ActionKind, typing.Union[StateID, InternedFrozenProduction]
     ]:
         return self.actions[state_id][interned_symbol]
@@ -126,8 +126,8 @@ class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
         for state_id in range(len(self.actions)):
             writer.write(f'<state #{state_id}>\n')
 
-            actions: typing.List[
-                typing.Tuple[
+            actions: list[
+                tuple[
                     FrozenSymbol,
                     ActionKind,
                     typing.Union[StateID, InternedFrozenProduction]
@@ -155,7 +155,7 @@ class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
 
                 writer.write('\n')
 
-            gotos: typing.List[typing.Tuple[FrozenSymbol, StateID]] = []
+            gotos: list[tuple[FrozenSymbol, StateID]] = []
 
             for i, goto_state in enumerate(self.gotos[state_id]):
                 index = i + len(self.frozen_symbols.interned_terminal_lookup)

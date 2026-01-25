@@ -79,37 +79,37 @@ class ConstantKind(enum.IntEnum):
 
 @attr.s(kw_only=True, slots=True)
 class ModuleNode(Node):
-    body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FunctionDefNode(Node):
     name: str = attr.ib()
-    parameters: typing.List[FunctionParameterNode] = attr.ib()
-    body: typing.Optional[typing.List[StatementNode]] = attr.ib()
-    decorators: typing.List[ExpressionNode] = attr.ib()
+    parameters: list[FunctionParameterNode] = attr.ib()
+    body: typing.Optional[list[StatementNode]] = attr.ib()
+    decorators: list[ExpressionNode] = attr.ib()
     returns: TypeExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ClassDefNode(Node):
     name: str = attr.ib()
-    parameters: typing.List[TypeParameterNode] = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
-    decorators: typing.List[ExpressionNode] = attr.ib()
+    parameters: list[TypeParameterNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
+    decorators: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class UseNode(Node):
     type: TypeExpressionNode = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class UseForNode(Node):
     type_class: TypeExpressionNode = attr.ib()
     type: TypeExpressionNode = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -141,36 +141,36 @@ class AugAssignNode(Node):
 class ForNode(Node):
     target: ExpressionNode = attr.ib()
     iterator: ExpressionNode = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class WhileNode(Node):
     condition: ExpressionNode = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class IfNode(Node):
     condition: ExpressionNode = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
     else_statement: typing.Optional[ElseNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ElseNode(Node):
-    body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ImportNode(Node):
-    names: typing.List[AliasNode] = attr.ib()
+    names: list[AliasNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ImportFromNode(Node):
     module: typing.Optional[str] = attr.ib()
-    names: typing.List[AliasNode] = attr.ib()
+    names: list[AliasNode] = attr.ib()
     level: typing.Optional[int] = attr.ib()
 
 
@@ -196,20 +196,20 @@ class LambdaParameterNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ExpressionLambdaNode(Node):
-    parameters: typing.List[LambdaParameterNode] = attr.ib()
+    parameters: list[LambdaParameterNode] = attr.ib()
     body: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class BlockLambdaNode(Node):
-    parameters: typing.List[LambdaParameterNode] = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    parameters: list[LambdaParameterNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class BoolOpNode(Node):
     op: BoolOperatorKind = attr.ib()
-    values: typing.List[ExpressionNode] = attr.ib()
+    values: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -228,7 +228,7 @@ class UnaryOpNode(Node):
 @attr.s(kw_only=True, slots=True)
 class CompareNode(Node):
     left: ExpressionNode = attr.ib()
-    comparators: typing.List[ComparatorNode] = attr.ib()
+    comparators: list[ComparatorNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -240,7 +240,7 @@ class ComparatorNode(Node):
 @attr.s(kw_only=True, slots=True)
 class CallNode(Node):
     callee: ExpressionNode = attr.ib()
-    args: typing.List[ExpressionNode] = attr.ib()
+    args: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -282,7 +282,7 @@ class AttributeNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SubscriptNode(Node):
     value: ExpressionNode = attr.ib()
-    slices: typing.List[ExpressionNode] = attr.ib()
+    slices: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -292,12 +292,12 @@ class NameNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ListNode(Node):
-    elts: typing.List[ExpressionNode] = attr.ib()
+    elts: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleNode(Node):
-    elts: typing.List[ExpressionNode] = attr.ib()
+    elts: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -340,7 +340,7 @@ class SelfTypeNode(Node):
 @attr.s(kw_only=True, slots=True)
 class TypeCallNode(Node):
     type: TypeExpressionNode = attr.ib()
-    args: typing.List[TypeExpressionNode] = attr.ib()
+    args: list[TypeExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -364,7 +364,7 @@ class TypeDeclarationNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SumTypeNode(Node):
     name: str = attr.ib()
-    fields: typing.List[SumTypeFieldNode] = attr.ib()
+    fields: list[SumTypeFieldNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -381,12 +381,12 @@ class StructFieldNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class StructTypeNode(Node):
-    fields: typing.List[StructFieldNode] = attr.ib()
+    fields: list[StructFieldNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleTypeNode(Node):
-    elts: typing.List[TypeExpressionNode] = attr.ib()
+    elts: list[TypeExpressionNode] = attr.ib()
 
 
 StatementNode = typing.Union[

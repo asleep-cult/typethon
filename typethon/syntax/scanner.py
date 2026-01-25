@@ -22,8 +22,8 @@ __all__ = ('Scanner',)
 TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
 KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
-TokenLookupTable = typing.Dict[
-    str, typing.Tuple['TokenLookupTable[TokenKindT]', typing.Optional[TokenKindT]]
+TokenLookupTable = dict[
+    str, tuple['TokenLookupTable[TokenKindT]', typing.Optional[TokenKindT]]
 ]
 
 EOF = '\0'
@@ -80,7 +80,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         *,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-        matched_tokens: typing.Dict[TokenKindT, TokenKindT],
+        matched_tokens: dict[TokenKindT, TokenKindT],
     ) -> None:
         self.source = source
         self.position = 0
@@ -89,17 +89,17 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         self.keywords = dict(keywords)
 
         self.matched_tokens = matched_tokens
-        self.matched_tokens_inverse: typing.Dict[TokenKindT, TokenKindT] = {}
+        self.matched_tokens_inverse: dict[TokenKindT, TokenKindT] = {}
         for opening_token, closing_token in matched_tokens.items():
             self.matched_tokens_inverse[closing_token] = opening_token
 
         self.is_newline = False
-        self.match_stack: typing.List[TokenKindT] = []
-        self.indentstack: typing.List[typing.Tuple[int, int]] = [(0, 0)]
-        self.indents: typing.List[typing.Union[IndentToken, DedentToken]] = []
+        self.match_stack: list[TokenKindT] = []
+        self.indentstack: list[tuple[int, int]] = [(0, 0)]
+        self.indents: list[typing.Union[IndentToken, DedentToken]] = []
 
         self.match_stack_bottom = 0
-        self.match_bottom_stack: typing.List[int] = []
+        self.match_bottom_stack: list[int] = []
 
     def is_match_stack_effectively_empty(self) -> bool:
         return len(self.match_stack) - self.match_stack_bottom <= 0
@@ -112,7 +112,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         self.match_stack_bottom = self.match_bottom_stack.pop()
 
     def create_lookup_table(
-        self, tokens: typing.Dict[str, TokenKindT]
+        self, tokens: dict[str, TokenKindT]
     ) -> TokenLookupTable[TokenKindT]:
         table: TokenLookupTable[TokenKindT] = {}
 

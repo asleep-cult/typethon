@@ -37,20 +37,20 @@ InternedParserItem = int
 LookaheadSet = int
 InternedCanonicalCollection = int
 
-ParserItem = typing.Tuple[
+ParserItem = tuple[
     Production[TokenKindT, KeywordKindT],
     int,
 ]
-CanonicalCollection = typing.Tuple[
-    typing.Tuple[InternedParserItem, ...],
-    typing.Tuple[LookaheadSet, ...],
+CanonicalCollection = tuple[
+    tuple[InternedParserItem, ...],
+    tuple[LookaheadSet, ...],
 ]
 
 
 @attr.s(kw_only=True, slots=True)
 class ParserState:
-    items: typing.List[InternedParserItem] = attr.ib(factory=list)
-    lookahead: typing.Dict[InternedParserItem, LookaheadSet] = attr.ib(factory=dict)
+    items: list[InternedParserItem] = attr.ib(factory=list)
+    lookahead: dict[InternedParserItem, LookaheadSet] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -61,7 +61,7 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
     def get_action_entry_note_message(
         self,
         which: str,
-        entry: typing.Tuple[ActionKind, int],
+        entry: tuple[ActionKind, int],
     ) -> typing.Optional[str]:
         if entry[0] == ActionKind.SHIFT:
             dumped = self.genereator.dump_canonical_collection(entry[1])
@@ -74,8 +74,8 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
         state_id: int,
-        existing_entry: typing.Tuple[ActionKind, int],
-        new_entry: typing.Tuple[ActionKind, int],
+        existing_entry: tuple[ActionKind, int],
+        new_entry: tuple[ActionKind, int],
     ) -> str:      
         dumped = self.genereator.dump_canonical_collection(state_id)
 
@@ -197,9 +197,9 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-        rules: typing.List[ast.RuleNode[TokenKindT, KeywordKindT]],
+        rules: list[ast.RuleNode[TokenKindT, KeywordKindT]],
     ) -> None:
-        self.terminal_kinds: typing.List[
+        self.terminal_kinds: list[
             typing.Union[StdTokenKind, TokenKindT, KeywordKindT]
         ] = []
         self.terminal_kinds.extend(std_token for _, std_token in STD_TOKENS)
@@ -208,41 +208,41 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self.terminal_symbol_boundary = len(self.terminal_kinds)
 
         self.rules = rules
-        self.nonterminals: typing.Dict[
+        self.nonterminals: dict[
             str, NonterminalSymbol[TokenKindT, KeywordKindT]
         ] = {}
-        self.terminals: typing.Dict[
+        self.terminals: dict[
             typing.Union[TokenKindT, KeywordKindT, StdTokenKind],
             TerminalSymbol[TokenKindT, KeywordKindT],
         ] = {}
         self.epsilon_nonterminals: typing.Set[
             NonterminalSymbol[TokenKindT, KeywordKindT]
         ] = set()
-        self.first_sets: typing.List[LookaheadSet] = []
-        self.nonterminal_closures: typing.List[
-            typing.List[InternedParserItem]
+        self.first_sets: list[LookaheadSet] = []
+        self.nonterminal_closures: list[
+            list[InternedParserItem]
         ] = []
 
-        self.interned_items_lookup: typing.Dict[
+        self.interned_items_lookup: dict[
             ParserItem[TokenKindT, KeywordKindT],
             InternedParserItem
         ] = {}
-        self.interned_items: typing.List[ParserItem[TokenKindT, KeywordKindT]] = []
+        self.interned_items: list[ParserItem[TokenKindT, KeywordKindT]] = []
 
-        self.interned_symbols: typing.List[Symbol[TokenKindT, KeywordKindT]] = []
+        self.interned_symbols: list[Symbol[TokenKindT, KeywordKindT]] = []
 
-        self.interned_canonical_collections_lookup: typing.Dict[
+        self.interned_canonical_collections_lookup: dict[
             CanonicalCollection, InternedCanonicalCollection
         ] = {}
-        self.interned_canonical_collections: typing.List[CanonicalCollection] = []
+        self.interned_canonical_collections: list[CanonicalCollection] = []
 
-        self.productions: typing.List[Production[TokenKindT, KeywordKindT]] = []
-        self.transitions: typing.List[
-            typing.List[InternedCanonicalCollection]
+        self.productions: list[Production[TokenKindT, KeywordKindT]] = []
+        self.transitions: list[
+            list[InternedCanonicalCollection]
         ] = []
 
-        self.precomputed_gotos: typing.Dict[
-            typing.Tuple[InternedCanonicalCollection, InternedSymbol],
+        self.precomputed_gotos: dict[
+            tuple[InternedCanonicalCollection, InternedSymbol],
             InternedCanonicalCollection,
         ] = {}
 
@@ -569,7 +569,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
     def get_first_set(
         self,
-        symbols: typing.List[Symbol[TokenKindT, KeywordKindT]]
+        symbols: list[Symbol[TokenKindT, KeywordKindT]]
     ) -> LookaheadSet:
         result = 0
 
@@ -807,13 +807,13 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
         return table
 
-    def generate(self) -> typing.Dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]:
+    def generate(self) -> dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]:
         self.generate_symbols()
         self.compute_epsilon_nonterminals()
         self.compute_first_sets()
         self.compute_nonterminal_closures()
 
-        tables: typing.Dict[str, FrozenParserTable[TokenKindT, KeywordKindT]] = {}
+        tables: dict[str, FrozenParserTable[TokenKindT, KeywordKindT]] = {}
         for nonterminal in self.nonterminals.values():
             if nonterminal.entrypoint:
                 if len(nonterminal.productions) != 1:
@@ -836,7 +836,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         grammar: str,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-    ) -> typing.Dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]:
+    ) -> dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]:
         rules = GrammarParser[TokenKindT, KeywordKindT].parse_from_source(grammar, tokens, keywords)
         instance = cls(tokens, keywords, rules)
         return instance.generate()

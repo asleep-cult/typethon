@@ -37,7 +37,7 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             keywords=(),
             matched_tokens={GrammarTokenKind.OPENPAREN: GrammarTokenKind.CLOSEPAREN},
         )
-        self.buffer: typing.List[GrammarToken] = []
+        self.buffer: list[GrammarToken] = []
 
     def parse_identifier(self, token: IdentifierToken) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
         if token.content == 'IDENTIFIER':
@@ -98,8 +98,8 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
 
         return self.buffer[index - 1]
 
-    def parse_rules(self) -> typing.List[ast.RuleNode[TokenKindT, KeywordKindT]]:
-        rules: typing.List[ast.RuleNode[TokenKindT, KeywordKindT]] = []
+    def parse_rules(self) -> list[ast.RuleNode[TokenKindT, KeywordKindT]]:
+        rules: list[ast.RuleNode[TokenKindT, KeywordKindT]] = []
         while not self.scanner.is_eof():
             rules.append(self.parse_rule())
 
@@ -138,7 +138,7 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             if token.kind is GrammarTokenKind.VERTICALBAR:
                 self.scan_token()
 
-        items: typing.List[ast.RuleItemNode[TokenKindT, KeywordKindT]] = []
+        items: list[ast.RuleItemNode[TokenKindT, KeywordKindT]] = []
 
         expression = self.parse_expression()
         item = ast.RuleItemNode(
@@ -210,7 +210,7 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
         return expression
 
     def parse_expression_group(self) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
-        expressions: typing.List[ast.ExpressionNode[TokenKindT, KeywordKindT]] = []
+        expressions: list[ast.ExpressionNode[TokenKindT, KeywordKindT]] = []
 
         token = self.peek_token()
         while token.kind in (
@@ -308,6 +308,6 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
         source: str,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-    ) -> typing.List[ast.RuleNode[TokenKindT, KeywordKindT]]:
+    ) -> list[ast.RuleNode[TokenKindT, KeywordKindT]]:
         instance = cls(source, tokens, keywords)
         return instance.parse_rules()

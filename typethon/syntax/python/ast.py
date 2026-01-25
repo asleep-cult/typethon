@@ -84,20 +84,20 @@ class ParameterKind(enum.IntEnum):
 class FunctionDefNode(Node):
     is_async: bool = attr.ib()
     name: str = attr.ib()
-    parameters: typing.List[FunctionParameterNode] = attr.ib()
-    body: typing.Optional[typing.List[StatementNode]] = attr.ib()
-    decorators: typing.List[ExpressionNode] = attr.ib()
+    parameters: list[FunctionParameterNode] = attr.ib()
+    body: typing.Optional[list[StatementNode]] = attr.ib()
+    decorators: list[ExpressionNode] = attr.ib()
     returns: typing.Optional[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ClassDefNode(Node):
     name: str = attr.ib()
-    bases: typing.List[ExpressionNode] = attr.ib()
-    kwargs: typing.List[KeywordArgumentNode] = attr.ib()
+    bases: list[ExpressionNode] = attr.ib()
+    kwargs: list[KeywordArgumentNode] = attr.ib()
     #meta: typing.Optional[ExpressionNode] = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
-    decorators: typing.List[ExpressionNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
+    decorators: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -107,12 +107,12 @@ class ReturnNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class DeleteNode(Node):
-    targets: typing.List[ExpressionNode] = attr.ib()
+    targets: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class AssignNode(Node):
-    targets: typing.List[ExpressionNode] = attr.ib()
+    targets: list[ExpressionNode] = attr.ib()
     value: ExpressionNode = attr.ib()
 
 
@@ -135,29 +135,29 @@ class ForNode(Node):
     is_async: bool = attr.ib()
     target: ExpressionNode = attr.ib()
     iterator: ExpressionNode = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
-    else_body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
+    else_body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class WhileNode(Node):
     condition: ExpressionNode = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
-    else_body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
+    else_body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class IfNode(Node):
     condition: ExpressionNode = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
-    else_body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
+    else_body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class WithNode(Node):
     is_async: bool = attr.ib()
-    items: typing.List[WithItemNode] = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    items: list[WithItemNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -168,10 +168,10 @@ class RaiseNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class TryNode(Node):
-    body: typing.List[StatementNode] = attr.ib()
-    handlers: typing.List[ExceptHandlerNode] = attr.ib()
-    else_body: typing.List[StatementNode] = attr.ib()
-    final_body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
+    handlers: list[ExceptHandlerNode] = attr.ib()
+    else_body: list[StatementNode] = attr.ib()
+    final_body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -182,24 +182,24 @@ class AssertNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ImportNode(Node):
-    names: typing.List[AliasNode] = attr.ib()
+    names: list[AliasNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ImportFromNode(Node):
     module: typing.Optional[str] = attr.ib()
-    names: typing.List[AliasNode] = attr.ib()
+    names: list[AliasNode] = attr.ib()
     level: typing.Optional[int] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class GlobalNode(Node):
-    names: typing.List[str] = attr.ib()
+    names: list[str] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class NonlocalNode(Node):
-    names: typing.List[str] = attr.ib()
+    names: list[str] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -225,7 +225,7 @@ class ContinueNode(Node):
 @attr.s(kw_only=True, slots=True)
 class BoolOpNode(Node):
     op: BoolOperatorKind = attr.ib()
-    values: typing.List[ExpressionNode] = attr.ib()
+    values: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -243,8 +243,8 @@ class UnaryOpNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class LambdaNode(Node):
-    parameters: typing.List[FunctionParameterNode] = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    parameters: list[FunctionParameterNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -256,36 +256,36 @@ class IfExpNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class DictNode(Node):
-    elts: typing.List[DictElt] = attr.ib()
+    elts: list[DictElt] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class SetNode(Node):
-    elts: typing.List[ExpressionNode] = attr.ib()
+    elts: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ListCompNode(Node):
     elt: ExpressionNode = attr.ib()
-    comprehensions: typing.List[ComprehensionNode] = attr.ib()
+    comprehensions: list[ComprehensionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class SetCompNode(Node):
     elt: ExpressionNode = attr.ib()
-    comprehensions: typing.List[ComprehensionNode] = attr.ib()
+    comprehensions: list[ComprehensionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class DictCompNode(Node):
     elt: DictElt = attr.ib()
-    comprehensions: typing.List[ComprehensionNode] = attr.ib()
+    comprehensions: list[ComprehensionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class GeneratorExpNode(Node):
     elt: ExpressionNode = attr.ib()
-    comprehensions: typing.List[ComprehensionNode] = attr.ib()
+    comprehensions: list[ComprehensionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -306,7 +306,7 @@ class YieldFromNode(Node):
 @attr.s(kw_only=True, slots=True)
 class CompareNode(Node):
     left: ExpressionNode = attr.ib()
-    comparators: typing.List[ComparatorNode] = attr.ib()
+    comparators: list[ComparatorNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -318,8 +318,8 @@ class ComparatorNode(Node):
 @attr.s(kw_only=True, slots=True)
 class CallNode(Node):
     func: ExpressionNode = attr.ib()
-    args: typing.List[ExpressionNode] = attr.ib()
-    kwargs: typing.List[KeywordArgumentNode] = attr.ib()
+    args: list[ExpressionNode] = attr.ib()
+    kwargs: list[KeywordArgumentNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -383,12 +383,12 @@ class NameNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ListNode(Node):
-    elts: typing.List[ExpressionNode] = attr.ib()
+    elts: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleNode(Node):
-    elts: typing.List[ExpressionNode] = attr.ib()
+    elts: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -422,7 +422,7 @@ class WithItemNode(Node):
 class ExceptHandlerNode(Node):
     type: typing.Optional[ExpressionNode] = attr.ib()
     target: typing.Optional[str] = attr.ib()
-    body: typing.List[StatementNode] = attr.ib()
+    body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -430,7 +430,7 @@ class ComprehensionNode(Node):
     is_async: bool = attr.ib()
     target: ExpressionNode = attr.ib()
     iterator: ExpressionNode = attr.ib()
-    conditions: typing.List[ExpressionNode] = attr.ib()
+    conditions: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)

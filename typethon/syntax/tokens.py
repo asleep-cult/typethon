@@ -123,8 +123,8 @@ Token = typing.Union[
     DirectiveToken,
 ]
 
-TokenMap = typing.Tuple[typing.Tuple[str, TokenKindT], ...]
-KeywordMap = typing.Tuple[typing.Tuple[str, KeywordKindT], ...]
+TokenMap = tuple[tuple[str, TokenKindT], ...]
+KeywordMap = tuple[tuple[str, KeywordKindT], ...]
 
 
 STD_TOKENS: TokenMap[StdTokenKind] = (

@@ -16,7 +16,7 @@ class NonterminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
     id: int = attr.ib()
     name: str = attr.ib()
     entrypoint: bool = attr.ib(default=False)
-    productions: typing.List[Production[TokenKindT, KeywordKindT]] = attr.ib(factory=list)
+    productions: list[Production[TokenKindT, KeywordKindT]] = attr.ib(factory=list)
 
     def __hash__(self) -> int:
         return self.id
@@ -65,8 +65,8 @@ class TerminalSymbol(typing.Generic[TokenKindT, KeywordKindT]):
 class Production(typing.Generic[TokenKindT, KeywordKindT]):
     id: int = attr.ib()
     lhs: NonterminalSymbol[TokenKindT, KeywordKindT] = attr.ib()
-    rhs: typing.List[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list)
-    captured: typing.List[int] = attr.ib(factory=list)
+    rhs: list[Symbol[TokenKindT, KeywordKindT]] = attr.ib(factory=list)
+    captured: list[int] = attr.ib(factory=list)
     # List of indexes in rhs that should be captured from the parse tree
     action: typing.Optional[str] = attr.ib(default=None)
 
@@ -80,7 +80,7 @@ class Production(typing.Generic[TokenKindT, KeywordKindT]):
         self.rhs.append(symbol)
 
     def insert_symbol(self, index: int, symbol: Symbol[TokenKindT, KeywordKindT], capture: bool) -> None:
-        updated_captured: typing.List[int] = []
+        updated_captured: list[int] = []
         if capture:
             updated_captured.append(index)
 
@@ -94,7 +94,7 @@ class Production(typing.Generic[TokenKindT, KeywordKindT]):
         self.captured = updated_captured
 
     def __repr__(self) -> str:
-        parts: typing.List[str] = [f'{self.lhs.name} ->']
+        parts: list[str] = [f'{self.lhs.name} ->']
         for symbol in self.rhs:
             if isinstance(symbol, NonterminalSymbol):
                 parts.append(symbol.name)

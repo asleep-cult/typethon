@@ -21,7 +21,7 @@ class DiagnosticInfo:
 class DiagnosticReporter:
     def __init__(self, source: str) -> None:
         self.source = source
-        self.diagnostics: typing.List[DiagnosticInfo] = []
+        self.diagnostics: list[DiagnosticInfo] = []
 
     def has_error(self) -> bool:
         return any(diagnostic.level is DiagnosticLevel.ERROR for diagnostic in self.diagnostics)
@@ -29,7 +29,7 @@ class DiagnosticReporter:
     def report(
         self,
         level: DiagnosticLevel,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         message: str,
         *format: str,
     ) -> None:
@@ -43,7 +43,7 @@ class DiagnosticReporter:
 
     def report_error(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         message: str,
         *format: str,
     ) -> None:

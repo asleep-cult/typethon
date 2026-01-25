@@ -20,7 +20,7 @@ class Node:
 class RuleNode(typing.Generic[TokenKindT, KeywordKindT], Node):
     name: str = attr.ib()
     entrypoint: bool = attr.ib()
-    items: typing.List[RuleItemNode[TokenKindT, KeywordKindT]] = attr.ib()
+    items: list[RuleItemNode[TokenKindT, KeywordKindT]] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -57,7 +57,7 @@ class AlternativeNode(typing.Generic[TokenKindT, KeywordKindT], Node):
 
 @attr.s(kw_only=True, slots=True)
 class GroupNode(typing.Generic[TokenKindT, KeywordKindT], Node):
-    expressions: typing.List[ExpressionNode[TokenKindT, KeywordKindT]] = attr.ib()
+    expressions: list[ExpressionNode[TokenKindT, KeywordKindT]] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)

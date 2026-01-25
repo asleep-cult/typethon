@@ -40,14 +40,14 @@ class NodeLike(typing.Protocol):
 class Node(typing.Generic[TokenKindT, KeywordKindT]):
     start: int = attr.ib()
     end: int = attr.ib()
-    items: typing.List[NodeItem[TokenKindT, KeywordKindT]] = attr.ib()
+    items: list[NodeItem[TokenKindT, KeywordKindT]] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class SequenceNode(typing.Generic[NodeT]):
     start: int = attr.ib()
     end: int = attr.ib()
-    items: typing.List[NodeT] = attr.ib()
+    items: list[NodeT] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -84,8 +84,8 @@ class Transformer(typing.Generic[TokenKindT, KeywordKindT]):
 
     def transform(
         self,
-        span: typing.Tuple[int, int],
-        items: typing.List[NodeItem[TokenKindT, KeywordKindT]],
+        span: tuple[int, int],
+        items: list[NodeItem[TokenKindT, KeywordKindT]],
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         return self.callback(span, *items)
 
@@ -112,9 +112,9 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
         self.transformers = {transformer.name: transformer for transformer in transformers}
         self.deadlock_threshold = deadlock_threshold
 
-        self.tokens: typing.List[Token[TokenKindT, KeywordKindT]] = []
-        self.stack: typing.List[
-            typing.Tuple[
+        self.tokens: list[Token[TokenKindT, KeywordKindT]] = []
+        self.stack: list[
+            tuple[
                 # typing.Optional[FrozenSymbol],
                 typing.Optional[NodeItem[TokenKindT, KeywordKindT]],
                 int
@@ -159,9 +159,9 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
     def pop_stack(
         self,
         index: int,
-        captured: typing.Optional[typing.Tuple[int, ...]] = None,
-    ) -> typing.List[NodeItem[TokenKindT, KeywordKindT]]:
-        items: typing.List[NodeItem[TokenKindT, KeywordKindT]] = []
+        captured: typing.Optional[tuple[int, ...]] = None,
+    ) -> list[NodeItem[TokenKindT, KeywordKindT]]:
+        items: list[NodeItem[TokenKindT, KeywordKindT]] = []
 
         if index:
             for i, (item, _) in enumerate(self.stack[-index:]):
@@ -175,8 +175,8 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
     def get_item_span(
         self,
-        items: typing.List[NodeItem[TokenKindT, KeywordKindT]],
-    ) -> typing.Tuple[int, int]:
+        items: list[NodeItem[TokenKindT, KeywordKindT]],
+    ) -> tuple[int, int]:
         if not items:
             return (0, 0)
         
@@ -184,7 +184,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
     def create_default_node(
         self,
-        items: typing.List[NodeItem[TokenKindT, KeywordKindT]]
+        items: list[NodeItem[TokenKindT, KeywordKindT]]
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if len(items) == 1:
             return items[0]
@@ -194,7 +194,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
     def transform_prepend(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         first_item: ItemT,
         star_item: SequenceNode[ItemT],
     ) -> SequenceNode[ItemT]:
@@ -214,7 +214,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
     def transform_flatten(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> SequenceNode[NodeItem[TokenKindT, KeywordKindT]]:
         sequence = SequenceNode[NodeItem[TokenKindT, KeywordKindT]](
@@ -227,7 +227,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
     def transform_sequence(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if not items:
@@ -251,7 +251,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
 
     def transform_option(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if not items:

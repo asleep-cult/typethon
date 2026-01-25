@@ -81,7 +81,7 @@ before we can a chance to update the stack bottom.
 
 class ASTParser:
     tables: typing.ClassVar[
-        typing.Optional[typing.Dict[str, FrozenParserTable[TokenKind, KeywordKind]]]
+        typing.Optional[dict[str, FrozenParserTable[TokenKind, KeywordKind]]]
     ] = None
 
     def __init__(
@@ -95,7 +95,7 @@ class ASTParser:
     ) -> None:
         self.scanner = create_scanner(source)
 
-        transformers: typing.List[Transformer[TokenKind, KeywordKind]] = []
+        transformers: list[Transformer[TokenKind, KeywordKind]] = []
         def is_transformer(member: typing.Any) -> bool:
             return inspect.ismethod(member) and (
                 member.__name__.startswith('create_')
@@ -153,7 +153,7 @@ class ASTParser:
 
     def create_module(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         body: SequenceNode[ast.StatementNode],
     ) -> typing.Any:
         body = self.parser.transform_flatten(span, body)
@@ -163,22 +163,22 @@ class ASTParser:
             body=body.items,
         )
 
-    def create_break_statement(self, span: typing.Tuple[int, int]) -> ast.BreakNode:
+    def create_break_statement(self, span: tuple[int, int]) -> ast.BreakNode:
         return ast.BreakNode(start=span[0], end=span[1])
 
-    def create_continue_statement(self, span: typing.Tuple[int, int]) -> ast.ContinueNode:
+    def create_continue_statement(self, span: tuple[int, int]) -> ast.ContinueNode:
         return ast.ContinueNode(start=span[0], end=span[1])
 
     def create_return_statement(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         value: OptionNode[ast.ExpressionNode],
     ) -> ast.ReturnNode:
         return ast.ReturnNode(start=span[0], end=span[1], value=value.item)
 
     def create_expr_statement(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         expression: ast.ExpressionNode
     ) -> ast.ExprNode:
         return ast.ExprNode(
@@ -189,7 +189,7 @@ class ASTParser:
 
     def create_function_parameter(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         name: IdentifierToken,
         annotation: ast.TypeExpressionNode,
         default: OptionNode[ast.ExpressionNode],
@@ -204,7 +204,7 @@ class ASTParser:
 
     def create_function_prototype(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         decorators: OptionNode[SequenceNode[ast.ExpressionNode]],
         name: IdentifierToken,
         parameters: OptionNode[SequenceNode[ast.FunctionParameterNode]],
@@ -222,7 +222,7 @@ class ASTParser:
 
     def add_function_body(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         function: ast.FunctionDefNode,
         body: SequenceNode[ast.StatementNode],
     ) -> ast.FunctionDefNode:
@@ -231,7 +231,7 @@ class ASTParser:
 
     def create_class(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         decorators: OptionNode[SequenceNode[ast.ExpressionNode]],
         name: IdentifierToken,
         parameters: OptionNode[SequenceNode[ast.TypeParameterNode]],
@@ -248,7 +248,7 @@ class ASTParser:
 
     def create_use_statement(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         type: ast.TypeExpressionNode,
         body: SequenceNode[ast.StatementNode],
     ) -> ast.UseNode:
@@ -261,7 +261,7 @@ class ASTParser:
 
     def create_use_for_statement(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         type_class: ast.TypeExpressionNode,
         type: ast.TypeExpressionNode,
         body: SequenceNode[ast.StatementNode],
@@ -276,7 +276,7 @@ class ASTParser:
 
     def create_if_statement(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         condition: ast.ExpressionNode,
         body: SequenceNode[ast.StatementNode],
         else_statement: OptionNode[ast.ElseNode],
@@ -291,7 +291,7 @@ class ASTParser:
 
     def create_elif_statement(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         condition: ast.ExpressionNode,
         body: SequenceNode[ast.StatementNode],
         else_statement: OptionNode[ast.ElseNode],
@@ -307,7 +307,7 @@ class ASTParser:
 
     def create_else_statement(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         body: SequenceNode[ast.StatementNode],
     ) -> ast.ElseNode:
         return ast.ElseNode(
@@ -318,7 +318,7 @@ class ASTParser:
 
     def create_while_statement(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         condition: ast.ExpressionNode,
         body: SequenceNode[ast.StatementNode],
     ) -> ast.WhileNode:
@@ -331,7 +331,7 @@ class ASTParser:
 
     def create_assignment(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         target: ast.ExpressionNode,
         value: ast.ExpressionNode,
     ) -> ast.AssignNode:
@@ -344,7 +344,7 @@ class ASTParser:
 
     def create_disjunction(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         expression: ast.ExpressionNode,
         operands: SequenceNode[ast.ExpressionNode],
     ) -> ast.BoolOpNode:
@@ -358,7 +358,7 @@ class ASTParser:
 
     def create_declaration(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         target: IdentifierToken,
         type: OptionNode[ast.TypeExpressionNode],
         value: OptionNode[ast.ExpressionNode],
@@ -373,7 +373,7 @@ class ASTParser:
 
     def create_conjunction(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         expression: ast.ExpressionNode,
         operands: SequenceNode[ast.ExpressionNode],
     ) -> ast.BoolOpNode:
@@ -387,7 +387,7 @@ class ASTParser:
 
     def create_inversion(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         operand: ast.ExpressionNode,
     ) -> ast.UnaryOpNode:
         return ast.UnaryOpNode(
@@ -399,7 +399,7 @@ class ASTParser:
 
     def create_comparison(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         left: ast.ExpressionNode,
         comparators: SequenceNode[ast.ComparatorNode],
     ) -> ast.CompareNode:
@@ -412,7 +412,7 @@ class ASTParser:
 
     def create_comparator_one(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         operator: Token,
         value: ast.ExpressionNode,
     ) -> ast.ComparatorNode:
@@ -447,7 +447,7 @@ class ASTParser:
 
     def create_comparator_two(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         operator1: Token,
         operator2: Token,
         value: ast.ExpressionNode,
@@ -474,7 +474,7 @@ class ASTParser:
 
     def create_binary_operator(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         left: ast.ExpressionNode,
         operator: Token,
         right: ast.ExpressionNode,
@@ -519,7 +519,7 @@ class ASTParser:
 
     def create_unary_operator(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         operator: Token,
         operand: ast.ExpressionNode,
     ) -> ast.ExpressionNode:
@@ -542,7 +542,7 @@ class ASTParser:
 
     def create_call(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         callee: ast.ExpressionNode,
         args: OptionNode[SequenceNode[ast.ExpressionNode]]
     ) -> ast.CallNode:
@@ -555,7 +555,7 @@ class ASTParser:
 
     def create_slice(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         start: ast.ExpressionNode,
         stop: ast.ExpressionNode,
         step: OptionNode[ast.ExpressionNode],
@@ -570,7 +570,7 @@ class ASTParser:
 
     def create_attribute(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         value: ast.ExpressionNode,
         attribute: IdentifierToken,
     ) -> ast.AttributeNode:
@@ -583,7 +583,7 @@ class ASTParser:
 
     def create_subscript(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         value: ast.ExpressionNode,
         slices: SequenceNode[ast.ExpressionNode],
     ) -> ast.SubscriptNode:
@@ -596,7 +596,7 @@ class ASTParser:
 
     def create_constant(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         token: Token,
     ) -> ast.ConstantNode:
         match token.kind:
@@ -615,7 +615,7 @@ class ASTParser:
 
     def create_number(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         token: NumberToken,
     ) -> ast.ConstantNode:
         if token.flags & NumberTokenFlags.BINARY:
@@ -656,7 +656,7 @@ class ASTParser:
 
     def create_string(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         string_tokens: SequenceNode[StringToken],
     ) -> ast.StringNode:
         writer = io.StringIO()
@@ -686,7 +686,7 @@ class ASTParser:
 
     def create_name(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         identifier: IdentifierToken,
     ) -> ast.NameNode:
         return ast.NameNode(
@@ -710,7 +710,7 @@ class ASTParser:
 
     def create_tuple_or_lambda_parameters(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         elts: OptionNode[SequenceNode[ast.ExpressionNode]],
     ) -> typing.Union[ast.TupleNode, SequenceNode[ast.LambdaParameterNode]]:
         token = self.parser.peek_token(1)
@@ -721,7 +721,7 @@ class ASTParser:
                 elts=elts.sequence().items,
             )
 
-        parameters: typing.List[ast.LambdaParameterNode] = []
+        parameters: list[ast.LambdaParameterNode] = []
         for elt in elts.sequence().items:
             if not isinstance(elt, ast.NameNode):
                 assert False, 'Invalid lambda parameter'
@@ -742,7 +742,7 @@ class ASTParser:
 
     def create_group_or_lambda_parameters(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         expression: ast.ExpressionNode,
     ) -> typing.Union[ast.ExpressionNode, SequenceNode[ast.LambdaParameterNode]]:
         token = self.parser.peek_token(1)
@@ -767,7 +767,7 @@ class ASTParser:
 
     def exit_lambda_block(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         body: SequenceNode[ast.StatementNode],
     ) -> SequenceNode[ast.StatementNode]:
         self.scanner.exit_nested_stack()
@@ -775,7 +775,7 @@ class ASTParser:
 
     def create_block_lambda(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         body: SequenceNode[ast.StatementNode],
     ) -> ast.BlockLambdaNode:
         return ast.BlockLambdaNode(
@@ -787,7 +787,7 @@ class ASTParser:
 
     def create_expression_lambda(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         body: ast.ExpressionNode,
     ) -> ast.ExpressionNode:
         return ast.ExpressionLambdaNode(
@@ -799,7 +799,7 @@ class ASTParser:
 
     def add_lambda_parameters(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         parameters: SequenceNode[ast.LambdaParameterNode],
         lambdef: typing.Union[ast.ExpressionLambdaNode, ast.BlockLambdaNode],
     ) -> typing.Union[ast.ExpressionLambdaNode, ast.BlockLambdaNode]:
@@ -810,7 +810,7 @@ class ASTParser:
 
     def create_self_type(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
     ) -> ast.SelfTypeNode:
         return ast.SelfTypeNode(
             start=span[0],
@@ -819,7 +819,7 @@ class ASTParser:
 
     def create_type_declaration(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         name: IdentifierToken,
         type: ast.TypeExpressionNode,
     ) -> ast.TypeDeclarationNode:
@@ -832,7 +832,7 @@ class ASTParser:
 
     def create_struct_type(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         fields: SequenceNode[ast.StructFieldNode],
     ) -> ast.StructTypeNode:
         return ast.StructTypeNode(
@@ -843,7 +843,7 @@ class ASTParser:
 
     def create_struct_field(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         name: IdentifierToken,
         type: ast.TypeExpressionNode,
     ) -> ast.StructFieldNode:
@@ -856,7 +856,7 @@ class ASTParser:
 
     def create_tuple_type(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         elts: OptionNode[SequenceNode[ast.TypeExpressionNode]],
     ) -> ast.TupleTypeNode:
         return ast.TupleTypeNode(
@@ -867,7 +867,7 @@ class ASTParser:
 
     def create_sum_type(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         name: IdentifierToken,
         fields: SequenceNode[ast.SumTypeFieldNode],
     ) -> ast.SumTypeNode:
@@ -880,7 +880,7 @@ class ASTParser:
 
     def create_sum_field(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         name: IdentifierToken,
         data_type: OptionNode[ast.DataTypeNode],
     ) -> ast.SumTypeFieldNode:
@@ -893,7 +893,7 @@ class ASTParser:
 
     def create_type_parameter(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         name: IdentifierToken,
     ) -> ast.TypeParameterNode:
         return ast.TypeParameterNode(
@@ -905,7 +905,7 @@ class ASTParser:
 
     def create_type_call(
         self,
-        span: typing.Tuple[int, int],
+        span: tuple[int, int],
         type: ast.TypeExpressionNode,
         args: OptionNode[SequenceNode[ast.TypeExpressionNode]],
     ) -> ast.TypeCallNode:
