@@ -2,22 +2,18 @@ from __future__ import annotations
 
 import attr
 import enum
-import typing
 import io
 
 from .symbols import Symbol, TerminalSymbol
 
-TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
-KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
+
+type FrozenSymbol = str
+type InternedFrozenSymbol = int
+type InternedFrozenProduction = int
+type StateID = int
 
 
-FrozenSymbol = str
-InternedFrozenSymbol = int
-InternedFrozenProduction = int
-StateID = int
-
-
-class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
+class FrozenSymbolTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def __init__(
         self,
         interned_symbols: list[Symbol[TokenKindT, KeywordKindT]],
@@ -46,7 +42,7 @@ class FrozenSymbolTable(typing.Generic[TokenKindT, KeywordKindT]):
     def get_interned_nonterminal(self, name: str) -> InternedFrozenSymbol:
         return self.interned_terminal_lookup[name]
 
-    def get_frozen_action(self, production: InternedFrozenProduction) -> typing.Optional[str]:
+    def get_frozen_action(self, production: InternedFrozenProduction) -> str | None:
         return self.production_action_lookup.get(production)
 
     def get_frozen_symbol(self, interned_symbol: InternedFrozenSymbol) -> FrozenSymbol:
@@ -93,7 +89,7 @@ UNSET_ACTION = (ActionKind.REJECT, -1)
 UNSET_GOTO = -1
 
 
-class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
+class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def __init__(
         self,
         number_of_states: int,
@@ -101,7 +97,7 @@ class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
     ) -> None:
         self.frozen_symbols = frozen_symbols
         self.actions: list[
-            list[tuple[ActionKind, typing.Union[StateID, InternedFrozenProduction]]]
+            list[tuple[ActionKind, StateID | InternedFrozenProduction]]
         ] = []
         self.gotos: list[list[StateID]] = []
 
@@ -112,7 +108,7 @@ class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
             self.gotos.append([UNSET_GOTO] * len(frozen_symbols.interned_nonterminal_lookup))
 
     def get_action(self, state_id: StateID, interned_symbol: InternedFrozenSymbol) -> tuple[
-        ActionKind, typing.Union[StateID, InternedFrozenProduction]
+        ActionKind, StateID | InternedFrozenProduction
     ]:
         return self.actions[state_id][interned_symbol]
 
@@ -130,7 +126,7 @@ class FrozenParserTable(typing.Generic[TokenKindT, KeywordKindT]):
                 tuple[
                     FrozenSymbol,
                     ActionKind,
-                    typing.Union[StateID, InternedFrozenProduction]
+                    StateID | InternedFrozenProduction
                 ]
             ] = []
 

@@ -111,17 +111,17 @@ SimpleTokenKind = typing.Literal[
     StdTokenKind.EINVALID,
 ]
 
-Token = typing.Union[
-    TokenData[SimpleTokenKind],
-    TokenData[TokenKindT],
-    TokenData[KeywordKindT],
-    IdentifierToken,
-    NumberToken,
-    StringToken,
-    IndentToken,
-    DedentToken,
-    DirectiveToken,
-]
+type Token[TokenKindT: enum.Enum, KeywordKindT: enum.Enum] = (
+    TokenData[SimpleTokenKind]
+    | TokenData[TokenKindT]
+    | TokenData[KeywordKindT]
+    | IdentifierToken
+    | NumberToken
+    | StringToken
+    | IndentToken
+    | DedentToken
+    | DirectiveToken
+)
 
 TokenMap = tuple[tuple[str, TokenKindT], ...]
 KeywordMap = tuple[tuple[str, KeywordKindT], ...]

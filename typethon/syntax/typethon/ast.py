@@ -86,7 +86,7 @@ class ModuleNode(Node):
 class FunctionDefNode(Node):
     name: str = attr.ib()
     parameters: list[FunctionParameterNode] = attr.ib()
-    body: typing.Optional[list[StatementNode]] = attr.ib()
+    body: list[StatementNode] | None = attr.ib()
     decorators: list[ExpressionNode] = attr.ib()
     returns: TypeExpressionNode = attr.ib()
 
@@ -114,14 +114,14 @@ class UseForNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ReturnNode(Node):
-    value: typing.Optional[ExpressionNode] = attr.ib()
+    value: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class DeclarationNode(Node):
     target: str = attr.ib()
-    type: typing.Optional[TypeExpressionNode] = attr.ib()
-    value: typing.Optional[ExpressionNode] = attr.ib()
+    type: TypeExpressionNode | None = attr.ib()
+    value: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -154,7 +154,7 @@ class WhileNode(Node):
 class IfNode(Node):
     condition: ExpressionNode = attr.ib()
     body: list[StatementNode] = attr.ib()
-    else_statement: typing.Optional[ElseNode] = attr.ib()
+    else_statement: ElseNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -169,9 +169,9 @@ class ImportNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ImportFromNode(Node):
-    module: typing.Optional[str] = attr.ib()
+    module: str | None = attr.ib()
     names: list[AliasNode] = attr.ib()
-    level: typing.Optional[int] = attr.ib()
+    level: int | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -180,13 +180,11 @@ class ExprNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class BreakNode(Node):
-    ...
+class BreakNode(Node): ...
 
 
 @attr.s(kw_only=True, slots=True)
-class ContinueNode(Node):
-    ...
+class ContinueNode(Node): ...
 
 
 @attr.s(kw_only=True, slots=True)
@@ -302,39 +300,38 @@ class TupleNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class SliceNode(Node):
-    start_index: typing.Optional[ExpressionNode] = attr.ib()
-    stop_index: typing.Optional[ExpressionNode] = attr.ib()
-    step_index: typing.Optional[ExpressionNode] = attr.ib()
+    start_index: ExpressionNode | None = attr.ib()
+    stop_index: ExpressionNode | None = attr.ib()
+    step_index: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FunctionParameterNode(Node):
     name: str = attr.ib()
     annotation: TypeExpressionNode = attr.ib()
-    default: typing.Optional[ExpressionNode] = attr.ib()
+    default: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class AliasNode(Node):
-    name: typing.Optional[str] = attr.ib()
-    asname: typing.Optional[str] = attr.ib()
+    name: str | None = attr.ib()
+    asname: str | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class DictElt(Node):
-    key: typing.Optional[ExpressionNode] = attr.ib()
+    key: ExpressionNode | None = attr.ib()
     value: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TypeParameterNode(Node):
     name: str = attr.ib()
-    constraint: typing.Optional[TypeExpressionNode] = attr.ib()
+    constraint: TypeExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class SelfTypeNode(Node):
-    ...
+class SelfTypeNode(Node): ...
 
 
 @attr.s(kw_only=True, slots=True)
@@ -352,7 +349,7 @@ class TypeAttributeNode(Node):
 @attr.s(kw_only=True, slots=True)
 class ListTypeNode(Node):
     elt: TypeExpressionNode = attr.ib()
-    # size: typing.Optional[int] = attr.ib(default=None)
+    # size: int | None = attr.ib(default=None)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -370,7 +367,7 @@ class SumTypeNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SumTypeFieldNode(Node):
     name: str = attr.ib()
-    data_type: typing.Optional[DataTypeNode] = attr.ib()
+    data_type: DataTypeNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -389,58 +386,56 @@ class TupleTypeNode(Node):
     elts: list[TypeExpressionNode] = attr.ib()
 
 
-StatementNode = typing.Union[
-    FunctionDefNode,
-    ClassDefNode,
-    ReturnNode,
-    DeclarationNode,
-    ForNode,
-    WhileNode,
-    IfNode,
-    ImportNode,
-    ImportFromNode,
-    ExprNode,
-    BreakNode,
-    ContinueNode,
-    TypeDeclarationNode,
-    SumTypeNode,
-    UseNode,
-    UseForNode,
-]
+type StatementNode = (
+    FunctionDefNode
+    | ClassDefNode
+    | ReturnNode
+    | DeclarationNode
+    | ForNode
+    | WhileNode
+    | IfNode
+    | ImportNode
+    | ImportFromNode
+    | ExprNode
+    | BreakNode
+    | ContinueNode
+    | TypeDeclarationNode
+    | SumTypeNode
+    | UseNode
+    | UseForNode
+)
 
-ExpressionNode = typing.Union[
-    AssignNode,
-    AugAssignNode,
-    ExpressionLambdaNode,
-    BlockLambdaNode,
-    BoolOpNode,
-    BinaryOpNode,
-    UnaryOpNode,
-    CompareNode,
-    CallNode,
-    ConstantNode,
-    AttributeNode,
-    SubscriptNode,
-    NameNode,
-    ListNode,
-    TupleNode,
-    SliceNode,
-]
+type ExpressionNode = (
+    AssignNode
+    | AugAssignNode
+    | ExpressionLambdaNode
+    | BlockLambdaNode
+    | BoolOpNode
+    | BinaryOpNode
+    | UnaryOpNode
+    | CompareNode
+    | CallNode
+    | ConstantNode
+    | AttributeNode
+    | SubscriptNode
+    | NameNode
+    | ListNode
+    | TupleNode
+    | SliceNode
+)
 
-DataTypeNode = typing.Union[
-    StructTypeNode,
-    TupleTypeNode,
-]
+type DataTypeNode = StructTypeNode | TupleTypeNode
 
-TypeExpressionNode = typing.Union[
-    NameNode,
-    SelfTypeNode,
-    TypeParameterNode,
-    TypeCallNode,
-    TypeAttributeNode,
-    ListTypeNode,
-    DataTypeNode,
-]
+type TypeExpressionNode = (
+    NameNode
+    | SelfTypeNode
+    | TypeParameterNode
+    | TypeCallNode
+    | TypeAttributeNode
+    | ListTypeNode
+    | DataTypeNode
+)
+
 
 def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionNode]:
     # NOTE: This omits everything within lambda nodes
@@ -494,7 +489,7 @@ def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionN
 
 
 def walk_type_expressions(
-    type_expression: TypeExpressionNode
+    type_expression: TypeExpressionNode,
 ) -> typing.Generator[TypeExpressionNode]:
     yield type_expression
 

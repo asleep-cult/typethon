@@ -3,6 +3,7 @@ from __future__ import annotations
 import attr
 import typing
 import enum
+from types import FunctionType
 
 from .frozen import (
     FrozenSymbol,
@@ -21,13 +22,6 @@ from ..syntax.scanner import Scanner
 from ..syntax.tokens import Token
 
 
-T = typing.TypeVar('T')
-TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
-KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
-NodeT = typing.TypeVar('NodeT', bound='NodeItem[typing.Any, typing.Any]')
-ItemT = typing.TypeVar('ItemT', bound='NodeItem[typing.Any, typing.Any]')
-
-
 class NodeLike(typing.Protocol):
     @property
     def start(self) -> int: ...
@@ -37,30 +31,30 @@ class NodeLike(typing.Protocol):
 
 
 @attr.s(kw_only=True, slots=True)
-class Node(typing.Generic[TokenKindT, KeywordKindT]):
+class Node[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     start: int = attr.ib()
     end: int = attr.ib()
     items: list[NodeItem[TokenKindT, KeywordKindT]] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class SequenceNode(typing.Generic[NodeT]):
+class SequenceNode[NodeT]:
     start: int = attr.ib()
     end: int = attr.ib()
     items: list[NodeT] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class OptionNode(typing.Generic[NodeT]):
+class OptionNode[NodeT]:
     start: int = attr.ib()
     end: int = attr.ib()
-    item: typing.Optional[NodeT] = attr.ib(default=None)
+    item: NodeT | None = attr.ib(default=None)
 
-    def map(self, fn: typing.Callable[[NodeT], T]) -> typing.Optional[T]:
+    def map[T](self, fn: typing.Callable[[NodeT], T]) -> T | None:
         if self.item is not None:
             return fn(self.item)
 
-    def sequence(self: OptionNode[SequenceNode[ItemT]]) -> SequenceNode[ItemT]:
+    def sequence[ItemT](self: OptionNode[SequenceNode[ItemT]]) -> SequenceNode[ItemT]:
         # get the flattened node or create an empty one
         if self.item is None:
             return SequenceNode[ItemT](start=self.start, end=self.end, items=[])
@@ -69,16 +63,15 @@ class OptionNode(typing.Generic[NodeT]):
         return self.item
 
 
-NodeItem = typing.Union[
-    NodeLike,
-    SequenceNode['NodeItem[TokenKindT, KeywordKindT]'],
-    OptionNode['NodeItem[TokenKindT, KeywordKindT]'],
-    Token[TokenKindT, KeywordKindT],
-]
-
+type NodeItem[TokenKindT: enum.Enum, KeywordKindT: enum.Enum] = (
+    NodeLike
+    | SequenceNode[NodeItem[TokenKindT, KeywordKindT]]
+    | OptionNode[NodeItem[TokenKindT, KeywordKindT]]
+    | Token[TokenKindT, KeywordKindT]
+)
 
 @attr.s(kw_only=True, slots=True)
-class Transformer(typing.Generic[TokenKindT, KeywordKindT]):
+class Transformer[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     name: str = attr.ib()
     callback: typing.Callable[..., NodeItem[TokenKindT, KeywordKindT]] = attr.ib()
 
@@ -92,12 +85,12 @@ class Transformer(typing.Generic[TokenKindT, KeywordKindT]):
     @classmethod
     def from_function(
         cls,
-        function: typing.Callable[..., NodeItem[TokenKindT, KeywordKindT]]
+        function: FunctionType[..., NodeItem[TokenKindT, KeywordKindT]]
     ) -> Transformer[TokenKindT, KeywordKindT]:
         return cls(name=function.__name__, callback=function)
 
 
-class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
+class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     # https://www.cs.uaf.edu/~chappell/class/2023_spr/cs331/lect/cs331-20230220-shiftred.pdf
     def __init__(
         self,
@@ -115,8 +108,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
         self.tokens: list[Token[TokenKindT, KeywordKindT]] = []
         self.stack: list[
             tuple[
-                # typing.Optional[FrozenSymbol],
-                typing.Optional[NodeItem[TokenKindT, KeywordKindT]],
+                NodeItem[TokenKindT, KeywordKindT] | None,
                 int
             ]
         ] = [(None, 0)]
@@ -159,7 +151,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
     def pop_stack(
         self,
         index: int,
-        captured: typing.Optional[tuple[int, ...]] = None,
+        captured: tuple[int, ...] | None = None,
     ) -> list[NodeItem[TokenKindT, KeywordKindT]]:
         items: list[NodeItem[TokenKindT, KeywordKindT]] = []
 
@@ -192,7 +184,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
         start, end = self.get_item_span(items)
         return Node(start=start, end=end, items=items)
 
-    def transform_prepend(
+    def transform_prepend[ItemT](
         self,
         span: tuple[int, int],
         first_item: ItemT,
@@ -264,7 +256,7 @@ class ParserAutomaton(typing.Generic[TokenKindT, KeywordKindT]):
             item=self.create_default_node(list_items)
         )
 
-    def next_action(self) -> typing.Optional[NodeItem[TokenKindT, KeywordKindT]]:
+    def next_action(self) -> NodeItem[TokenKindT, KeywordKindT] | None:
         current_state = self.current_state()
         terminal_symbol = self.current_symbol()
 

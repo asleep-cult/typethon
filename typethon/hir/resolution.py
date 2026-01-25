@@ -1,6 +1,5 @@
 import attr
 import enum
-import typing
 
 from . import hir
 from ..syntax.typethon import ast
@@ -27,20 +26,11 @@ class SymbolScope:
     local_declarations: dict[str, hir.LocalDeclaration] = attr.ib(factory=dict)
 
 
-ResolvedSymbol = typing.Union[
-    hir.TypeDeclaration,
-    hir.TypeParameter,
-    hir.ClassDef,
-    hir.FunctionDef,
-    hir.LocalDeclaration,
-]
+type ResolvedSymbol = (
+    hir.TypeDeclaration | hir.TypeParameter | hir.ClassDef | hir.FunctionDef | hir.LocalDeclaration
+)
 
-ResolvedAttribute = typing.Union[
-    hir.TypeDeclaration,
-    hir.TypeParameter,
-    hir.ClassDef,
-    hir.FunctionDef,
-]
+type ResolvedAttribute = hir.TypeDeclaration | hir.ClassDef | hir.FunctionDef
 
 
 class SymbolResolver:
@@ -60,10 +50,7 @@ class SymbolResolver:
         return scope
 
     def initialize_symbols_for_block(
-        self,
-        owner_field: hir.HirField,
-        scope: SymbolScope,
-        body: list[ast.StatementNode]
+        self, owner_field: hir.HirField, scope: SymbolScope, body: list[ast.StatementNode]
     ) -> None:
         for statement in body:
             self.initialize_symbols_for_statement(owner_field, scope, statement)
@@ -130,6 +117,7 @@ class SymbolResolver:
                     case ast.TupleTypeNode():
                         declaration = hir.TupleDef(name=statement.name, is_declaration=True)
                     case _:
+                        assert False, "Not Implemented"
                         declaration = hir.AliasDef(name=statement.name)
 
                 scope.type_declarations[statement.name] = declaration
@@ -223,7 +211,9 @@ class SymbolResolver:
 
                 if statement.else_statement is not None:
                     self.create_scope(statement.else_statement.id, ScopeKind.BLOCK)
-                    self.initialize_symbols_for_block(owner_field, scope, statement.else_statement.body)
+                    self.initialize_symbols_for_block(
+                        owner_field, scope, statement.else_statement.body
+                    )
 
             case ast.ReturnNode():
                 if statement.value is not None:
@@ -246,7 +236,7 @@ class SymbolResolver:
                         node_id=parameter.id,
                     )
 
-                function_def = hir.FunctionDef(name='lambda')
+                function_def = hir.FunctionDef(name="lambda")
                 self.hir_ctx.fields[subexpression.id] = function_def
 
                 if isinstance(subexpression, ast.BlockLambdaNode):
@@ -286,7 +276,7 @@ class SymbolResolver:
 
     def enter_node(self, node: ast.Node) -> SymbolScope:
         if node.id not in self.scopes:
-            raise ValueError(f'Failed to locate scope for {node!r}')
+            raise ValueError(f"Failed to locate scope for {node!r}")
 
         scope = self.scopes[node.id]
         self.scope_stack.append(scope)
@@ -295,7 +285,7 @@ class SymbolResolver:
     def exit_node(self, node: ast.Node) -> SymbolScope:
         scope = self.scope_stack.pop()
         if scope.node_id != node.id:
-            raise ValueError(f'Stack top mismatch when exiting node {node!r}')
+            raise ValueError(f"Stack top mismatch when exiting node {node!r}")
 
         return scope
 
@@ -306,7 +296,7 @@ class SymbolResolver:
         include_local_declarations: bool = True,
         include_functions: bool = True,
         include_type_parameters: bool = True,
-    ) -> typing.Optional[ResolvedSymbol]:
+    ) -> ResolvedSymbol | None:
         first_iteration = True
         can_access_type_parameters = include_type_parameters
         can_access_class_parameters = True
@@ -321,10 +311,7 @@ class SymbolResolver:
                 if name in scope.type_parameters:
                     return scope.type_parameters[name]
 
-            if (
-                scope.kind is ScopeKind.CLASS
-                and can_access_class_parameters
-            ):
+            if scope.kind is ScopeKind.CLASS and can_access_class_parameters:
                 if name in scope.type_parameters:
                     return scope.type_parameters[name]
 
@@ -339,10 +326,7 @@ class SymbolResolver:
             if name in scope.class_defs:
                 return scope.class_defs[name]
 
-            if (
-                scope.kind is not ScopeKind.BLOCK
-                and scope.kind is not ScopeKind.LAMBDA
-            ):
+            if scope.kind is not ScopeKind.BLOCK and scope.kind is not ScopeKind.LAMBDA:
                 can_access_declarations = False
                 can_access_type_parameters = False
 
@@ -354,15 +338,13 @@ class SymbolResolver:
 
     def resolve_attribute(
         self,
-        field: hir.HirField,
+        field: hir.HirPathResult,
         name: str,
-    ) -> typing.Optional[ResolvedAttribute]:
+    ) -> ResolvedAttribute | None:
         match field:
             case hir.ModuleDef():
                 return (
-                    field.classes.get(name)
-                    or field.functions.get(name)
-                    or field.classes.get(name)
+                    field.classes.get(name) or field.functions.get(name) or field.classes.get(name)
                 )
 
             case hir.ClassDef():

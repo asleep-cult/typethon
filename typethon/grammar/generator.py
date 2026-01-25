@@ -7,13 +7,7 @@ import logging
 import io
 
 from . import ast
-from .frozen import (
-    ActionKind,
-    FrozenSymbolTable,
-    FrozenParserTable,
-    UNSET_ACTION,
-    UNSET_GOTO
-)
+from .frozen import ActionKind, FrozenSymbolTable, FrozenParserTable, UNSET_ACTION, UNSET_GOTO
 from .exceptions import ParserGeneratorError
 from .symbols import (
     Production,
@@ -27,21 +21,18 @@ from ..syntax.tokens import StdTokenKind, TokenMap, KeywordMap, STD_TOKENS
 
 logger = logging.getLogger(__name__)
 
-TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
-KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
-
 UNSET_TRANSITION = -1
 
-InternedSymbol = int
-InternedParserItem = int
-LookaheadSet = int
-InternedCanonicalCollection = int
+type InternedSymbol = int
+type InternedParserItem = int
+type LookaheadSet = int
+type InternedCanonicalCollection = int
 
-ParserItem = tuple[
+type ParserItem[TokenKindT: enum.Enum, KeywordKindT: enum.Enum] = tuple[
     Production[TokenKindT, KeywordKindT],
     int,
 ]
-CanonicalCollection = tuple[
+type CanonicalCollection = tuple[
     tuple[InternedParserItem, ...],
     tuple[LookaheadSet, ...],
 ]
@@ -54,7 +45,7 @@ class ParserState:
 
 
 @attr.s(kw_only=True, slots=True)
-class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
+class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     genereator: ParserTableGenerator[TokenKindT, KeywordKindT] = attr.ib()
     table: FrozenParserTable[TokenKindT, KeywordKindT] = attr.ib()
 
@@ -62,13 +53,13 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         which: str,
         entry: tuple[ActionKind, int],
-    ) -> typing.Optional[str]:
+    ) -> str | None:
         if entry[0] == ActionKind.SHIFT:
             dumped = self.genereator.dump_canonical_collection(entry[1])
-            return f'The next state of the {which} entry is as follows: {dumped}'
+            return f"The next state of the {which} entry is as follows: {dumped}"
         elif entry[0] == ActionKind.REDUCE:
             production = self.genereator.productions[entry[1]]
-            return f'The {which} entry reduced by the following procuction: {production}\n'
+            return f"The {which} entry reduced by the following procuction: {production}\n"
 
     def get_action_table_conflict_message(
         self,
@@ -76,21 +67,21 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         state_id: int,
         existing_entry: tuple[ActionKind, int],
         new_entry: tuple[ActionKind, int],
-    ) -> str:      
+    ) -> str:
         dumped = self.genereator.dump_canonical_collection(state_id)
 
         writer = io.StringIO()
         writer.write(
-            f'Encountered a(n) {existing_entry[0].name}/{new_entry[0].name} conflict '
-            f'while trying to add a(n) {new_entry[0].name} action for symbol {symbol.kind.name} '
-            f'in #{state_id}. Note: The current state is as follows:\n{dumped}'
+            f"Encountered a(n) {existing_entry[0].name}/{new_entry[0].name} conflict "
+            f"while trying to add a(n) {new_entry[0].name} action for symbol {symbol.kind.name} "
+            f"in #{state_id}. Note: The current state is as follows:\n{dumped}"
         )
 
-        note = self.get_action_entry_note_message('existing', existing_entry)
+        note = self.get_action_entry_note_message("existing", existing_entry)
         if note is not None:
             writer.write(note)
 
-        note = self.get_action_entry_note_message('new', new_entry)
+        note = self.get_action_entry_note_message("new", new_entry)
         if note is not None:
             writer.write(note)
 
@@ -99,10 +90,7 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
     def add_accept(self, state_id: int, production: Production[TokenKindT, KeywordKindT]) -> None:
         new_entry = (ActionKind.ACCEPT, production.id)
         existing_entry = self.table.actions[state_id][EOF.id]
-        if (
-            existing_entry != UNSET_ACTION
-            and existing_entry != new_entry
-        ):
+        if existing_entry != UNSET_ACTION and existing_entry != new_entry:
             message = self.get_action_table_conflict_message(
                 EOF,
                 state_id,
@@ -121,10 +109,7 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
     ) -> None:
         existing_entry = self.table.actions[state_id][symbol.id]
         new_entry = (ActionKind.SHIFT, next_id)
-        if (
-            existing_entry != UNSET_ACTION
-            and existing_entry != new_entry
-        ):
+        if existing_entry != UNSET_ACTION and existing_entry != new_entry:
             recoverable = existing_entry[0] is ActionKind.REDUCE
             if not recoverable or self.genereator.require_log():
                 message = self.get_action_table_conflict_message(
@@ -145,17 +130,11 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
     ) -> None:
         existing_entry = self.table.actions[state_id][symbol.id]
         new_entry = (ActionKind.REDUCE, production.id)
-        if (
-            existing_entry != UNSET_ACTION
-            and existing_entry != new_entry
-        ):
+        if existing_entry != UNSET_ACTION and existing_entry != new_entry:
             recoverable = existing_entry[0] is ActionKind.SHIFT
             if not recoverable or self.genereator.require_log():
                 message = self.get_action_table_conflict_message(
-                    symbol,
-                    state_id,
-                    existing_entry,
-                    new_entry
+                    symbol, state_id, existing_entry, new_entry
                 )
                 self.genereator.report_conflict(message, recoverable=recoverable)
 
@@ -172,14 +151,11 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
     ) -> None:
         index = symbol.id - len(self.table.frozen_symbols.interned_terminal_lookup)
         existing_entry = self.table.gotos[state_id][index]
-        if (
-            existing_entry != UNSET_GOTO
-            and existing_entry != destination_id
-        ):
+        if existing_entry != UNSET_GOTO and existing_entry != destination_id:
             message = (
-                'Encountered impossible conflict while trying to add '
-                'an entry to add an entry to the goto table state #{0}, '
-                'symbol {1}, destination: state #{2}: {3}'.format(
+                "Encountered impossible conflict while trying to add "
+                "an entry to add an entry to the goto table state #{0}, "
+                "symbol {1}, destination: state #{2}: {3}".format(
                     state_id,
                     symbol,
                     destination_id,
@@ -191,41 +167,31 @@ class TableBuilder(typing.Generic[TokenKindT, KeywordKindT]):
         self.table.gotos[state_id][index] = destination_id
 
 
-# Finally, the parser generator is quick and seems to work well.
-class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
+class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def __init__(
         self,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
         rules: list[ast.RuleNode[TokenKindT, KeywordKindT]],
     ) -> None:
-        self.terminal_kinds: list[
-            typing.Union[StdTokenKind, TokenKindT, KeywordKindT]
-        ] = []
+        self.terminal_kinds: list[StdTokenKind | TokenKindT | KeywordKindT] = []
         self.terminal_kinds.extend(std_token for _, std_token in STD_TOKENS)
         self.terminal_kinds.extend(token for _, token in tokens)
         self.terminal_kinds.extend(keyword for _, keyword in keywords)
         self.terminal_symbol_boundary = len(self.terminal_kinds)
 
         self.rules = rules
-        self.nonterminals: dict[
-            str, NonterminalSymbol[TokenKindT, KeywordKindT]
-        ] = {}
+        self.nonterminals: dict[str, NonterminalSymbol[TokenKindT, KeywordKindT]] = {}
         self.terminals: dict[
-            typing.Union[TokenKindT, KeywordKindT, StdTokenKind],
+            TokenKindT | KeywordKindT | StdTokenKind,
             TerminalSymbol[TokenKindT, KeywordKindT],
         ] = {}
-        self.epsilon_nonterminals: typing.Set[
-            NonterminalSymbol[TokenKindT, KeywordKindT]
-        ] = set()
+        self.epsilon_nonterminals: set[NonterminalSymbol[TokenKindT, KeywordKindT]] = set()
         self.first_sets: list[LookaheadSet] = []
-        self.nonterminal_closures: list[
-            list[InternedParserItem]
-        ] = []
+        self.nonterminal_closures: list[list[InternedParserItem]] = []
 
         self.interned_items_lookup: dict[
-            ParserItem[TokenKindT, KeywordKindT],
-            InternedParserItem
+            ParserItem[TokenKindT, KeywordKindT], InternedParserItem
         ] = {}
         self.interned_items: list[ParserItem[TokenKindT, KeywordKindT]] = []
 
@@ -237,21 +203,14 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self.interned_canonical_collections: list[CanonicalCollection] = []
 
         self.productions: list[Production[TokenKindT, KeywordKindT]] = []
-        self.transitions: list[
-            list[InternedCanonicalCollection]
-        ] = []
+        self.transitions: list[list[InternedCanonicalCollection]] = []
 
         self.precomputed_gotos: dict[
             tuple[InternedCanonicalCollection, InternedSymbol],
             InternedCanonicalCollection,
         ] = {}
 
-    def report_conflict(
-        self,
-        message: str,
-        *,
-        recoverable: bool = False
-    ) -> None:
+    def report_conflict(self, message: str, *, recoverable: bool = False) -> None:
         if not recoverable:
             raise ParserGeneratorError(message)
 
@@ -261,10 +220,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         return logger.getEffectiveLevel() <= logging.DEBUG
 
     def create_nonterminal_symbol(
-        self,
-        *,
-        name: str,
-        entrypoint: bool = False
+        self, *, name: str, entrypoint: bool = False
     ) -> NonterminalSymbol[TokenKindT, KeywordKindT]:
         symbol = NonterminalSymbol[TokenKindT, KeywordKindT](
             id=len(self.interned_symbols),
@@ -324,16 +280,13 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self,
         *,
         lhs: NonterminalSymbol[TokenKindT, KeywordKindT],
-        action: typing.Optional[str] = None,
+        action: str | None = None,
     ) -> Production[TokenKindT, KeywordKindT]:
         production = Production(id=len(self.productions), lhs=lhs, action=action)
         self.productions.append(production)
         return production
 
-    def initialize_productions_for_rule(
-        self,
-        rule: ast.RuleNode[TokenKindT, KeywordKindT]
-    ) -> None:
+    def initialize_productions_for_rule(self, rule: ast.RuleNode[TokenKindT, KeywordKindT]) -> None:
         nonterminal = self.nonterminals[rule.name]
 
         for item in rule.items:
@@ -354,11 +307,11 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         self.nonterminals[nonterminal.name] = nonterminal
         # | epsilon
         temporary_production = self.create_production(lhs=nonterminal)
-        temporary_production.action = '@sequence'
+        temporary_production.action = "@sequence"
         nonterminal.productions.append(temporary_production)
         # | nonterminal expr
         temporary_production = self.create_production(lhs=nonterminal)
-        temporary_production.action = '@sequence'
+        temporary_production.action = "@sequence"
         self.add_symbols_for_expression(
             temporary_production,
             expression,
@@ -385,21 +338,21 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         match expression:
             case ast.StarNode():
                 self.add_new_star_expression(
-                    f'star-{expression.start}:{expression.end}',
+                    f"star-{expression.start}:{expression.end}",
                     production,
                     expression.expression,
-                    capture=capture
+                    capture=capture,
                 )
 
             case ast.PlusNode():
                 # plus-a:b = nonterminal
                 nonterminal = self.create_nonterminal_symbol(
-                    name=f'plus-{expression.start}-{expression.end}'
+                    name=f"plus-{expression.start}-{expression.end}"
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | expr plus-a:b@star
                 temporary_production = self.create_production(lhs=nonterminal)
-                temporary_production.action = '@prepend'
+                temporary_production.action = "@prepend"
                 self.add_symbols_for_expression(
                     temporary_production,
                     expression.expression,
@@ -408,7 +361,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 nonterminal.productions.append(temporary_production)
 
                 self.add_new_star_expression(
-                    f'plus-{expression.start}-{expression.end}@star',
+                    f"plus-{expression.start}-{expression.end}@star",
                     temporary_production,
                     expression.expression,
                     capture=capture,
@@ -422,16 +375,16 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             case ast.OptionalNode():
                 # optional-a:b = nonterminal
                 nonterminal = self.create_nonterminal_symbol(
-                    name=f'optional-{expression.start}-{expression.end}'
+                    name=f"optional-{expression.start}-{expression.end}"
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | epsilon
                 temporary_production = self.create_production(lhs=nonterminal)
-                temporary_production.action = '@option'
+                temporary_production.action = "@option"
                 nonterminal.productions.append(temporary_production)
                 # | expr
                 temporary_production = self.create_production(lhs=nonterminal)
-                temporary_production.action = '@option'
+                temporary_production.action = "@option"
                 self.add_symbols_for_expression(
                     temporary_production,
                     expression.expression,
@@ -450,7 +403,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             case ast.AlternativeNode():
                 # plus-a:b = nonterminal
                 nonterminal = self.create_nonterminal_symbol(
-                    name=f'alternative-{expression.start}-{expression.end}'
+                    name=f"alternative-{expression.start}-{expression.end}"
                 )
                 self.nonterminals[nonterminal.name] = nonterminal
                 # | lhs
@@ -487,7 +440,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
             case ast.NameNode():
                 if expression.value not in self.nonterminals:
-                    raise ValueError(f'{expression.value!r} is not a valid nonterminal symbol')
+                    raise ValueError(f"{expression.value!r} is not a valid nonterminal symbol")
 
                 production.add_symbol(self.nonterminals[expression.value], capture)
 
@@ -554,23 +507,16 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 interned_item = self.get_interned_item((production, 0))
                 closure.append(interned_item)
 
-    def iter_bitset(
-        self,
-        bitset: int
-    ) -> typing.Iterator[TerminalSymbol[TokenKindT, KeywordKindT]]:
+    def iter_bitset(self, bitset: int) -> typing.Iterator[TerminalSymbol[TokenKindT, KeywordKindT]]:
         return (
             typing.cast(
-                TerminalSymbol[TokenKindT, KeywordKindT],
-                self.interned_symbols[interned_symbol]
+                TerminalSymbol[TokenKindT, KeywordKindT], self.interned_symbols[interned_symbol]
             )
             for interned_symbol in range(bitset.bit_length())
             if bitset & (1 << interned_symbol)
         )
 
-    def get_first_set(
-        self,
-        symbols: list[Symbol[TokenKindT, KeywordKindT]]
-    ) -> LookaheadSet:
+    def get_first_set(self, symbols: list[Symbol[TokenKindT, KeywordKindT]]) -> LookaheadSet:
         result = 0
 
         for symbol in symbols:
@@ -587,32 +533,29 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
     def dump_canonical_collection(self, interned_collection: InternedCanonicalCollection) -> str:
         writer = io.StringIO()
-        writer.write(f'<parser state dump #{interned_collection}>\n')
+        writer.write(f"<parser state dump #{interned_collection}>\n")
 
         interned_items, lookaheads = self.interned_canonical_collections[interned_collection]
         for i, (interned_item, lookahead) in enumerate(zip(interned_items, lookaheads)):
             production, position = self.interned_items[interned_item]
 
-            string = ', '.join(
-                lookahead.kind.name
-                for lookahead in self.iter_bitset(lookahead)
-            )
-            writer.write(f'  ({i}., pos={position}, lookahead={{{string}}}):')
-            writer.write(f' {production.lhs.name} ->')
+            string = ", ".join(lookahead.kind.name for lookahead in self.iter_bitset(lookahead))
+            writer.write(f"  ({i}., pos={position}, lookahead={{{string}}}):")
+            writer.write(f" {production.lhs.name} ->")
 
             for j, symbol in enumerate(production.rhs):
                 if j == position:
-                    writer.write(' *')
+                    writer.write(" *")
 
                 if isinstance(symbol, NonterminalSymbol):
-                    writer.write(f' {symbol.name}')
+                    writer.write(f" {symbol.name}")
                 else:
-                    writer.write(f' {str(symbol)!r}')
+                    writer.write(f" {str(symbol)!r}")
 
             if len(production.rhs) <= position:
-                writer.write(' *')
+                writer.write(" *")
 
-            writer.write('\n')
+            writer.write("\n")
 
         return writer.getvalue()
 
@@ -660,7 +603,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     continue
 
                 lookahead = state.lookahead[interned_item]
-                trailing_symbols = production.rhs[position + 1:]
+                trailing_symbols = production.rhs[position + 1 :]
                 next_lookahead = self.get_first_set(trailing_symbols)
 
                 if all(
@@ -688,7 +631,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         symbol: Symbol[TokenKindT, KeywordKindT],
     ) -> InternedCanonicalCollection:
         state = ParserState()
-    
+
         interned_items, lookaheads = self.interned_canonical_collections[interned_collection]
         for interned_item, lookahead in zip(interned_items, lookaheads):
             production, position = self.interned_items[interned_item]
@@ -704,23 +647,19 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
         return next_interned_collection
 
     def compute_canonical_collection(
-        self,
-        production: Production[TokenKindT, KeywordKindT]
+        self, production: Production[TokenKindT, KeywordKindT]
     ) -> None:
         interned_item = self.get_interned_item((production, 0))
-        entry_state = ParserState(
-            items=[interned_item],
-            lookahead={interned_item: 1 << EOF.id}
-        )
+        entry_state = ParserState(items=[interned_item], lookahead={interned_item: 1 << EOF.id})
         interned_collection = self.compute_closure(entry_state)
 
         changed = True
         while changed:
             changed = False
-            logger.debug('Created %s states', len(self.interned_canonical_collections))
+            logger.debug("Created %s states", len(self.interned_canonical_collections))
 
-            for (interned_items, _), interned_collection in (
-                tuple(self.interned_canonical_collections_lookup.items())
+            for (interned_items, _), interned_collection in tuple(
+                self.interned_canonical_collections_lookup.items()
             ):
                 for interned_item in interned_items:
                     production, position = self.interned_items[interned_item]
@@ -733,17 +672,16 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     )
                     if next_interned_collection is None:
                         changed = True
-                        next_interned_collection = self.compute_goto(interned_collection, current_symbol)
+                        next_interned_collection = self.compute_goto(
+                            interned_collection, current_symbol
+                        )
 
                     transition = self.transitions[interned_collection][current_symbol.id]
-                    if (
-                        transition != UNSET_TRANSITION
-                        and transition != next_interned_collection
-                    ):
+                    if transition != UNSET_TRANSITION and transition != next_interned_collection:
                         raise ParserGeneratorError(
-                            'Encountered an impossible conflict while trying to '
-                            'set transition state #{0}, symbol {1} to {2}. '
-                            'The transition is already set to {3}.'.format(
+                            "Encountered an impossible conflict while trying to "
+                            "set transition state #{0}, symbol {1} to {2}. "
+                            "The transition is already set to {3}.".format(
                                 interned_collection,
                                 current_symbol,
                                 next_interned_collection,
@@ -751,10 +689,12 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                             )
                         )
 
-                    self.transitions[interned_collection][current_symbol.id] = next_interned_collection
+                    self.transitions[interned_collection][current_symbol.id] = (
+                        next_interned_collection
+                    )
 
         logger.info(
-            'Finished generating %s states.',
+            "Finished generating %s states.",
             len(self.interned_canonical_collections),
         )
 
@@ -766,14 +706,14 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
 
         symbol_table = self.generate_frozen_symbols()
         table = FrozenParserTable(
-            number_of_states=len(self.interned_canonical_collections),
-            frozen_symbols=symbol_table
+            number_of_states=len(self.interned_canonical_collections), frozen_symbols=symbol_table
         )
         builder = TableBuilder(genereator=self, table=table)
 
-        for (interned_items, lookaheads), interned_collection in (
-            self.interned_canonical_collections_lookup.items()
-        ):
+        for (
+            interned_items,
+            lookaheads,
+        ), interned_collection in self.interned_canonical_collections_lookup.items():
             for interned_item, lookahead in zip(interned_items, lookaheads):
                 production, position = self.interned_items[interned_item]
 
@@ -783,7 +723,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     else:
                         for lookahead_symbol in self.iter_bitset(lookahead):
                             builder.add_reduce(interned_collection, lookahead_symbol, production)
-                
+
                     continue
 
                 current_symbol = production.rhs[position]
@@ -800,10 +740,8 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                     builder.add_goto(interned_collection, nonterminal, transition)
 
         for interned_collection in self.interned_canonical_collections_lookup.values():
-            if all(
-                entry == UNSET_ACTION for entry in table.actions[interned_collection]
-            ):
-                raise ParserGeneratorError(f'State #{interned_collection} has no actions')
+            if all(entry == UNSET_ACTION for entry in table.actions[interned_collection]):
+                raise ParserGeneratorError(f"State #{interned_collection} has no actions")
 
         return table
 
@@ -818,7 +756,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
             if nonterminal.entrypoint:
                 if len(nonterminal.productions) != 1:
                     raise ParserGeneratorError(
-                        f'Grammar entrypoint {nonterminal.name!r} has more than one production'
+                        f"Grammar entrypoint {nonterminal.name!r} has more than one production"
                     )
 
                 production = nonterminal.productions[0]
@@ -826,7 +764,7 @@ class ParserTableGenerator(typing.Generic[TokenKindT, KeywordKindT]):
                 tables[nonterminal.name] = table
 
         if not tables:
-            raise ParserGeneratorError('The grammar has no entrypoint')
+            raise ParserGeneratorError("The grammar has no entrypoint")
 
         return tables
 

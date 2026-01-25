@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import attr
-import enum
-import typing
 from itertools import count
 
 from ..diagnostics import DiagnosticReporter
@@ -18,6 +16,12 @@ and resolved. Every attribute access that isn't on a local declaration
 gets resolved as well.
 """
 
+
+@attr.s(kw_only=True, slots=True)
+class DefId:
+    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+
+
 @attr.s(kw_only=True, slots=True)
 class HirContext:
     diagnostics: DiagnosticReporter = attr.ib()
@@ -26,8 +30,7 @@ class HirContext:
 
 
 @attr.s(kw_only=True, slots=True)
-class ModuleDef:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class ModuleDef(DefId):
     types: dict[str, TypeDeclaration] = attr.ib(factory=dict)
     classes: dict[str, ClassDef] = attr.ib(factory=dict)
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
@@ -35,7 +38,7 @@ class ModuleDef:
 
 @attr.s(kw_only=True, slots=True)
 class Generics:
-    owner: typing.Optional[Generics] = attr.ib(default=None)
+    owner: Generics | None = attr.ib(default=None)
     parameters: dict[str, TypeParameter] = attr.ib(factory=dict)
 
     def has_parameter_named(self, name: str) -> bool:
@@ -49,115 +52,111 @@ class Generics:
 
 
 @attr.s(kw_only=True, slots=True)
-class StructDef:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class StructDef(DefId):
     name: str = attr.ib()
     is_declaration: bool = attr.ib()
-    fields: dict[str, MaybeUnboundType] = attr.ib(factory=dict)
+    fields: dict[str, HirType] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class TupleDef:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class TupleDef(DefId):
     name: str = attr.ib()
     is_declaration: bool = attr.ib()
-    elts: list[MaybeUnboundType] = attr.ib(factory=list)
+    elts: list[HirType] = attr.ib(factory=list)
 
-UNIT = TupleDef(name='unit', is_declaration=False, elts=[])
-INVALID = TupleDef(name='invalid', is_declaration=True, elts=[])
+
+UNIT = TupleDef(name="unit", is_declaration=False, elts=[])
+INVALID = TupleDef(name="invalid", is_declaration=True, elts=[])
 
 
 @attr.s(kw_only=True, slots=True)
-class SumDef:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class SumDef(DefId):
     name: str = attr.ib()
-    types: dict[str, typing.Optional[DataType]] = attr.ib(factory=dict)
+    types: dict[str, StructDef | TupleDef | None] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class AliasDef:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class AliasDef(DefId):
     name: str = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class FunctionDef:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class FunctionDef(DefId):
     name: str = attr.ib()
-    parameters: dict[str, MaybeUnboundType] = attr.ib(factory=dict)
-    returns: MaybeUnboundType = attr.ib(default=UNIT)
+    parameters: dict[str, HirType] = attr.ib(factory=dict)
+    returns: HirType = attr.ib(default=UNIT)
 
 
 @attr.s(kw_only=True, slots=True)
-class ClassDef:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class ClassDef(DefId):
     name: str = attr.ib()
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class UseDef:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
-    type: Type = attr.ib(default=UNIT)
-    type_class: Type = attr.ib(default=UNIT)
+class UseDef(DefId):
+    type: HirType = attr.ib(default=UNIT)
+    type_class: HirType = attr.ib(default=UNIT)
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeParameter:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class TypeParameter(DefId):
     name: str = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class LocalDeclaration:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+class LocalDeclaration(DefId):
     name: str = attr.ib()
     node_id: int = attr.ib()
 
 
+type HirField = (
+    ModuleDef | StructDef | TupleDef | SumDef | AliasDef | FunctionDef | ClassDef | UseDef
+)
+
+type TypeDeclaration = (
+    StructDef | TupleDef | SumDef
+    # AliasDef,
+)
+
+
 @attr.s(kw_only=True, slots=True)
-class UnboundType:
-    type: Type = attr.ib()
+class PathSegment:
+    name: str = attr.ib()
+    result: HirPathResult = attr.ib()
+    arguments: list[HirType] = attr.ib(factory=list)
 
 
-Type = typing.Union[
-    StructDef,
-    TupleDef,
-    SumDef,
-    AliasDef,
-    ClassDef,
-    TypeParameter,
-]
+@attr.s(kw_only=True, slots=True)
+class Path:
+    # Xyz.Abc('t).foo might be represented as
+    # Path(segments=[
+    #   PathSegment(name='Xyz', result=ModuleDef),
+    #   PathSegment(name='abc', result=ClassDef, arguments=TypeParameter)
+    #   PathSegment(name='foo', result=FunctionDef)
+    # ])
+    # Anything in the program written as a name `x` is resolved to a path.
+    # Anything in a program written as `x.y` where x is not a local declaration
+    # is resolved to a path.
+    #   When y is not a local declaration, it is only valid in an executable code block,
+    #   and it is resolved to AttributeLookup (or whetever I decide to call it)
+    # When there are arguments after non-local declaration `y`, the result of the arguments
+    # are resolved and added to the segment's arguments.
+    segments: list[PathSegment] = attr.ib(factory=list)
 
-HirField = typing.Union[
-    Type,
-    ModuleDef,
-    FunctionDef,
-    UseDef,
-]
+    def get_result(self) -> HirPathResult:
+        return self.segments[-1].result
 
-MaybeUnboundType = typing.Union[
-    Type,
-    UnboundType,
-]
 
-TypeWithGenerics = typing.Union[
-    StructDef,
-    TupleDef,
-    SumDef,
-    FunctionDef,
-    ClassDef,
-]
+@attr.s(kw_only=True, slots=True)
+class ListType:
+    elt: HirType = attr.ib()
 
-DataType = typing.Union[
-    StructDef,
-    TupleDef,
-]
 
-TypeDeclaration = typing.Union[
-    StructDef,
-    TupleDef,
-    SumDef,
-    AliasDef,
-]
+type HirType = Path | ClassDef | TypeParameter | ListType | TypeDeclaration
+
+type HirPathResult = (
+    # HirType, bit without type parameters
+    ClassDef | TypeParameter | ListType | TypeDeclaration | HirField
+)

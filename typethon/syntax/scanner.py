@@ -17,60 +17,60 @@ from .tokens import (
     StdTokenKind,
 )
 
-__all__ = ('Scanner',)
+__all__ = ("Scanner",)
 
-TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
-KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
+TokenKindT = typing.TypeVar("TokenKindT", bound=enum.Enum)
+KeywordKindT = typing.TypeVar("KeywordKindT", bound=enum.Enum)
 
-TokenLookupTable = dict[
-    str, tuple['TokenLookupTable[TokenKindT]', typing.Optional[TokenKindT]]
+type TokenLookupTable[TokenKindT: enum.Enum] = dict[
+    str, tuple[TokenLookupTable[TokenKindT], TokenKindT | None]
 ]
 
-EOF = '\0'
+EOF = "\0"
 TABSIZE = 8
 ALTTABSIZE = 1
 
 
 def is_whitespace(char: str) -> bool:
-    return char in ' \t\f\r'
+    return char in " \t\f\r"
 
 
 def is_indent(char: str) -> bool:
-    return char in ' \t'
+    return char in " \t"
 
 
 def is_blank(char: str) -> bool:
-    return char == '#' or char == '\\' or char == '\n'
+    return char == "#" or char == "\\" or char == "\n"
 
 
 def is_identifier_start(char: str) -> bool:
-    return 'a' <= char <= 'z' or 'A' <= char <= 'Z' or char == '_' or char >= '\x80'
+    return "a" <= char <= "z" or "A" <= char <= "Z" or char == "_" or char >= "\x80"
 
 
 def is_identifier(char: str) -> bool:
     return (
-        'a' <= char <= 'z'
-        or 'A' <= char <= 'Z'
-        or '0' <= char <= '9'
-        or char == '_'
-        or char >= '\x80'
+        "a" <= char <= "z"
+        or "A" <= char <= "Z"
+        or "0" <= char <= "9"
+        or char == "_"
+        or char >= "\x80"
     )
 
 
 def is_digit(char: str) -> bool:
-    return '0' <= char <= '9'
+    return "0" <= char <= "9"
 
 
 def is_hexadecimal(char: str) -> bool:
-    return 'a' <= char <= 'f' or 'A' <= char <= 'F' or '0' <= char <= '9'
+    return "a" <= char <= "f" or "A" <= char <= "F" or "0" <= char <= "9"
 
 
 def is_octal(char: str) -> bool:
-    return '0' <= char <= '7'
+    return "0" <= char <= "7"
 
 
 def is_binary(char: str) -> bool:
-    return char in '01'
+    return char in "01"
 
 
 class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
@@ -96,7 +96,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         self.is_newline = False
         self.match_stack: list[TokenKindT] = []
         self.indentstack: list[tuple[int, int]] = [(0, 0)]
-        self.indents: list[typing.Union[IndentToken, DedentToken]] = []
+        self.indents: list[IndentToken | DedentToken] = []
 
         self.match_stack_bottom = 0
         self.match_bottom_stack: list[int] = []
@@ -111,9 +111,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
     def exit_nested_stack(self) -> None:
         self.match_stack_bottom = self.match_bottom_stack.pop()
 
-    def create_lookup_table(
-        self, tokens: dict[str, TokenKindT]
-    ) -> TokenLookupTable[TokenKindT]:
+    def create_lookup_table(self, tokens: dict[str, TokenKindT]) -> TokenLookupTable[TokenKindT]:
         table: TokenLookupTable[TokenKindT] = {}
 
         for token, kind in tokens.items():
@@ -164,12 +162,12 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
 
         return self.position != start
 
-    def string_prefix_flag(self, char: str) -> typing.Optional[StringTokenFlags]:
-        if char == 'r':
+    def string_prefix_flag(self, char: str) -> StringTokenFlags | None:
+        if char == "r":
             return StringTokenFlags.RAW
-        elif char == 'b':
+        elif char == "b":
             return StringTokenFlags.BYTES
-        elif char == 'f':
+        elif char == "f":
             return StringTokenFlags.FORMAT
 
     def string_terminated(self, terminator: str, multiline: bool) -> bool:
@@ -194,10 +192,10 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         while is_indent(self.peek_char()):
             char = self.consume_char()
 
-            if char == ' ':
+            if char == " ":
                 indent += 1
                 altindent += 1
-            elif char == '\t':
+            elif char == "\t":
                 indent += ((indent // TABSIZE) + 1) * TABSIZE
                 altindent += ((indent // ALTTABSIZE) + 1) * ALTTABSIZE
 
@@ -251,9 +249,9 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         assert is_identifier_start(char)
 
         self.consume_while(is_identifier)
-        content = self.source[start:self.position]
+        content = self.source[start : self.position]
 
-        if self.peek_char() in '\'\"':
+        if self.peek_char() in "'\"":
             flags = StringTokenFlags.NONE
 
             for char in content.lower():
@@ -277,14 +275,14 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
     def scan_number(self, predicate: typing.Callable[[str], bool]) -> NumberTokenFlags:
         flags = NumberTokenFlags.NONE
 
-        while predicate(self.peek_char()) or self.peek_char() == '_':
+        while predicate(self.peek_char()) or self.peek_char() == "_":
             char = self.consume_char()
 
-            if char == '_' and self.peek_char() == '_':
+            if char == "_" and self.peek_char() == "_":
                 self.consume_char()
                 flags |= NumberTokenFlags.CONSECUTIVE_UNDERSCORES
 
-        if self.peek_char(-1) == '_':
+        if self.peek_char(-1) == "_":
             flags |= NumberTokenFlags.TRAILING_UNDERSCORE
 
         return flags
@@ -293,23 +291,23 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
         start = self.position
 
         char = self.peek_char()
-        assert char == '.' or is_digit(char)
+        assert char == "." or is_digit(char)
 
         flags = NumberTokenFlags.NONE
 
-        if char == '0':
+        if char == "0":
             self.consume_char()
             char = self.peek_char()
 
-            if char in 'Xx':
+            if char in "Xx":
                 self.consume_char()
                 flags |= NumberTokenFlags.HEXADECIMAL | self.scan_number(is_hexadecimal)
 
-            elif char in 'Oo':
+            elif char in "Oo":
                 self.consume_char()
                 flags |= NumberTokenFlags.OCTAL | self.scan_number(is_octal)
 
-            elif char in 'Bb':
+            elif char in "Bb":
                 self.consume_char()
                 flags |= NumberTokenFlags.BINARY | self.scan_number(is_binary)
 
@@ -317,23 +315,23 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
                 if self.position <= start + 2:
                     flags |= NumberTokenFlags.EMPTY
 
-                content = self.source[start:self.position]
+                content = self.source[start : self.position]
                 return NumberToken(start=start, end=self.position, content=content, flags=flags)
 
         flags |= self.scan_number(is_digit)
 
-        content = self.source[start:self.position]
-        if char == '0' and content.count('0') != len(content):
+        content = self.source[start : self.position]
+        if char == "0" and content.count("0") != len(content):
             flags |= NumberTokenFlags.LEADING_ZERO
 
-        if self.peek_char() == '.':
+        if self.peek_char() == ".":
             self.consume_char()
             flags |= NumberTokenFlags.FLOAT | self.scan_number(is_digit)
 
-        if self.peek_char() in 'Ee':
+        if self.peek_char() in "Ee":
             self.consume_char()
 
-            if self.peek_char() in '+-':
+            if self.peek_char() in "+-":
                 self.consume_char()
 
             if not is_digit(self.peek_char()):
@@ -341,18 +339,18 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
 
             flags |= NumberTokenFlags.FLOAT | self.scan_number(is_digit)
 
-        if self.peek_char() in 'Jj':
+        if self.peek_char() in "Jj":
             self.consume_char()
             flags |= NumberTokenFlags.IMAGINARY
 
-        content = self.source[start:self.position]
+        content = self.source[start : self.position]
         return NumberToken(start=start, end=self.position, content=content, flags=flags)
 
-    def newline(self) -> typing.Optional[Token[TokenKindT, KeywordKindT]]:
+    def newline(self) -> Token[TokenKindT, KeywordKindT] | None:
         start = self.position
 
         char = self.consume_char()
-        assert char == '\n'
+        assert char == "\n"
 
         if self.is_newline or not self.is_match_stack_effectively_empty():
             return None
@@ -374,7 +372,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
                 self.consume_char()
                 multiline = True
             else:
-                return StringToken(start=start, end=self.position, content='', flags=flags)
+                return StringToken(start=start, end=self.position, content="", flags=flags)
 
         terminator_size = 3 if multiline else 1
 
@@ -383,59 +381,58 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
 
             if char == terminator:
                 if self.string_terminated(terminator, multiline):
-                    content = self.source[start + terminator_size:self.position - terminator_size]
+                    content = self.source[start + terminator_size : self.position - terminator_size]
                     return StringToken(start=start, end=self.position, content=content, flags=flags)
 
-            elif char == '\\':
+            elif char == "\\":
                 self.consume_char()
 
-            elif char == EOF or char == '\n' and not multiline:
+            elif char == EOF or char == "\n" and not multiline:
                 flags |= StringTokenFlags.UNTERMINATED
 
             self.consume_char()
 
-        content = self.source[start + terminator_size:]
+        content = self.source[start + terminator_size :]
         return StringToken(start=start, end=self.position, content=content, flags=flags)
 
-    def character(self) -> typing.Optional[StringToken]:
+    def character(self) -> StringToken | None:
         start = self.position
 
         terminator = self.peek_char()
-        assert terminator == '\''
+        assert terminator == "'"
         flags = StringTokenFlags.CHARACTER
 
         content = self.peek_char(1)
         if content == terminator:
             self.consume_char(2)
-            return StringToken(start=start, end=self.position, content='', flags=flags)
+            return StringToken(start=start, end=self.position, content="", flags=flags)
 
         char = self.peek_char(2)
         if char == terminator:
             self.consume_char(3)
             return StringToken(start=start, end=self.position, content=content, flags=flags)
 
-    def comment(self) -> typing.Optional[DirectiveToken]:
+    def comment(self) -> DirectiveToken | None:
         start = self.position
 
         char = self.consume_char()
-        assert char == '#'
+        assert char == "#"
 
-        self.consume_while(lambda char: char != '\n')
-        comment = self.source[start + 1:self.position]
+        self.consume_while(lambda char: char != "\n")
+        comment = self.source[start + 1 : self.position]
 
-        directive_start = comment.find('[')
-        directive_end = comment.find(']')
+        directive_start = comment.find("[")
+        directive_end = comment.find("]")
 
         if directive_start != 0 or directive_end == -1:
             return None
 
-        content = comment[directive_start + 1:directive_end]
+        content = comment[directive_start + 1 : directive_end]
         return DirectiveToken(start=start, end=self.position, content=content)
 
-    def token(self) -> typing.Union[
-        TokenKindT,
-        typing.Literal[StdTokenKind.EINVALID, StdTokenKind.EUNMATCHED]
-    ]:
+    def token(
+        self,
+    ) -> TokenKindT | typing.Literal[StdTokenKind.EINVALID, StdTokenKind.EUNMATCHED]:
         current_table = self.tokens
         current_kind = StdTokenKind.EINVALID
 
@@ -486,7 +483,7 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
             elif is_digit(char):
                 return self.number()
 
-            elif char == '\'':
+            elif char == "'":
                 character = self.character()
                 if character is not None:
                     return character
@@ -494,21 +491,21 @@ class Scanner(typing.Generic[TokenKindT, KeywordKindT]):
             elif char == '"':
                 return self.string()
 
-            elif char == '\n':
+            elif char == "\n":
                 token = self.newline()
                 if token is None:
                     continue
 
                 return token
 
-            elif char == '#':
+            elif char == "#":
                 token = self.comment()
                 if token is None:
                     continue
 
                 return token
 
-            elif char == '.':
+            elif char == ".":
                 char = self.peek_char(1)
                 if is_digit(char):
                     return self.number()

@@ -35,18 +35,18 @@ SimpleTokenKind = typing.Literal[
     GrammarTokenKind.QUESTION,
     GrammarTokenKind.EXCLAMATION,
 ]
-GrammarToken = Token[SimpleTokenKind, typing.Literal[UnitEnum.NOTHING]]
+type GrammarToken = Token[SimpleTokenKind, typing.Literal[UnitEnum.NOTHING]]
 GrammarScanner = Scanner[SimpleTokenKind, typing.Literal[UnitEnum.NOTHING]]
 
 
 GRAMMAR_TOKENS: TokenMap[SimpleTokenKind] = (
-    ('@', GrammarTokenKind.AT),
-    (':', GrammarTokenKind.COLON),
-    ('|', GrammarTokenKind.VERTICALBAR),
-    ('(', GrammarTokenKind.OPENPAREN),
-    (')', GrammarTokenKind.CLOSEPAREN),
-    ('*', GrammarTokenKind.STAR),
-    ('+', GrammarTokenKind.PLUS),
-    ('?', GrammarTokenKind.QUESTION),
-    ('!', GrammarTokenKind.EXCLAMATION),
+    ("@", GrammarTokenKind.AT),
+    (":", GrammarTokenKind.COLON),
+    ("|", GrammarTokenKind.VERTICALBAR),
+    ("(", GrammarTokenKind.OPENPAREN),
+    (")", GrammarTokenKind.CLOSEPAREN),
+    ("*", GrammarTokenKind.STAR),
+    ("+", GrammarTokenKind.PLUS),
+    ("?", GrammarTokenKind.QUESTION),
+    ("!", GrammarTokenKind.EXCLAMATION),
 )

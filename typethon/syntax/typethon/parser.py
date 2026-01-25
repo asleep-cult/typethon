@@ -4,6 +4,7 @@ import io
 import logging
 import inspect
 import pickle
+from types import FunctionType
 from pathlib import Path
 
 from .tokens import (
@@ -34,13 +35,13 @@ from ...grammar import (
     SequenceNode,
 )
 
-NodeItem = NodeItemT[TokenKind, KeywordKind]
-TransformCallbackT = typing.Callable[..., NodeItem]
+type NodeItem = NodeItemT[TokenKind, KeywordKind]
+type TransformCallbackT = FunctionType[..., NodeItem]
 
 logger = logging.getLogger(__name__)
 
-GRAMMAR_PATH = './typethon.gram'
-GRAMMAR_CACHE_PATH = './parsertables.bin'
+GRAMMAR_PATH = "./typethon.gram"
+GRAMMAR_CACHE_PATH = "./parsertables.bin"
 EXPERIMENTAL_LAMBDAS = True
 """
 The syntax for experimental lambdas is as follows:
@@ -81,7 +82,7 @@ before we can a chance to update the stack bottom.
 
 class ASTParser:
     tables: typing.ClassVar[
-        typing.Optional[dict[str, FrozenParserTable[TokenKind, KeywordKind]]]
+        dict[str, FrozenParserTable[TokenKind, KeywordKind]] | None
     ] = None
 
     def __init__(
@@ -89,20 +90,21 @@ class ASTParser:
         source: str,
         entrypoint: str,
         *,
-        transformer_wrapper: typing.Optional[
-            typing.Callable[[TransformCallbackT], TransformCallbackT]
-        ] = None,
+        transformer_wrapper: typing.Callable[[TransformCallbackT], TransformCallbackT]
+        | None = None,
     ) -> None:
         self.scanner = create_scanner(source)
 
         transformers: list[Transformer[TokenKind, KeywordKind]] = []
+
         def is_transformer(member: typing.Any) -> bool:
             return inspect.ismethod(member) and (
-                member.__name__.startswith('create_')
-                or member.__name__ in (
-                    'add_lambda_parameters',
-                    'exit_lambda_block',
-                    'add_function_body',
+                member.__name__.startswith("create_")
+                or member.__name__
+                in (
+                    "add_lambda_parameters",
+                    "exit_lambda_block",
+                    "add_function_body",
                 )
             )
 
@@ -113,7 +115,7 @@ class ASTParser:
             transformers.append(Transformer[TokenKind, KeywordKind].from_function(function))
 
         if self.tables is None:
-            raise ValueError('Call ASTParser.load_parser_tables()')
+            raise ValueError("Call ASTParser.load_parser_tables()")
 
         self.parser = ParserAutomaton(
             self.scanner,
@@ -126,17 +128,17 @@ class ASTParser:
         cache_path = Path(__file__).parent / GRAMMAR_CACHE_PATH
 
         if not regenrate:
-            with open(cache_path, 'rb') as fp:
+            with open(cache_path, "rb") as fp:
                 start = time.perf_counter()
                 cls.tables = pickle.load(fp)
                 end = time.perf_counter()
-                
+
                 difference = end - start
-                logger.info(f'Loaded cached tables after {difference:.2f} seconds')
+                logger.info(f"Loaded cached tables after {difference:.2f} seconds")
                 return
 
         grammar_path = Path(__file__).parent / GRAMMAR_PATH
-        with open(grammar_path, 'r') as fp:
+        with open(grammar_path, "r") as fp:
             grammar = fp.read()
 
         start = time.perf_counter()
@@ -145,11 +147,11 @@ class ASTParser:
         )
         end = time.perf_counter()
 
-        with open(cache_path, 'wb') as fp:
+        with open(cache_path, "wb") as fp:
             pickle.dump(cls.tables, fp)
 
         difference = end - start
-        logger.info(f'Generated tables after {difference:.2f} seconds')
+        logger.info(f"Generated tables after {difference:.2f} seconds")
 
     def create_module(
         self,
@@ -177,9 +179,7 @@ class ASTParser:
         return ast.ReturnNode(start=span[0], end=span[1], value=value.item)
 
     def create_expr_statement(
-        self,
-        span: tuple[int, int],
-        expression: ast.ExpressionNode
+        self, span: tuple[int, int], expression: ast.ExpressionNode
     ) -> ast.ExprNode:
         return ast.ExprNode(
             start=span[0],
@@ -434,9 +434,7 @@ class ASTParser:
             case KeywordKind.IS:
                 op = ast.CmpOperatorKind.IS
             case _:
-                # What is the point of this accepting arguments
-                # but no type checks works
-                typing.assert_never(operator.kind)
+                assert False, "Unreachable"
 
         return ast.ComparatorNode(
             start=span[0],
@@ -452,7 +450,7 @@ class ASTParser:
         operator2: Token,
         value: ast.ExpressionNode,
     ) -> ast.ComparatorNode:
-        op: typing.Optional[ast.CmpOperatorKind] = None
+        op: ast.CmpOperatorKind | None = None
 
         if operator1.kind is KeywordKind.IS:
             if operator2.kind is KeywordKind.NOT:
@@ -463,7 +461,7 @@ class ASTParser:
                 op = ast.CmpOperatorKind.NOTIN
 
         if op is None:
-            assert False, 'Unreachable'
+            assert False, "Unreachable"
 
         return ast.ComparatorNode(
             start=span[0],
@@ -507,7 +505,7 @@ class ASTParser:
             case TokenKind.DOUBLESTAR:
                 op = ast.OperatorKind.POW
             case _:
-                assert False, 'Unreachable'
+                assert False, "Unreachable"
 
         return ast.BinaryOpNode(
             start=span[0],
@@ -531,7 +529,7 @@ class ASTParser:
             case TokenKind.TILDE:
                 op = ast.UnaryOperatorKind.INVERT
             case _:
-                assert False, 'Unreachable'
+                assert False, "Unreachable"
 
         return ast.UnaryOpNode(
             start=span[0],
@@ -544,7 +542,7 @@ class ASTParser:
         self,
         span: tuple[int, int],
         callee: ast.ExpressionNode,
-        args: OptionNode[SequenceNode[ast.ExpressionNode]]
+        args: OptionNode[SequenceNode[ast.ExpressionNode]],
     ) -> ast.CallNode:
         return ast.CallNode(
             start=span[0],
@@ -601,11 +599,7 @@ class ASTParser:
     ) -> ast.ConstantNode:
         match token.kind:
             case KeywordKind.TRUE:
-                return ast.ConstantNode(
-                    start=span[0],
-                    end=span[1],
-                    kind=ast.ConstantKind.TRUE
-                )
+                return ast.ConstantNode(start=span[0], end=span[1], kind=ast.ConstantKind.TRUE)
             case KeywordKind.FALSE:
                 return ast.ConstantNode(
                     start=span[0],
@@ -666,7 +660,7 @@ class ASTParser:
             writer.write(token.content)
             # TODO: What is a T-String?
             # We actually need to check to make sure bytes and we
-            # cant actually just combine the flags like this 
+            # cant actually just combine the flags like this
 
             if (token.flags & StringTokenFlags.RAW) != 0:
                 flags |= ast.StringFlags.RAW
@@ -696,7 +690,7 @@ class ASTParser:
         )
 
     def potentially_enter_lambda_stack(self) -> None:
-        assert EXPERIMENTAL_LAMBDAS, 'Lambdas not allowed'
+        assert EXPERIMENTAL_LAMBDAS, "Lambdas not allowed"
 
         position = self.scanner.position
         self.scanner.enter_nested_stack()
@@ -712,7 +706,7 @@ class ASTParser:
         self,
         span: tuple[int, int],
         elts: OptionNode[SequenceNode[ast.ExpressionNode]],
-    ) -> typing.Union[ast.TupleNode, SequenceNode[ast.LambdaParameterNode]]:
+    ) -> ast.TupleNode | SequenceNode[ast.LambdaParameterNode]:
         token = self.parser.peek_token(1)
         if token.kind is not TokenKind.DOUBLECOLON:
             return ast.TupleNode(
@@ -724,7 +718,7 @@ class ASTParser:
         parameters: list[ast.LambdaParameterNode] = []
         for elt in elts.sequence().items:
             if not isinstance(elt, ast.NameNode):
-                assert False, 'Invalid lambda parameter'
+                assert False, "Invalid lambda parameter"
 
             parameter = ast.LambdaParameterNode(
                 start=elt.start,
@@ -744,13 +738,13 @@ class ASTParser:
         self,
         span: tuple[int, int],
         expression: ast.ExpressionNode,
-    ) -> typing.Union[ast.ExpressionNode, SequenceNode[ast.LambdaParameterNode]]:
+    ) -> ast.ExpressionNode | SequenceNode[ast.LambdaParameterNode]:
         token = self.parser.peek_token(1)
         if token.kind is not TokenKind.DOUBLECOLON:
             return expression
 
         if not isinstance(expression, ast.NameNode):
-            assert False, 'Non-name lambda parameter'
+            assert False, "Non-name lambda parameter"
 
         parameter = ast.LambdaParameterNode(
             start=expression.start,
@@ -801,8 +795,8 @@ class ASTParser:
         self,
         span: tuple[int, int],
         parameters: SequenceNode[ast.LambdaParameterNode],
-        lambdef: typing.Union[ast.ExpressionLambdaNode, ast.BlockLambdaNode],
-    ) -> typing.Union[ast.ExpressionLambdaNode, ast.BlockLambdaNode]:
+        lambdef: ast.ExpressionLambdaNode | ast.BlockLambdaNode,
+    ) -> ast.ExpressionLambdaNode | ast.BlockLambdaNode:
         for parameter in parameters.items:
             lambdef.parameters.append(parameter)
 
@@ -914,6 +908,19 @@ class ASTParser:
             end=span[1],
             type=type,
             args=args.sequence().items,
+        )
+
+    def create_type_attribute(
+        self,
+        span: tuple[int, int],
+        type: ast.TypeExpressionNode,
+        attr: IdentifierToken,
+    ) -> ast.TypeAttributeNode:
+        return ast.TypeAttributeNode(
+            start=span[0],
+            end=span[1],
+            type=type,
+            attr=attr.content,
         )
 
     def parse(self) -> NodeItem:

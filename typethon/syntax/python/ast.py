@@ -95,7 +95,7 @@ class ClassDefNode(Node):
     name: str = attr.ib()
     bases: list[ExpressionNode] = attr.ib()
     kwargs: list[KeywordArgumentNode] = attr.ib()
-    #meta: typing.Optional[ExpressionNode] = attr.ib()
+    # meta: typing.Optional[ExpressionNode] = attr.ib()
     body: list[StatementNode] = attr.ib()
     decorators: list[ExpressionNode] = attr.ib()
 
@@ -162,8 +162,8 @@ class WithNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class RaiseNode(Node):
-    exc: typing.Optional[ExpressionNode] = attr.ib()
-    cause: typing.Optional[ExpressionNode] = attr.ib()
+    exc: ExpressionNode | None = attr.ib()
+    cause: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -177,7 +177,7 @@ class TryNode(Node):
 @attr.s(kw_only=True, slots=True)
 class AssertNode(Node):
     condition: ExpressionNode = attr.ib()
-    message: typing.Optional[ExpressionNode] = attr.ib()
+    message: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -187,9 +187,9 @@ class ImportNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ImportFromNode(Node):
-    module: typing.Optional[str] = attr.ib()
+    module: str | None = attr.ib()
     names: list[AliasNode] = attr.ib()
-    level: typing.Optional[int] = attr.ib()
+    level: int | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -208,18 +208,15 @@ class ExprNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class PassNode(Node):
-    ...
+class PassNode(Node): ...
 
 
 @attr.s(kw_only=True, slots=True)
-class BreakNode(Node):
-    ...
+class BreakNode(Node): ...
 
 
 @attr.s(kw_only=True, slots=True)
-class ContinueNode(Node):
-    ...
+class ContinueNode(Node): ...
 
 
 @attr.s(kw_only=True, slots=True)
@@ -295,7 +292,7 @@ class AwaitNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class YieldNode(Node):
-    value: typing.Optional[ExpressionNode] = attr.ib()
+    value: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -325,8 +322,8 @@ class CallNode(Node):
 @attr.s(kw_only=True, slots=True)
 class FormattedValueNode(Node):
     value: ExpressionNode = attr.ib()
-    conversion: typing.Optional[int] = attr.ib()
-    spec: typing.Optional[ExpressionNode] = attr.ib()
+    conversion: int | None = attr.ib()
+    spec: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -393,35 +390,35 @@ class TupleNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class SliceNode(Node):
-    start_index: typing.Optional[ExpressionNode] = attr.ib()
-    stop_index: typing.Optional[ExpressionNode] = attr.ib()
-    step_index: typing.Optional[ExpressionNode] = attr.ib()
+    start_index: ExpressionNode | None = attr.ib()
+    stop_index: ExpressionNode | None = attr.ib()
+    step_index: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FunctionParameterNode(Node):
     name: str = attr.ib()
     kind: ParameterKind = attr.ib()
-    annotation: typing.Optional[ExpressionNode] = attr.ib()
-    default: typing.Optional[ExpressionNode] = attr.ib()
+    annotation: ExpressionNode | None = attr.ib()
+    default: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class KeywordArgumentNode(Node):
-    name: typing.Optional[str] = attr.ib()
+    name: str | None = attr.ib()
     value: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class WithItemNode(Node):
     contextmanager: ExpressionNode = attr.ib()
-    target: typing.Optional[ExpressionNode] = attr.ib()
+    target: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ExceptHandlerNode(Node):
-    type: typing.Optional[ExpressionNode] = attr.ib()
-    target: typing.Optional[str] = attr.ib()
+    type: ExpressionNode | None = attr.ib()
+    target: str | None = attr.ib()
     body: list[StatementNode] = attr.ib()
 
 
@@ -435,65 +432,65 @@ class ComprehensionNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class AliasNode(Node):
-    name: typing.Optional[str] = attr.ib()
-    asname: typing.Optional[str] = attr.ib()
+    name: str | None = attr.ib()
+    asname: str | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class DictElt(Node):
-    key: typing.Optional[ExpressionNode] = attr.ib()
+    key: ExpressionNode | None = attr.ib()
     value: ExpressionNode = attr.ib()
 
 
-StatementNode = typing.Union[
-    FunctionDefNode,
-    ClassDefNode,
-    ReturnNode,
-    DeleteNode,
-    AssignNode,
-    AugAssignNode,
-    AnnAssignNode,
-    ForNode,
-    WhileNode,
-    IfNode,
-    WithNode,
-    RaiseNode,
-    TryNode, # RETAIN?
-    AssertNode, # RETAIN?
-    ImportNode,
-    ImportFromNode,
-    GlobalNode, # RETAIN?
-    NonlocalNode, # RETAIN?
-    ExprNode,
-    PassNode,
-    BreakNode,
-    ContinueNode,
-]
+type StatementNode = (
+    FunctionDefNode
+    | ClassDefNode
+    | ReturnNode
+    | DeleteNode
+    | AssignNode
+    | AugAssignNode
+    | AnnAssignNode
+    | ForNode
+    | WhileNode
+    | IfNode
+    | WithNode
+    | RaiseNode
+    | TryNode  # RETAIN?
+    | AssertNode  # RETAIN?
+    | ImportNode
+    | ImportFromNode
+    | GlobalNode  # RETAIN?
+    | NonlocalNode  # RETAIN?
+    | ExprNode
+    | PassNode
+    | BreakNode
+    | ContinueNode
+)
 
-ExpressionNode = typing.Union[
-    BoolOpNode,
-    BinaryOpNode,
-    UnaryOpNode,
-    LambdaNode,
-    IfExpNode,
-    DictNode,
-    SetNode,
-    ListCompNode,
-    SetCompNode,
-    DictCompNode,
-    GeneratorExpNode,
-    AwaitNode,
-    YieldNode,
-    YieldFromNode,
-    CompareNode,
-    CallNode,
-    FormattedValueNode,
-    ConstantNode,
-    AttributeNode,
-    SubscriptNode,
-    StarredNode,
-    NameNode,
-    ListNode,
-    TupleNode,
-    SliceNode,
-]
+type ExpressionNode = (
+    BoolOpNode
+    | BinaryOpNode
+    | UnaryOpNode
+    | LambdaNode
+    | IfExpNode
+    | DictNode
+    | SetNode
+    | ListCompNode
+    | SetCompNode
+    | DictCompNode
+    | GeneratorExpNode
+    | AwaitNode
+    | YieldNode
+    | YieldFromNode
+    | CompareNode
+    | CallNode
+    | FormattedValueNode
+    | ConstantNode
+    | AttributeNode
+    | SubscriptNode
+    | StarredNode
+    | NameNode
+    | ListNode
+    | TupleNode
+    | SliceNode
+)

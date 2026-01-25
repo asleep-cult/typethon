@@ -1,5 +1,4 @@
 import enum
-import typing
 
 from . import ast
 from .tokens import (
@@ -16,11 +15,8 @@ from ..syntax.tokens import (
     KeywordMap,
 )
 
-TokenKindT = typing.TypeVar('TokenKindT', bound=enum.Enum)
-KeywordKindT = typing.TypeVar('KeywordKindT', bound=enum.Enum)
 
-
-class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
+class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def __init__(
         self,
         source: str,
@@ -184,7 +180,7 @@ class GrammarParser(typing.Generic[TokenKindT, KeywordKindT]):
             if token.kind is StdTokenKind.NEWLINE:
                 self.scan_token()               
 
-    def parse_rule_action(self) -> typing.Optional[str]:
+    def parse_rule_action(self) -> str | None:
         token = self.peek_token()
         if token.kind is not StdTokenKind.DIRECTIVE:
             return

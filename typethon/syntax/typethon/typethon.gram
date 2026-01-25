@@ -282,6 +282,8 @@ type_expression:
 type_primary:
     #[create_type_call]
     | !type_primary "(" !type_expression_list? ")"
+    #[create_type_attribute]
+    | !type_primary "." !IDENTIFIER
     | !type_atom
 
 type_expression_list:
