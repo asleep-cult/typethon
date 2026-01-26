@@ -43,7 +43,7 @@ class While(HirCode):
 class If(HirCode):
     condition: Expression = attr.ib()
     body: HirBody = attr.ib()
-    else_body: HirBody
+    else_body: HirBody = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -62,6 +62,11 @@ class Continue(HirCode): ...
 @attr.s(kw_only=True, slots=True)
 class Expr(HirCode):
     expr: Expression = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class Path(HirCode):
+    path: hir.Path = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -135,6 +140,11 @@ class String(HirCode):
 
 
 @attr.s(kw_only=True, slots=True)
+class Constant(HirCode):
+    kind: ast.ConstantKind = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class Attribute(HirCode):
     value: Expression = attr.ib()
     attr: str = attr.ib()
@@ -158,27 +168,30 @@ class Tuple(HirCode):
 
 @attr.s(kw_only=True, slots=True)
 class Slice(HirCode):
-    start_index: Expression | None = attr.ib()
-    stop_index: Expression | None = attr.ib()
-    step_index: Expression | None = attr.ib()
+    start: Expression | None = attr.ib()
+    stop: Expression | None = attr.ib()
+    step: Expression | None = attr.ib()
 
 
 type Expression = (
-    BoolOp
+    Assignment
+    | AugAssignment
+    | Path
+    | BoolOp
     | BinaryOp
     | UnaryOp
-    | Comparator
+    | Compare
     | Call
     | Integer
     | Float
     | Complex
     | String
+    | Constant
     | Attribute
     | Subscript
     | List
     | Tuple
     | Slice
-    | hir.Path
 )
 
 type Statement = (

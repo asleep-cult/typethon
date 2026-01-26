@@ -26,7 +26,7 @@ class HirLowering:
     ) -> None:
         self.hir_ctx.diagnostics.report_error((node.start, node.end), message, *format)
 
-    def create_path_resursive(
+    def create_type_path_recursive(
         self,
         path: hir.Path,
         type_expression: ast.TypeAttributeNode | ast.TypeCallNode | ast.NameNode,
@@ -35,7 +35,7 @@ class HirLowering:
             case ast.TypeAttributeNode():
                 match type_expression.type:
                     case ast.TypeAttributeNode() | ast.TypeCallNode() | ast.NameNode():
-                        field = self.create_path_resursive(path, type_expression.type)
+                        field = self.create_type_path_recursive(path, type_expression.type)
                     case _:
                         field = self.lower_type_expression(type_expression.type)
                         # If it could've been a path, it must've been matched by the previous case.
@@ -65,7 +65,7 @@ class HirLowering:
             case ast.TypeCallNode():
                 match type_expression.type:
                     case ast.TypeAttributeNode() | ast.TypeCallNode() | ast.NameNode():
-                        field = self.create_path_resursive(path, type_expression.type)
+                        field = self.create_type_path_recursive(path, type_expression.type)
                     case _:
                         field = self.lower_type_expression(type_expression.type)
                         assert not isinstance(field, hir.Path)
@@ -116,7 +116,7 @@ class HirLowering:
 
             case ast.TypeCallNode() | ast.TypeAttributeNode() | ast.NameNode():
                 path = hir.Path()
-                self.create_path_resursive(path, type_expression)
+                self.create_type_path_recursive(path, type_expression)
                 return path
 
             case ast.ListTypeNode():
@@ -179,7 +179,7 @@ class HirLowering:
                 for substatement in statement.body:
                     if isinstance(substatement, ast.FunctionDefNode):
                         self.lower_statement(substatement, hir_body)
-                        function_def = self.hir_ctx.fields[statement.id]
+                        function_def = self.hir_ctx.fields[substatement.id]
                         assert isinstance(function_def, hir.FunctionDef)
 
                         class_def.functions[substatement.name] = function_def
@@ -260,7 +260,7 @@ class HirLowering:
                 )
 
                 self.resolver.enter_node(statement)
-                self.lower_statement(statement, hir_code.body)
+                self.lower_block(statement.body, hir_code.body)
                 self.resolver.exit_node(statement)
 
                 if statement.else_statement is not None:
@@ -295,62 +295,228 @@ class HirLowering:
                 )
                 hir_body.statements.append(hir_code)
 
-    def lower_expression(self, expression: ast.ExpressionNode) -> code.Expression:
-        """
-        AssignNode
-        | AugAssignNode
-        | ExpressionLambdaNode
-        | BlockLambdaNode
-        | BoolOpNode
-        | BinaryOpNode
-        | UnaryOpNode
-        | CompareNode
-        | CallNode
-        | ConstantNode
-        | AttributeNode
-        | SubscriptNode
-        | NameNode
-        | ListNode
-        | TupleNode
-        | SliceNode
-        """
-        # XXX: It will be impossible to add arguments to a path outside of a type context
-        # due to ambiguity. We could end up with two different syntaxes for passing arguments
-        # like in Rust (T<>, T::<>) albeit for entirely different reasons. AS far as I know,
-        # Rust merely does it for easier parsing, but in out case, it is literally impossible
-        # to tell the difference between a function call and passing type parameters because
-        # they use the same syntax. Even just checking whether something is a type while
-        # constructing the HIR wouldn't suffice because type instantiation is already T().
-        # So to recap, T(...) would have three meanings: calling a type constructor,
-        # initializing a new instance of a type, calling a function.
-        # So, going forward we have two options:
-        #   1) Add a special syntax for passing type parameters, but only in the context of code
-        #   blocks. (Not happening)
-        #       def f(x: Generic(Parameter))
-        #       Generic:(Parameter)()
-        #   2) Just change the syntax for passing type parameters.
-        #       def f(x: Generic[Parameter])
-        #        Generic[Parameter]()
-        #   3) Change the type initialization syntax and disambiguate between function calls
-        #   and the syntax for passing parameters by checking is its a type.
-        #       def f(x: Generic(Parameter))
-        #       Generic(Parameter)
-        #       f(Generic(Parameter) {})
-        # The third is arguably the most correct, type constructors are just functions over types,
-        # but the instantiation syntax is completely unexpected for Python. If I can think of
-        # a better instantiation syntax, I will certainly choose the third option.
+    def create_path_recursive(
+        self,
+        path: hir.Path,
+        expression: ast.AttributeNode | ast.CallNode | ast.NameNode,
+    ) -> hir.HirPathResult | code.Expression:
+        # This is pretty confusing, but this function transforms attribute/call/name exprs
+        # into a path as much as possible, then begins creating hir.Call/hir.Attribute
+        # nodes if the node is not part of the path. This means that in some cases,
+        # the function might return hir code that already contains the path, and in other
+        # cases the return value is a junk value used to recursively resolve the tree.
+        # In that case, the only relevant part is the provided path which will
+        # have been mutated to contain the proper segments.
+        # Also, when we encounter a call node, we must be able to tell whether we are still
+        # in a path. If so, the arguments themselves must be a path too because paths are
+        # the only way to refer to a type from the context of an expression. That is to say,
+        # there is no expression that can resolve to a type except a name, which is not the
+        # case for type expressions where obviously everything is a type. The ambiguity between
+        # paths and calls would be unresolvable if the call syntax were used for type
+        # instantiation, so there is currently no syntax for it.
         match expression:
-            case ast.NameNode() | ast.AttributeNode():
-                ...
+            case ast.AttributeNode():
+                match expression.value:
+                    case ast.AttributeNode() | ast.CallNode() | ast.NameNode():
+                        field = self.create_path_recursive(path, expression.value)
+                    case _:
+                        field = self.lower_expression(expression.value)
+                        assert not path.segments
+                        return code.Attribute(node_id=expression.id, attr=expression.attr, value=field)
 
-    def lower_module(self) -> None:
+                assert not isinstance(field, hir.Path)
+                if isinstance(field, code.HirCode):
+                    return code.Attribute(node_id=expression.id, attr=expression.attr, value=field)
+
+                result = self.resolver.resolve_attribute(field, expression.attr)
+                if result is None:
+                    result = hir.HirError(node=expression)
+
+                segment = hir.PathSegment(name=expression.attr, result=result)
+                path.segments.append(segment)
+                if isinstance(result, hir.FunctionDef):
+                    return code.Path(node_id=expression.id, path=path)
+
+                return result
+
+            case ast.CallNode():
+                match expression.callee:
+                    case ast.AttributeNode() | ast.CallNode() | ast.NameNode():
+                        field = self.create_path_recursive(path, expression.callee)
+                    case _:
+                        field = self.lower_expression(expression.callee)
+
+                assert not isinstance(field, hir.Path)
+                if not isinstance(field, code.HirCode):
+                    segment = path.segments[-1]
+
+                    for argument in expression.args:
+                        argument = self.lower_expression(argument)
+                        if not isinstance(argument, code.Path):
+                            assert False, 'Calling type requires path argument'
+
+                        segment.arguments.append(argument.path)
+
+                    return field
+
+                arguments: list[code.Expression] = []
+                for argument in expression.args:
+                    arguments.append(self.lower_expression(argument))
+
+                return code.Call(node_id=expression.id, callee=field, args=arguments)
+
+            case ast.NameNode():
+                result = self.resolver.resolve_symbol(expression.value)
+                if result is None:
+                    # Unresolved symbol
+                    result = hir.HirError(node=expression)
+
+                segment = hir.PathSegment(name=expression.value, result=result)
+                path.segments.append(segment)
+                if isinstance(result, (hir.FunctionDef, hir.LocalDeclaration)):
+                    return code.Path(node_id=expression.id, path=path)
+
+                return result
+
+    def lower_expression(self, expression: ast.ExpressionNode) -> code.Expression:
+        match expression:
+            case ast.NameNode() | ast.AttributeNode() | ast.CallNode():
+                path = hir.Path()
+                result = self.create_path_recursive(path, expression)
+                if isinstance(result, code.HirCode):
+                    return result
+
+                return code.Path(node_id=expression.id, path=path)
+
+            case ast.AssignNode():
+                target = self.lower_expression(expression.target)
+                value = self.lower_expression(expression.value)
+                return code.Assignment(node_id=expression.id, target=target, value=value)
+
+            case ast.ExpressionLambdaNode() | ast.BlockLambdaNode():
+                function_def = self.hir_ctx.fields[expression.id]
+                assert isinstance(function_def, hir.FunctionDef)
+                self.resolver.enter_node(expression)
+
+                for parameter in expression.parameters:
+                    function_def.parameters[parameter.name] = hir.INFERRED
+
+                function_def.returns = hir.INFERRED
+
+                function_def.body = code.HirBody()
+                if isinstance(expression, ast.BlockLambdaNode):
+                    self.lower_block(expression.body, function_def.body)
+                else:
+                    hir_code = code.Return(
+                        node_id=expression.body.id,
+                        value=self.lower_expression(expression.body),
+                    )
+                    function_def.body.statements.append(hir_code)
+
+                self.resolver.exit_node(expression)
+
+            case ast.BoolOpNode():
+                values: list[code.Expression] = []
+                for value in expression.values:
+                    values.append(self.lower_expression(value))
+
+                return code.BoolOp(
+                    node_id=expression.id,
+                    op=expression.op,
+                    values=values,
+                )
+
+            case ast.BinaryOpNode():
+                left = self.lower_expression(expression.left)
+                right = self.lower_expression(expression.right)
+                return code.BinaryOp(node_id=expression.id, left=left, op=expression.op, right=right)
+
+            case ast.UnaryOpNode():
+                return code.UnaryOp(
+                    node_id=expression.id,
+                    op=expression.op,
+                    operand=self.lower_expression(expression.operand),
+                )
+
+            case ast.CompareNode():
+                comparators: list[code.Comparator] = []
+                for comparator in expression.comparators:
+                    comparator = code.Comparator(
+                        node_id=comparator.id,
+                        op=comparator.op,
+                        value=self.lower_expression(comparator.value),
+                    )
+                    comparators.append(comparator)
+
+                return code.Compare(
+                    node_id=expression.id,
+                    left=self.lower_expression(expression.left),
+                    comparators=comparators,
+                )
+
+            case ast.SubscriptNode():
+                slices: list[code.Expression] = []
+                for slice in expression.slices:
+                    slices.append(self.lower_expression(slice))
+
+                return code.Subscript(
+                    node_id=expression.id,
+                    value=self.lower_expression(expression.value),
+                    slices=slices,
+                )
+
+            case ast.ListNode():
+                elts: list[code.Expression] = []
+                for elt in expression.elts:
+                    elts.append(self.lower_expression(elt))
+
+                return code.List(node_id=expression.id, elts=elts)
+
+            case ast.TupleNode():
+                elts: list[code.Expression] = []
+                for elt in expression.elts:
+                    elts.append(self.lower_expression(elt))
+
+                return code.Tuple(node_id=expression.id, elts=elts)
+
+            case ast.SliceNode():
+                start = None
+                if expression.start_index is not None:
+                    start = self.lower_expression(expression.start_index)
+
+                stop = None
+                if expression.stop_index is not None:
+                    stop = self.lower_expression(expression.stop_index)
+
+                step = None
+                if expression.step_index is not None:
+                    step = self.lower_expression(expression.step_index)
+
+                return code.Slice(node_id=expression.id, start=start, stop=stop, step=step)
+
+            case ast.IntegerNode():
+                return code.Integer(node_id=expression.id, value=expression.value)
+
+            case ast.FloatNode():
+                return code.Float(node_id=expression.id, value=expression.value)
+
+            case ast.ComplexNode():
+                return code.Complex(node_id=expression.id, value=expression.value)
+
+            case ast.StringNode():
+                return code.String(node_id=expression.id, value=expression.value)
+
+            case ast.ConstantNode():
+                return code.Constant(node_id=expression.id, kind=expression.kind)
+
+    def lower_module(self) -> hir.ModuleDef:
         module = hir.ModuleDef()
         scope = self.resolver.create_scope(self.module.id, ScopeKind.MODULE)
         self.resolver.initialize_symbols_for_block(module, scope, self.module.body)
 
-        module_body = code.HirBody()
+        module.body = code.HirBody()
         self.resolver.enter_node(self.module)
-        self.lower_block(self.module.body, module_body)
+        self.lower_block(self.module.body, module.body)
         self.resolver.exit_node(self.module)
 
-        print(module_body.statements)
+        return module

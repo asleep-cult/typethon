@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import attr
+import enum
 from itertools import count
 
 from .code import HirBody
@@ -16,6 +17,12 @@ HIR_ID_COUNT = count()
 # The HIR is very similar to the AST, but all symbols are defined
 # and resolved. Every attribute access that isn't on a local declaration
 # gets resolved as well.
+
+
+class Singleton(enum.Enum):
+    INFERRED = enum.auto()
+
+INFERRED = Singleton.INFERRED
 
 
 @attr.s(kw_only=True, slots=True)
@@ -85,8 +92,8 @@ class AliasDef(DefId):
 @attr.s(kw_only=True, slots=True)
 class FunctionDef(DefId):
     name: str = attr.ib()
-    parameters: dict[str, HirType] = attr.ib(factory=dict)
-    returns: HirType = attr.ib(default=UNIT)
+    parameters: dict[str, HirType | Singleton] = attr.ib(factory=dict)
+    returns: HirType | Singleton = attr.ib(default=UNIT)
     body: HirBody | None = attr.ib(default=None)
 
 
@@ -165,6 +172,5 @@ class HirError:
 type HirType = Path | ClassDef | TypeParameter | ListType | TypeDeclaration | HirError
 
 type HirPathResult = (
-    # HirType, but without type parameters
-    ClassDef | TypeParameter | ListType | TypeDeclaration | HirField | HirError
+    LocalDeclaration | FunctionDef | ClassDef | TypeParameter | ListType | TypeDeclaration | HirField | HirError
 )
