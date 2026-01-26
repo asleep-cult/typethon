@@ -47,9 +47,9 @@ be ported to Rust, Ocaml, or maybe even Zig.
 
 type Point = { x: int, y: int }
 
-type AnonymousPoint = (int, int)
+type UnnamedPoint = (int, int)
 
-# Data types can also be unions
+# Data can also be a sum types
 
 type Expr = 
     | Number(int)
@@ -57,13 +57,43 @@ type Expr =
     | Add(Expr, Expr)
     | Sub(Expr, Expr)
 
-# Data structures are instantiated using instantiation operator.
+# Tuples and structures can be instantiated in code like this:
 
-Point::{ x = 10, y = 20 }
-AnonymousPoint::(10, 20)
+{ x = 10, y = 20 }
+(10, 20)
 
-Expr.Add::(Expr.Number::(10), Expr.Number::(20))
-# Not sure about this yet.
+# Sum type instantiation?
+
+# This is pretty rough.
+
+((10,): Expr.Number, (20,): Expr.Number): Expr.Add
+
+# An alternative option
+
+type Expr = 
+    | Number of int
+    | Attribute of (Expr, str)
+    | Add of (Expr, Expr)
+    | Sub of (Expr, Expr)
+
+Expr.Add of (Expr.Number of 10, Expr.Number of 20)
+
+# Data defined in code is compatible with anything that shares the same layout,
+# so in many cases, it is not necessary to write the type.
+# In the same way that (1, 2) is compatible with (int, int),
+# { x = 1, x = 2 } is compatible with { x: int, y: int }
+
+# For example, this would be valid
+
+def add(point: Point) -> int:
+    return point.x + point.y
+
+f({ x = 10, y = 20 })
+
+# If the type of the data is annotated, it is then only compatible with data
+# of the same type
+
+f({ x = 30, y = -5 }: Point)
 
 # Bindings can be created using the let keyword.
 
@@ -104,7 +134,11 @@ def unbox(box: Box('t)) -> 't:
 def unbox_int(box: Box(int)) -> int:
     return box.value
 
-let box = Box::{ value = 10 }
+let box: Box = { value = 10 }
+# What if you want to make sure box: Box, but infer type parameters?
+# This potentially means all means that all annotations in asg code
+# can refer to types and pass no parameters.
+
 x = unbox(box) # type: int
 x = unbox_int(box) # type: int
 
@@ -123,7 +157,10 @@ def get_item(items: 't, index: 'u) -> 'v with 't: Index('u, 'v):
 def new() -> 'u:
     return u()
 
-f(new(): int)
+x = new(): int
+
+# Or the type constructor can be accessed somehow
+new.constructor(int)()
 
 # Use blocks can be used to define a function on a type.
 
@@ -133,7 +170,7 @@ use Identity:
     def f(self: Self) -> Self:
         return self
 
-let x = Identity::()
+let x: Identity = ()
 let x = x.f()
 
 # The use/for syntax can be used to denote
@@ -143,10 +180,10 @@ type Map = { mapping: dict('k, 'v) }
 
 use Index('k, 'v) for Map('k, 'v):
     def new(self: Self, mapping: dict('k, 'v)) -> Self:
-        return Self::{ mapping = mapping }
+        return { mapping = mapping }: Self
 
     def update(self: Self, other: Self) -> Self:
-        return self::{ mapping = self.mapping | other.mapping }
+        return { mapping = self.mapping | other.mapping }: Self
 
     def get_item(self: Self, key: 'k) -> 'v:
         return self.mapping[key]
@@ -234,13 +271,15 @@ if x == y: return 10
 # that a more explicit approach is preferrable anyways. If and match expressions with
 # corresponding statements seems like a reasonable middleground.
 
-# *I have been considering  allowing multiple iterators in for loops
-# to avoid the long winded zip() function. For example:
-# Probably not.
+# *Labeled blocks (Dont know)
 
-for (
-    name in username if len(name) < 10,
-    user in users if len(user.name) < 10
-):
-    ...
+def f(x):
+    ~label:
+        print(10)
+        break label
+
+    ~label while True:
+        for i in range(30):
+            if is_special_enough_to_break(i):
+                break label
 ```

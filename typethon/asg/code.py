@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import attr
 
-from . import hir
+from . import asg
 from ..syntax.typethon import ast
 
 # This is the representation for executable code in the HIR. 
@@ -10,173 +10,171 @@ from ..syntax.typethon import ast
 
 
 @attr.s(kw_only=True, slots=True)
-class HirCode:
+class AsgCode:
     node_id: int = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class HirBody:
+class AsgBody:
     statements: list[Statement] = attr.ib(factory=list)
 
 
 @attr.s(kw_only=True, slots=True)
-class Declaration(HirCode):
-    local_declaration: hir.LocalDeclaration = attr.ib()
-    type: hir.HirType | None = attr.ib()
+class Declaration(AsgCode):
+    local_declaration: asg.LocalDeclaration = attr.ib()
+    type: asg.AsgType | None = attr.ib()
     value: Expression | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class For(HirCode):
+class For(AsgCode):
     target: Expression = attr.ib()
     iterator: Expression = attr.ib()
-    body: HirBody = attr.ib()
+    body: AsgBody = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class While(HirCode):
+class While(AsgCode):
     condition: Expression = attr.ib()
-    body: HirBody = attr.ib()
+    body: AsgBody = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class If(HirCode):
+class If(AsgCode):
     condition: Expression = attr.ib()
-    body: HirBody = attr.ib()
-    else_body: HirBody = attr.ib()
+    body: AsgBody = attr.ib()
+    else_body: AsgBody = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Return(HirCode):
-    value: Expression | None = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class Break(HirCode): ...
-
-
-@attr.s(kw_only=True, slots=True)
-class Continue(HirCode): ...
-
-
-@attr.s(kw_only=True, slots=True)
-class Expr(HirCode):
-    expr: Expression = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class Path(HirCode):
-    path: hir.Path = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class Assignment(HirCode):
+class Assignment(AsgCode):
     target: Expression = attr.ib()
     value: Expression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class AugAssignment(HirCode):
+class AugAssignment(AsgCode):
     target: Expression = attr.ib()
     op: ast.OperatorKind = attr.ib()
     value: Expression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class BoolOp(HirCode):
+class Return(AsgCode):
+    value: Expression | None = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class Break(AsgCode): ...
+
+
+@attr.s(kw_only=True, slots=True)
+class Continue(AsgCode): ...
+
+
+@attr.s(kw_only=True, slots=True)
+class Expr(AsgCode):
+    expr: Expression = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class Path(AsgCode):
+    path: asg.Path = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class BoolOp(AsgCode):
     op: ast.BoolOperatorKind = attr.ib()
     values: list[Expression] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class BinaryOp(HirCode):
+class BinaryOp(AsgCode):
     left: Expression = attr.ib()
     op: ast.OperatorKind = attr.ib()
     right: Expression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class UnaryOp(HirCode):
+class UnaryOp(AsgCode):
     op: ast.UnaryOperatorKind = attr.ib()
     operand: Expression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Compare(HirCode):
+class Compare(AsgCode):
     left: Expression = attr.ib()
     comparators: list[Comparator] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Comparator(HirCode):
+class Comparator(AsgCode):
     op: ast.CmpOperatorKind = attr.ib()
     value: Expression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Call(HirCode):
+class Call(AsgCode):
     callee: Expression = attr.ib()
     args: list[Expression] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Integer(HirCode):
+class Integer(AsgCode):
     value: int = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Float(HirCode):
+class Float(AsgCode):
     value: float = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Complex(HirCode):
+class Complex(AsgCode):
     value: complex = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class String(HirCode):
+class String(AsgCode):
     value: str = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Constant(HirCode):
+class Constant(AsgCode):
     kind: ast.ConstantKind = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Attribute(HirCode):
+class Attribute(AsgCode):
     value: Expression = attr.ib()
     attr: str = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Subscript(HirCode):
+class Subscript(AsgCode):
     value: Expression = attr.ib()
     slices: list[Expression] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class List(HirCode):
+class List(AsgCode):
     elts: list[Expression] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Tuple(HirCode):
+class Tuple(AsgCode):
     elts: list[Expression] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Slice(HirCode):
+class Slice(AsgCode):
     start: Expression | None = attr.ib()
     stop: Expression | None = attr.ib()
     step: Expression | None = attr.ib()
 
 
 type Expression = (
-    Assignment
-    | AugAssignment
-    | Path
+    Path
     | BoolOp
     | BinaryOp
     | UnaryOp
@@ -199,6 +197,8 @@ type Statement = (
     | For
     | While
     | If
+    | Assignment
+    | AugAssignment
     | Return
     | Break
     | Continue

@@ -1,22 +1,22 @@
-from . import hir
+from . import asg
 from . import code
 from .resolution import SymbolResolver, ScopeKind
 from ..syntax.typethon import ast
 
 
-class HirLowering:
+class AsgLowering:
     resolver: SymbolResolver
     module: ast.ModuleNode
     resolver: SymbolResolver
 
     def __init__(
         self,
-        hir_ctx: hir.HirContext,
+        asg_ctx: asg.AsgContext,
         module: ast.ModuleNode,
     ) -> None:
-        self.hir_ctx = hir_ctx
+        self.asg_ctx = asg_ctx
         self.module = module
-        self.resolver = SymbolResolver(hir_ctx, module)
+        self.resolver = SymbolResolver(asg_ctx, module)
 
     def report_error(
         self,
@@ -24,13 +24,13 @@ class HirLowering:
         message: str,
         *format: str,
     ) -> None:
-        self.hir_ctx.diagnostics.report_error((node.start, node.end), message, *format)
+        self.asg_ctx.diagnostics.report_error((node.start, node.end), message, *format)
 
     def create_type_path_recursive(
         self,
-        path: hir.Path,
+        path: asg.Path,
         type_expression: ast.TypeAttributeNode | ast.TypeCallNode | ast.NameNode,
-    ) -> hir.HirPathResult:
+    ) -> asg.AsgPathResult:
         match type_expression:
             case ast.TypeAttributeNode():
                 match type_expression.type:
@@ -49,16 +49,16 @@ class HirLowering:
                         # Additionally, if we are here, the path cannot have any segments yet
                         # because it is syntactically impossible (i.e foo.(x,) is a syntax error)
 
-                        assert not isinstance(field, hir.Path)
-                        segment = hir.PathSegment(name="type-expr", result=field)
+                        assert not isinstance(field, asg.Path)
+                        segment = asg.PathSegment(name="type-expr", result=field)
                         path.segments.append(segment)
 
                 result = self.resolver.resolve_attribute(field, type_expression.attr)
                 if result is None:
                     # Unresolved attribute
-                    result = hir.HirError(node=type_expression)
+                    result = asg.AsgError(node=type_expression)
 
-                segment = hir.PathSegment(name=type_expression.attr, result=result)
+                segment = asg.PathSegment(name=type_expression.attr, result=result)
                 path.segments.append(segment)
                 return result
 
@@ -68,9 +68,9 @@ class HirLowering:
                         field = self.create_type_path_recursive(path, type_expression.type)
                     case _:
                         field = self.lower_type_expression(type_expression.type)
-                        assert not isinstance(field, hir.Path)
+                        assert not isinstance(field, asg.Path)
 
-                        segment = hir.PathSegment(name="type-expr", result=field)
+                        segment = asg.PathSegment(name="type-expr", result=field)
                         path.segments.append(segment)
 
                 segment = path.segments[-1]
@@ -89,19 +89,19 @@ class HirLowering:
                 )
                 if result is None:
                     # Unresolved symbol
-                    result = hir.HirError(node=type_expression)
+                    result = asg.AsgError(node=type_expression)
 
                 assert not isinstance(
-                    result, (hir.FunctionDef, hir.LocalDeclaration, hir.TypeParameter)
+                    result, (asg.FunctionDef, asg.LocalDeclaration, asg.TypeParameter)
                 )
-                segment = hir.PathSegment(name=type_expression.value, result=result)
+                segment = asg.PathSegment(name=type_expression.value, result=result)
                 path.segments.append(segment)
                 return result
 
     def lower_type_expression(
         self,
         type_expression: ast.TypeExpressionNode,
-    ) -> hir.HirType:
+    ) -> asg.AsgType:
         match type_expression:
             case ast.TypeParameterNode():
                 symbol = self.resolver.resolve_symbol(
@@ -111,30 +111,30 @@ class HirLowering:
                 )
                 # XXX: Will this ever fail?
                 # We should probably get it from generics instead
-                assert isinstance(symbol, hir.TypeParameter)
+                assert isinstance(symbol, asg.TypeParameter)
                 return symbol
 
             case ast.TypeCallNode() | ast.TypeAttributeNode() | ast.NameNode():
-                path = hir.Path()
+                path = asg.Path()
                 self.create_type_path_recursive(path, type_expression)
                 return path
 
             case ast.ListTypeNode():
                 elt = self.lower_type_expression(type_expression.elt)
-                return hir.ListType(elt=elt)
+                return asg.ListType(elt=elt)
 
             case ast.SelfTypeNode():
                 assert False, "TODO!"
 
             case ast.StructTypeNode():
-                struct_def = hir.StructDef(name="inline-struct", is_declaration=False)
+                struct_def = asg.StructDef(name="inline-struct", is_declaration=False)
                 for field in type_expression.fields:
                     struct_def.fields[field.name] = self.lower_type_expression(field.type)
 
                 return struct_def
 
             case ast.TupleTypeNode():
-                tuple_def = hir.TupleDef(name="inline-tuple", is_declaration=False)
+                tuple_def = asg.TupleDef(name="inline-tuple", is_declaration=False)
                 for elt in type_expression.elts:
                     tuple_def.elts.append(self.lower_type_expression(elt))
 
@@ -143,20 +143,20 @@ class HirLowering:
     def lower_block(
         self,
         block: list[ast.StatementNode],
-        hir_body: code.HirBody,
+        asg_body: code.AsgBody,
     ) -> None:
         for statement in block:
-            self.lower_statement(statement, hir_body)
+            self.lower_statement(statement, asg_body)
 
     def lower_statement(
         self,
         statement: ast.StatementNode,
-        hir_body: code.HirBody,
+        asg_body: code.AsgBody,
     ) -> None:
         match statement:
             case ast.FunctionDefNode():
-                function_def = self.hir_ctx.fields[statement.id]
-                assert isinstance(function_def, hir.FunctionDef)
+                function_def = self.asg_ctx.fields[statement.id]
+                assert isinstance(function_def, asg.FunctionDef)
                 self.resolver.enter_node(statement)
 
                 for parameter in statement.parameters:
@@ -166,21 +166,21 @@ class HirLowering:
                 function_def.returns = self.lower_type_expression(statement.returns)
 
                 if statement.body is not None:
-                    function_def.body = code.HirBody()
+                    function_def.body = code.AsgBody()
                     self.lower_block(statement.body, function_def.body)
 
                 self.resolver.exit_node(statement)
 
             case ast.ClassDefNode():
-                class_def = self.hir_ctx.fields[statement.id]
-                assert isinstance(class_def, hir.ClassDef)
+                class_def = self.asg_ctx.fields[statement.id]
+                assert isinstance(class_def, asg.ClassDef)
                 self.resolver.enter_node(statement)
 
                 for substatement in statement.body:
                     if isinstance(substatement, ast.FunctionDefNode):
-                        self.lower_statement(substatement, hir_body)
-                        function_def = self.hir_ctx.fields[substatement.id]
-                        assert isinstance(function_def, hir.FunctionDef)
+                        self.lower_statement(substatement, asg_body)
+                        function_def = self.asg_ctx.fields[substatement.id]
+                        assert isinstance(function_def, asg.FunctionDef)
 
                         class_def.functions[substatement.name] = function_def
                     else:
@@ -189,8 +189,8 @@ class HirLowering:
                 self.resolver.exit_node(statement)
 
             case ast.UseNode() | ast.UseForNode():
-                use_def = self.hir_ctx.fields[statement.id]
-                assert isinstance(use_def, hir.UseDef)
+                use_def = self.asg_ctx.fields[statement.id]
+                assert isinstance(use_def, asg.UseDef)
 
                 self.resolver.enter_node(statement)
                 use_def.type = self.lower_type_expression(statement.type)
@@ -200,9 +200,9 @@ class HirLowering:
 
                 for substatement in statement.body:
                     if isinstance(substatement, ast.FunctionDefNode):
-                        self.lower_statement(substatement, hir_body)
-                        function_def = self.hir_ctx.fields[statement.id]
-                        assert isinstance(function_def, hir.FunctionDef)
+                        self.lower_statement(substatement, asg_body)
+                        function_def = self.asg_ctx.fields[statement.id]
+                        assert isinstance(function_def, asg.FunctionDef)
 
                         use_def.functions[substatement.name] = function_def
                     else:
@@ -220,90 +220,102 @@ class HirLowering:
                     value = self.lower_expression(statement.value)
 
                 declaration = self.resolver.add_local_declaration(statement)
-                hir_code = code.Declaration(
+                asg_code = code.Declaration(
                     node_id=statement.id,
                     local_declaration=declaration,
                     type=type,
                     value=value,
                 )
-                hir_body.statements.append(hir_code)
+                asg_body.statements.append(asg_code)
 
             case ast.ForNode():
-                hir_code = code.For(
+                asg_code = code.For(
                     node_id=statement.id,
                     target=self.lower_expression(statement.target),
                     iterator=self.lower_expression(statement.iterator),
-                    body=code.HirBody(),
+                    body=code.AsgBody(),
                 )
                 self.resolver.enter_node(statement)
-                self.lower_block(statement.body, hir_code.body)
+                self.lower_block(statement.body, asg_code.body)
                 self.resolver.exit_node(statement)
-                hir_body.statements.append(hir_code)
+                asg_body.statements.append(asg_code)
 
             case ast.WhileNode():
-                hir_code = code.While(
+                asg_code = code.While(
                     node_id=statement.id,
                     condition=self.lower_expression(statement.condition),
-                    body=code.HirBody(),
+                    body=code.AsgBody(),
                 )
                 self.resolver.enter_node(statement)
-                self.lower_block(statement.body, hir_code.body)
+                self.lower_block(statement.body, asg_code.body)
                 self.resolver.exit_node(statement)
-                hir_body.statements.append(hir_code)
+                asg_body.statements.append(asg_code)
 
             case ast.IfNode():
-                hir_code = code.If(
+                asg_code = code.If(
                     node_id=statement.id,
                     condition=self.lower_expression(statement.condition),
-                    body=code.HirBody(),
-                    else_body=code.HirBody(),
+                    body=code.AsgBody(),
+                    else_body=code.AsgBody(),
                 )
 
                 self.resolver.enter_node(statement)
-                self.lower_block(statement.body, hir_code.body)
+                self.lower_block(statement.body, asg_code.body)
                 self.resolver.exit_node(statement)
 
                 if statement.else_statement is not None:
                     self.resolver.enter_node(statement.else_statement)
-                    self.lower_block(statement.else_statement.body, hir_code.else_body)
+                    self.lower_block(statement.else_statement.body, asg_code.else_body)
                     self.resolver.exit_node(statement.else_statement)
 
-                hir_body.statements.append(hir_code)
+                asg_body.statements.append(asg_code)
+
+            case ast.AssignNode():
+                target = self.lower_expression(statement.target)
+                value = self.lower_expression(statement.value)
+                asg_code = code.Assignment(node_id=statement.id, target=target, value=value)
+                asg_body.statements.append(asg_code)
+
+            case ast.AugAssignNode():
+                target = self.lower_expression(statement.target)
+                value = self.lower_expression(statement.value)
+                asg_code = code.AugAssignment(node_id=statement.id, target=target, op=statement.op, value=value)
+                asg_body.statements.append(asg_code)
 
             case ast.ReturnNode():
                 value = (
                     self.lower_expression(statement.value) if statement.value is not None else None
                 )
-                hir_code = code.Return(
+                asg_code = code.Return(
                     node_id=statement.id,
                     value=value,
                 )
-                hir_body.statements.append(hir_code)
+                asg_body.statements.append(asg_code)
 
             case ast.ContinueNode():
-                hir_code = code.Continue(node_id=statement.id)
-                hir_body.statements.append(hir_code)
+                asg_code = code.Continue(node_id=statement.id)
+                asg_body.statements.append(asg_code)
 
             case ast.BreakNode():
-                hir_code = code.Break(node_id=statement.id)
-                hir_body.statements.append(hir_code)
+                asg_code = code.Break(node_id=statement.id)
+                asg_body.statements.append(asg_code)
 
             case ast.ExprNode():
-                hir_code = code.Expr(
+                asg_code = code.Expr(
                     node_id=statement.id,
                     expr=self.lower_expression(statement.expr),
                 )
-                hir_body.statements.append(hir_code)
+                asg_body.statements.append(asg_code)
 
     def create_path_recursive(
         self,
-        path: hir.Path,
+        path: asg.Path,
         expression: ast.AttributeNode | ast.CallNode | ast.NameNode,
-    ) -> hir.HirPathResult | code.Expression:
+    ) -> asg.AsgPathResult | code.Expression:
         # This is pretty confusing, but this function transforms attribute/call/name exprs
-        # into a path as much as possible, then begins creating hir.Call/hir.Attribute
+        # into a path as much as possible, then begins creating asg.Call/asg.Attribute
         # nodes if the node is not part of the path. This means that in some cases,
-        # the function might return hir code that already contains the path, and in other
+        # the function might return asg code that already contains the path, and in other
         # cases the return value is a junk value used to recursively resolve the tree.
         # In that case, the only relevant part is the provided path which will
         # have been mutated to contain the proper segments.
@@ -324,17 +336,17 @@ class HirLowering:
                         assert not path.segments
                         return code.Attribute(node_id=expression.id, attr=expression.attr, value=field)
 
-                assert not isinstance(field, hir.Path)
-                if isinstance(field, code.HirCode):
+                assert not isinstance(field, asg.Path)
+                if isinstance(field, code.AsgCode):
                     return code.Attribute(node_id=expression.id, attr=expression.attr, value=field)
 
                 result = self.resolver.resolve_attribute(field, expression.attr)
                 if result is None:
-                    result = hir.HirError(node=expression)
+                    result = asg.AsgError(node=expression)
 
-                segment = hir.PathSegment(name=expression.attr, result=result)
+                segment = asg.PathSegment(name=expression.attr, result=result)
                 path.segments.append(segment)
-                if isinstance(result, hir.FunctionDef):
+                if isinstance(result, asg.FunctionDef):
                     return code.Path(node_id=expression.id, path=path)
 
                 return result
@@ -346,8 +358,8 @@ class HirLowering:
                     case _:
                         field = self.lower_expression(expression.callee)
 
-                assert not isinstance(field, hir.Path)
-                if not isinstance(field, code.HirCode):
+                assert not isinstance(field, asg.Path)
+                if not isinstance(field, code.AsgCode):
                     segment = path.segments[-1]
 
                     for argument in expression.args:
@@ -369,11 +381,11 @@ class HirLowering:
                 result = self.resolver.resolve_symbol(expression.value)
                 if result is None:
                     # Unresolved symbol
-                    result = hir.HirError(node=expression)
+                    result = asg.AsgError(node=expression)
 
-                segment = hir.PathSegment(name=expression.value, result=result)
+                segment = asg.PathSegment(name=expression.value, result=result)
                 path.segments.append(segment)
-                if isinstance(result, (hir.FunctionDef, hir.LocalDeclaration)):
+                if isinstance(result, (asg.FunctionDef, asg.LocalDeclaration)):
                     return code.Path(node_id=expression.id, path=path)
 
                 return result
@@ -381,37 +393,32 @@ class HirLowering:
     def lower_expression(self, expression: ast.ExpressionNode) -> code.Expression:
         match expression:
             case ast.NameNode() | ast.AttributeNode() | ast.CallNode():
-                path = hir.Path()
+                path = asg.Path()
                 result = self.create_path_recursive(path, expression)
-                if isinstance(result, code.HirCode):
+                if isinstance(result, code.AsgCode):
                     return result
 
                 return code.Path(node_id=expression.id, path=path)
 
-            case ast.AssignNode():
-                target = self.lower_expression(expression.target)
-                value = self.lower_expression(expression.value)
-                return code.Assignment(node_id=expression.id, target=target, value=value)
-
             case ast.ExpressionLambdaNode() | ast.BlockLambdaNode():
-                function_def = self.hir_ctx.fields[expression.id]
-                assert isinstance(function_def, hir.FunctionDef)
+                function_def = self.asg_ctx.fields[expression.id]
+                assert isinstance(function_def, asg.FunctionDef)
                 self.resolver.enter_node(expression)
 
                 for parameter in expression.parameters:
-                    function_def.parameters[parameter.name] = hir.INFERRED
+                    function_def.parameters[parameter.name] = asg.INFERRED
 
-                function_def.returns = hir.INFERRED
+                function_def.returns = asg.INFERRED
 
-                function_def.body = code.HirBody()
+                function_def.body = code.AsgBody()
                 if isinstance(expression, ast.BlockLambdaNode):
                     self.lower_block(expression.body, function_def.body)
                 else:
-                    hir_code = code.Return(
+                    asg_code = code.Return(
                         node_id=expression.body.id,
                         value=self.lower_expression(expression.body),
                     )
-                    function_def.body.statements.append(hir_code)
+                    function_def.body.statements.append(asg_code)
 
                 self.resolver.exit_node(expression)
 
@@ -509,12 +516,12 @@ class HirLowering:
             case ast.ConstantNode():
                 return code.Constant(node_id=expression.id, kind=expression.kind)
 
-    def lower_module(self) -> hir.ModuleDef:
-        module = hir.ModuleDef()
+    def lower_module(self) -> asg.ModuleDef:
+        module = asg.ModuleDef()
         scope = self.resolver.create_scope(self.module.id, ScopeKind.MODULE)
         self.resolver.initialize_symbols_for_block(module, scope, self.module.body)
 
-        module.body = code.HirBody()
+        module.body = code.AsgBody()
         self.resolver.enter_node(self.module)
         self.lower_block(self.module.body, module.body)
         self.resolver.exit_node(self.module)

@@ -1,7 +1,7 @@
 import attr
 import enum
 
-from . import hir
+from . import asg
 from ..syntax.typethon import ast
 
 
@@ -19,27 +19,27 @@ class ScopeKind(enum.Enum):
 class SymbolScope:
     node_id: int = attr.ib()
     kind: ScopeKind = attr.ib()
-    type_declarations: dict[str, hir.TypeDeclaration] = attr.ib(factory=dict)
-    type_parameters: dict[str, hir.TypeParameter] = attr.ib(factory=dict)
-    class_defs: dict[str, hir.ClassDef] = attr.ib(factory=dict)
-    function_defs: dict[str, hir.FunctionDef] = attr.ib(factory=dict)
-    local_declarations: dict[str, hir.LocalDeclaration] = attr.ib(factory=dict)
+    type_declarations: dict[str, asg.TypeDeclaration] = attr.ib(factory=dict)
+    type_parameters: dict[str, asg.TypeParameter] = attr.ib(factory=dict)
+    class_defs: dict[str, asg.ClassDef] = attr.ib(factory=dict)
+    function_defs: dict[str, asg.FunctionDef] = attr.ib(factory=dict)
+    local_declarations: dict[str, asg.LocalDeclaration] = attr.ib(factory=dict)
 
 
 type ResolvedSymbol = (
-    hir.TypeDeclaration | hir.TypeParameter | hir.ClassDef | hir.FunctionDef | hir.LocalDeclaration
+    asg.TypeDeclaration | asg.TypeParameter | asg.ClassDef | asg.FunctionDef | asg.LocalDeclaration
 )
 
-type ResolvedAttribute = hir.TypeDeclaration | hir.ClassDef | hir.FunctionDef
+type ResolvedAttribute = asg.TypeDeclaration | asg.ClassDef | asg.FunctionDef
 
 
 class SymbolResolver:
     def __init__(
         self,
-        hir_ctx: hir.HirContext,
+        asg_ctx: asg.AsgContext,
         module: ast.ModuleNode,
     ) -> None:
-        self.hir_ctx = hir_ctx
+        self.asg_ctx = asg_ctx
         self.module = module
         self.scopes: dict[int, SymbolScope] = {}
         self.scope_stack: list[SymbolScope] = []
@@ -50,7 +50,7 @@ class SymbolResolver:
         return scope
 
     def initialize_symbols_for_block(
-        self, owner_field: hir.HirField, scope: SymbolScope, body: list[ast.StatementNode]
+        self, owner_field: asg.AsgField, scope: SymbolScope, body: list[ast.StatementNode]
     ) -> None:
         for statement in body:
             self.initialize_symbols_for_statement(owner_field, scope, statement)
@@ -58,9 +58,9 @@ class SymbolResolver:
     def add_local_declaration(
         self,
         statement: ast.DeclarationNode,
-    ) -> hir.LocalDeclaration:
+    ) -> asg.LocalDeclaration:
         scope = self.scope_stack[-1]
-        declaration = hir.LocalDeclaration(
+        declaration = asg.LocalDeclaration(
             name=statement.target,
             node_id=statement.id,
         )
@@ -69,13 +69,13 @@ class SymbolResolver:
 
     def initialize_symbols_for_statement(
         self,
-        owner_field: hir.HirField,
+        owner_field: asg.AsgField,
         scope: SymbolScope,
         statement: ast.StatementNode,
     ) -> None:
         match statement:
             case ast.FunctionDefNode():
-                function_def = hir.FunctionDef(name=statement.name)
+                function_def = asg.FunctionDef(name=statement.name)
                 scope.function_defs[statement.name] = function_def
                 scope = self.create_scope(statement.id, ScopeKind.FUNCTION)
 
@@ -86,7 +86,7 @@ class SymbolResolver:
                         primary_field=function_def,
                         secondary_field=owner_field,
                     )
-                    scope.local_declarations[parameter.name] = hir.LocalDeclaration(
+                    scope.local_declarations[parameter.name] = asg.LocalDeclaration(
                         name=parameter.name,
                         node_id=parameter.id,
                     )
@@ -100,12 +100,12 @@ class SymbolResolver:
                 if statement.body is not None:
                     self.initialize_symbols_for_block(function_def, scope, statement.body)
 
-                self.hir_ctx.fields[statement.id] = function_def
-                if isinstance(owner_field, (hir.ModuleDef, hir.ClassDef, hir.UseDef)):
+                self.asg_ctx.fields[statement.id] = function_def
+                if isinstance(owner_field, (asg.ModuleDef, asg.ClassDef, asg.UseDef)):
                     owner_field.functions[function_def.name] = function_def
 
             case ast.ClassDefNode():
-                class_def = hir.ClassDef(name=statement.name)
+                class_def = asg.ClassDef(name=statement.name)
                 scope.class_defs[statement.name] = class_def
                 scope = self.create_scope(statement.id, ScopeKind.CLASS)
                 for parameter in statement.parameters:
@@ -118,19 +118,19 @@ class SymbolResolver:
 
                 self.initialize_symbols_for_block(class_def, scope, statement.body)
 
-                self.hir_ctx.fields[statement.id] = class_def
-                if isinstance(owner_field, hir.ModuleDef):
+                self.asg_ctx.fields[statement.id] = class_def
+                if isinstance(owner_field, asg.ModuleDef):
                     owner_field.classes[class_def.name] = class_def
 
             case ast.TypeDeclarationNode():
                 match statement.type:
                     case ast.StructTypeNode():
-                        declaration = hir.StructDef(name=statement.name, is_declaration=True)
+                        declaration = asg.StructDef(name=statement.name, is_declaration=True)
                     case ast.TupleTypeNode():
-                        declaration = hir.TupleDef(name=statement.name, is_declaration=True)
+                        declaration = asg.TupleDef(name=statement.name, is_declaration=True)
                     case _:
                         assert False, "Not Implemented"
-                        declaration = hir.AliasDef(name=statement.name)
+                        declaration = asg.AliasDef(name=statement.name)
 
                 scope.type_declarations[statement.name] = declaration
                 scope = self.create_scope(statement.id, ScopeKind.DECLARATION)
@@ -141,12 +141,12 @@ class SymbolResolver:
                     secondary_field=owner_field,
                 )
 
-                self.hir_ctx.fields[statement.id] = declaration
-                if isinstance(owner_field, hir.ModuleDef):
+                self.asg_ctx.fields[statement.id] = declaration
+                if isinstance(owner_field, asg.ModuleDef):
                     owner_field.types[declaration.name] = declaration
 
             case ast.SumTypeNode():
-                sum_def = hir.SumDef(name=statement.name)
+                sum_def = asg.SumDef(name=statement.name)
                 scope.type_declarations[statement.name] = sum_def
                 scope = self.create_scope(statement.id, ScopeKind.DECLARATION)
 
@@ -161,14 +161,14 @@ class SymbolResolver:
                             secondary_field=owner_field,
                         )
 
-                self.hir_ctx.fields[statement.id] = sum_def
-                if isinstance(owner_field, hir.ModuleDef):
+                self.asg_ctx.fields[statement.id] = sum_def
+                if isinstance(owner_field, asg.ModuleDef):
                     owner_field.types[sum_def.name] = sum_def
 
             case ast.UseNode():
                 scope = self.create_scope(statement.id, ScopeKind.USE)
-                use_def = hir.UseDef()
-                self.hir_ctx.fields[statement.id] = use_def
+                use_def = asg.UseDef()
+                self.asg_ctx.fields[statement.id] = use_def
 
                 self.initialize_type_parameters(
                     scope,
@@ -180,8 +180,8 @@ class SymbolResolver:
 
             case ast.UseForNode():
                 scope = self.create_scope(statement.id, ScopeKind.USE)
-                use_def = hir.UseDef()
-                self.hir_ctx.fields[statement.id] = use_def
+                use_def = asg.UseDef()
+                self.asg_ctx.fields[statement.id] = use_def
 
                 self.initialize_type_parameters(
                     scope,
@@ -223,6 +223,10 @@ class SymbolResolver:
                         owner_field, scope, statement.else_statement.body
                     )
 
+            case ast.AssignNode() | ast.AugAssignNode():
+                self.initialize_lambdas(owner_field, statement.target)
+                self.initialize_lambdas(owner_field, statement.value)
+
             case ast.ReturnNode():
                 if statement.value is not None:
                     self.initialize_lambdas(owner_field, statement.value)
@@ -232,20 +236,20 @@ class SymbolResolver:
 
     def initialize_lambdas(
         self,
-        owner_field: hir.HirField,
+        owner_field: asg.AsgField,
         expression: ast.ExpressionNode,
     ) -> None:
         for subexpression in ast.walk_expressions(expression):
             if isinstance(subexpression, (ast.ExpressionLambdaNode, ast.BlockLambdaNode)):
                 scope = self.create_scope(subexpression.id, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
-                    scope.local_declarations[parameter.name] = hir.LocalDeclaration(
+                    scope.local_declarations[parameter.name] = asg.LocalDeclaration(
                         name=parameter.name,
                         node_id=parameter.id,
                     )
 
-                function_def = hir.FunctionDef(name="lambda")
-                self.hir_ctx.fields[subexpression.id] = function_def
+                function_def = asg.FunctionDef(name="lambda")
+                self.asg_ctx.fields[subexpression.id] = function_def
 
                 if isinstance(subexpression, ast.BlockLambdaNode):
                     self.initialize_symbols_for_block(
@@ -261,24 +265,24 @@ class SymbolResolver:
         scope: SymbolScope,
         type_expression: ast.TypeExpressionNode,
         *,
-        primary_field: hir.HirField,
-        secondary_field: hir.HirField,
+        primary_field: asg.AsgField,
+        secondary_field: asg.AsgField,
     ) -> None:
-        primary_generics = self.hir_ctx.generics.get(primary_field.id)
+        primary_generics = self.asg_ctx.generics.get(primary_field.id)
 
-        if isinstance(secondary_field, hir.UseDef):
-            secondary_generics = self.hir_ctx.generics.get(secondary_field.id)
+        if isinstance(secondary_field, asg.UseDef):
+            secondary_generics = self.asg_ctx.generics.get(secondary_field.id)
         else:
             secondary_generics = None
 
         for subexpression in ast.walk_type_expressions(type_expression):
             if isinstance(subexpression, ast.TypeParameterNode):
                 if primary_generics is None:
-                    primary_generics = hir.Generics(owner=secondary_generics)
-                    self.hir_ctx.generics[primary_field.id] = primary_generics
+                    primary_generics = asg.Generics(owner=secondary_generics)
+                    self.asg_ctx.generics[primary_field.id] = primary_generics
 
                 if not primary_generics.has_parameter_named(subexpression.name):
-                    scope.type_parameters[subexpression.name] = hir.TypeParameter(
+                    scope.type_parameters[subexpression.name] = asg.TypeParameter(
                         name=subexpression.name,
                     )
 
@@ -346,14 +350,14 @@ class SymbolResolver:
 
     def resolve_attribute(
         self,
-        field: hir.HirPathResult,
+        field: asg.AsgPathResult,
         name: str,
     ) -> ResolvedAttribute | None:
         match field:
-            case hir.ModuleDef():
+            case asg.ModuleDef():
                 return (
                     field.classes.get(name) or field.functions.get(name) or field.classes.get(name)
                 )
 
-            case hir.ClassDef():
+            case asg.ClassDef():
                 return field.functions.get(name)

@@ -4,17 +4,17 @@ import attr
 import enum
 from itertools import count
 
-from .code import HirBody
+from .code import AsgBody
 from ..diagnostics import DiagnosticReporter
 from ..syntax.typethon import ast
 
 HIR_ID_COUNT = count()
 
 
-# This is the high level intermediate representation.
+# This is the abstract semantic graph.
 # It is inspired by the Rust compiler.
 
-# The HIR is very similar to the AST, but all symbols are defined
+# The ASG is very similar to the AST, but all symbols are defined
 # and resolved. Every attribute access that isn't on a local declaration
 # gets resolved as well.
 
@@ -31,9 +31,9 @@ class DefId:
 
 
 @attr.s(kw_only=True, slots=True)
-class HirContext:
+class AsgContext:
     diagnostics: DiagnosticReporter = attr.ib()
-    fields: dict[int, HirField] = attr.ib(factory=dict)
+    fields: dict[int, AsgField] = attr.ib(factory=dict)
     generics: dict[int, Generics] = attr.ib(factory=dict)
 
 
@@ -42,7 +42,7 @@ class ModuleDef(DefId):
     types: dict[str, TypeDeclaration] = attr.ib(factory=dict)
     classes: dict[str, ClassDef] = attr.ib(factory=dict)
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
-    body: HirBody | None = attr.ib(default=None)
+    body: AsgBody | None = attr.ib(default=None)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -64,14 +64,14 @@ class Generics:
 class StructDef(DefId):
     name: str = attr.ib()
     is_declaration: bool = attr.ib()
-    fields: dict[str, HirType] = attr.ib(factory=dict)
+    fields: dict[str, AsgType] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleDef(DefId):
     name: str = attr.ib()
     is_declaration: bool = attr.ib()
-    elts: list[HirType] = attr.ib(factory=list)
+    elts: list[AsgType] = attr.ib(factory=list)
 
 
 UNIT = TupleDef(name="unit", is_declaration=False, elts=[])
@@ -92,9 +92,9 @@ class AliasDef(DefId):
 @attr.s(kw_only=True, slots=True)
 class FunctionDef(DefId):
     name: str = attr.ib()
-    parameters: dict[str, HirType | Singleton] = attr.ib(factory=dict)
-    returns: HirType | Singleton = attr.ib(default=UNIT)
-    body: HirBody | None = attr.ib(default=None)
+    parameters: dict[str, AsgType | Singleton] = attr.ib(factory=dict)
+    returns: AsgType | Singleton = attr.ib(default=UNIT)
+    body: AsgBody | None = attr.ib(default=None)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -105,8 +105,8 @@ class ClassDef(DefId):
 
 @attr.s(kw_only=True, slots=True)
 class UseDef(DefId):
-    type: HirType = attr.ib(default=UNIT)
-    type_class: HirType = attr.ib(default=UNIT)
+    type: AsgType = attr.ib(default=UNIT)
+    type_class: AsgType = attr.ib(default=UNIT)
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
 
 
@@ -121,7 +121,7 @@ class LocalDeclaration(DefId):
     node_id: int = attr.ib()
 
 
-type HirField = (
+type AsgField = (
     ModuleDef | StructDef | TupleDef | SumDef | AliasDef | FunctionDef | ClassDef | UseDef
 )
 
@@ -134,8 +134,8 @@ type TypeDeclaration = (
 @attr.s(kw_only=True, slots=True)
 class PathSegment:
     name: str = attr.ib()
-    result: HirPathResult = attr.ib()
-    arguments: list[HirType] = attr.ib(factory=list)
+    result: AsgPathResult = attr.ib()
+    arguments: list[AsgType] = attr.ib(factory=list)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -155,22 +155,22 @@ class Path:
     # are resolved and added to the segment's arguments.
     segments: list[PathSegment] = attr.ib(factory=list)
 
-    def get_result(self) -> HirPathResult:
+    def get_result(self) -> AsgPathResult:
         return self.segments[-1].result
 
 
 @attr.s(kw_only=True, slots=True)
 class ListType:
-    elt: HirType = attr.ib()
+    elt: AsgType = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class HirError:
+class AsgError:
     node: ast.Node = attr.ib()
 
 
-type HirType = Path | ClassDef | TypeParameter | ListType | TypeDeclaration | HirError
+type AsgType = Path | ClassDef | TypeParameter | ListType | TypeDeclaration | AsgError
 
-type HirPathResult = (
-    LocalDeclaration | FunctionDef | ClassDef | TypeParameter | ListType | TypeDeclaration | HirField | HirError
+type AsgPathResult = (
+    LocalDeclaration | FunctionDef | ClassDef | TypeParameter | ListType | TypeDeclaration | AsgField | AsgError
 )

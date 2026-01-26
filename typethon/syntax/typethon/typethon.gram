@@ -25,6 +25,8 @@ simple_statement:
     | "return" !expression?
     #[create_expr_statement]
     | !expression
+    #[create_assignment]
+    | !expression "=" !expression
     | !function_prototype
     | !type_declaration
     | !declaration_statement
@@ -89,8 +91,6 @@ while_statement:
 
 expression:
     | !disjunction
-    #[create_assignment]
-    | !expression "=" !expression
 
 disjunction:
     #[create_disjunction]

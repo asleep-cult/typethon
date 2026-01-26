@@ -389,6 +389,8 @@ type StatementNode = (
     | IfNode
     | ImportNode
     | ImportFromNode
+    | AssignNode
+    | AugAssignNode
     | ReturnNode
     | BreakNode
     | ContinueNode
@@ -400,9 +402,7 @@ type StatementNode = (
 )
 
 type ExpressionNode = (
-    AssignNode
-    | AugAssignNode
-    | ExpressionLambdaNode
+    ExpressionLambdaNode
     | BlockLambdaNode
     | BoolOpNode
     | BinaryOpNode
@@ -438,14 +438,6 @@ def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionN
     yield expression
 
     match expression:
-        case AssignNode():
-            # No, a lambda is not a valid target
-            yield from walk_expressions(expression.target)
-            yield from walk_expressions(expression.value)
-        case AugAssignNode():
-            # Ditto
-            yield from walk_expressions(expression.target)
-            yield from walk_expressions(expression.value)
         case BoolOpNode():
             for value in expression.values:
                 yield from walk_expressions(value)
