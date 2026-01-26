@@ -57,12 +57,12 @@ type Expr =
     | Add(Expr, Expr)
     | Sub(Expr, Expr)
 
-# Data structures are instantiated using the with keyword.
+# Data structures are instantiated using instantiation operator.
 
-Point with { x = 10, y = 20 }
-AnonymousPoint with (10, 20)
+Point::{ x = 10, y = 20 }
+AnonymousPoint::(10, 20)
 
-Expr.Add with (Expr.Number with (10,), Expr.Number with (20,))
+Expr.Add::(Expr.Number::(10), Expr.Number::(20))
 # Not sure about this yet.
 
 # Bindings can be created using the let keyword.
@@ -104,7 +104,7 @@ def unbox(box: Box('t)) -> 't:
 def unbox_int(box: Box(int)) -> int:
     return box.value
 
-let box = Box with { value: 10 }
+let box = Box::{ value = 10 }
 x = unbox(box) # type: int
 x = unbox_int(box) # type: int
 
@@ -133,7 +133,7 @@ use Identity:
     def f(self: Self) -> Self:
         return self
 
-let x = Identity with ()
+let x = Identity::()
 let x = x.f()
 
 # The use/for syntax can be used to denote
@@ -143,19 +143,15 @@ type Map = { mapping: dict('k, 'v) }
 
 use Index('k, 'v) for Map('k, 'v):
     def new(self: Self, mapping: dict('k, 'v)) -> Self:
-        return Self with { mapping = mapping }
+        return Self::{ mapping = mapping }
 
     def update(self: Self, other: Self) -> Self:
-        return self with { mapping = self.mapping | other.mapping }
+        return self::{ mapping = self.mapping | other.mapping }
 
     def get_item(self: Self, key: 'k) -> 'v:
         return self.mapping[key]
 
 # Maybe there with be a Type.new() convention
-
-# Since the with is an expression, slightly questionable things are valid:
-Type with { field: x }.something()
-Type with (x, y)[0]
 
 # I added a proof of concept lambda syntax that simply uses two colons
 # and allows multiline blocks with a delimeter. Here is how it looks:
