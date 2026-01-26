@@ -45,9 +45,9 @@ be ported to Rust, Ocaml, or maybe even Zig.
 # Data types can be tuples or structures, they can be defined with type
 # assignment statements.
 
-type Structure = { field1: int, field2: str }
+type Point = { x: int, y: int }
 
-type Tuple = (int, str)
+type AnonymousPoint = (int, int)
 
 # Data types can also be unions
 
@@ -56,6 +56,14 @@ type Expr =
     | Attribute(Expr, str)
     | Add(Expr, Expr)
     | Sub(Expr, Expr)
+
+# Data structures are instantiated using the with keyword.
+
+Point with { x = 10, y = 20 }
+AnonymousPoint with (10, 20)
+
+Expr.Add.new with (Expr.Number with (10,), Expr.Number with (20,))
+# Not sure about this yet.
 
 # Bindings can be created using the let keyword.
 
@@ -75,19 +83,20 @@ def f():
 
 # Types and functions can be parametrically polymorphic. A data type can only be
 # polymorphic over a field, and functions can be polymorphic over an argument or
-# the return value. A class could be polymorphic over any arbitrary type t.
+# the return type. A class could be polymorphic over any arbitrary type t.
 
 def identity(x: 't) -> 't:
     return x
 
 type Box = { value: 't }
 
-# You can pass type parameters to polymorphic functions and calsses by simply
-# calling it with a value. In places where you need a polymorphic class as a type,
-# it can be written as Class(T).
+# Type constructors and functions can be falled with f(...)
+identity(10) == 10
+Box(int)
 
-box = Box(5) # type: Box(int)
-x = identity(5) # type: int
+# Type parameters are be inferred when used with values.
+
+let x = identity(5) # inferred 't: int
 
 def unbox(box: Box('t)) -> 't:
     return box.value
@@ -95,10 +104,9 @@ def unbox(box: Box('t)) -> 't:
 def unbox_int(box: Box(int)) -> int:
     return box.value
 
-let x = unbox(box) # type: int
-let x = unbox_int(box) # type: int
-
-# Not sure how to pass explicitly pass type parameters to functions 
+let box = Box with { value: 10 }
+x = unbox(box) # type: int
+x = unbox_int(box) # type: int
 
 # Ad-hoc polymorphism is achieved by constraining a polymorphic type t
 # to what will eventually become classes. The with class for 't constrains
@@ -110,16 +118,14 @@ def get_str_item(items: 't, index: int) -> str with 't: Index(int, str):
 def get_item(items: 't, index: 'u) -> 'v with 't: Index('u, 'v):
     return items[index]
 
-# If a function is polymorphic over it's return type, and it is not
-# used in any constraints, the caller must explicitly state the type.
+# Expressions can be annotated when type inference isn't possible
 
 def new() -> 'u:
     return u()
 
-let items = new()  # Impossible to resolve U
-let items: [int] = new()  # Works fine
+f(new(): int)
 
-# Use blocked can be used to define a function on a type.
+# Use blocks can be used to define a function on a type.
 
 type Identity = ()
 
@@ -127,7 +133,7 @@ use Identity:
     def f(self: Self) -> Self:
         return self
 
-let x = Identity()
+let x = Identity with ()
 let x = x.f()
 
 # The use/for syntax can be used to denote
@@ -136,13 +142,25 @@ let x = x.f()
 type Map = { mapping: dict('k, 'v) }
 
 use Index('k, 'v) for Map('k, 'v):
+    def new(self: Self, mapping: dict('k, 'v)) -> Self:
+        return Self with { mapping = mapping }
+
+    def update(self: Self, other: Self) -> Self:
+        return self with { mapping = self.mapping | other.mapping }
+
     def get_item(self: Self, key: 'k) -> 'v:
         return self.mapping[key]
+
+# Maybe there with be a Type.new() convention
+
+# Since the with is an expression, slightly questionable things are valid:
+Type with { field: x }.something()
+Type with (x, y)[0]
 
 # I added a proof of concept lambda syntax that simply uses two colons
 # and allows multiline blocks with a delimeter. Here is how it looks:
 
-(arg1, arg2, ..., argn) :: expression
+(arg1, arg2: annotation, ..., argn: annotation) :: expression
 
 # This is the block form
 
@@ -158,10 +176,6 @@ use Index('k, 'v) for Map('k, 'v):
 (arg1, arg2, ..., argn) ::
     return expression
 ::
-
-# I want to allow type annotation but due to ambiguity issues
-# it will either need to a) allow either all annotations or no annotations,
-# i.e. no annotating one but not the other, b) add a weird a: b expression only valid in tuples:
 
 # I'm unsure how traits would be handled as of right now because:
 # 1. Other languages use def f(x: Trait) for dynamic dispatch and def f(x: 't) with Trait for 't
@@ -226,6 +240,7 @@ if x == y: return 10
 
 # *I have been considering  allowing multiple iterators in for loops
 # to avoid the long winded zip() function. For example:
+# Probably not.
 
 for (
     name in username if len(name) < 10,
