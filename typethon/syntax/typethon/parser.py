@@ -342,6 +342,19 @@ class ASTParser:
             value=value,
         )
 
+    def create_annotated_expression(
+        self,
+        span: tuple[int, int],
+        value: ast.ExpressionNode,
+        type: ast.TypeExpressionNode,
+    ) -> ast.AnnotatedNode:
+        return ast.AnnotatedNode(
+            start=span[0],
+            end=span[1],
+            value=value,
+            type=type,
+        )
+
     def create_disjunction(
         self,
         span: tuple[int, int],
@@ -689,6 +702,30 @@ class ASTParser:
             value=identifier.content,
         )
 
+    def create_struct(
+        self,
+        span: tuple[int, int],
+        fields: OptionNode[SequenceNode[ast.StructFieldNode]],
+    ) -> ast.StructNode:
+        return ast.StructNode(
+            start=span[0],
+            end=span[1],
+            fields=fields.sequence().items,
+        )
+
+    def create_struct_field(
+        self,
+        span: tuple[int, int],
+        name: IdentifierToken,
+        value: ast.ExpressionNode,
+    ) -> ast.StructFieldNode:
+        return ast.StructFieldNode(
+            start=span[0],
+            end=span[1],
+            name=name.content,
+            value=value,
+        )
+
     def potentially_enter_lambda_stack(self) -> None:
         assert EXPERIMENTAL_LAMBDAS, "Lambdas not allowed"
 
@@ -743,6 +780,7 @@ class ASTParser:
         if token.kind is not TokenKind.DOUBLECOLON:
             return expression
 
+        # TODO: We allow annotations here
         if not isinstance(expression, ast.NameNode):
             assert False, "Non-name lambda parameter"
 
@@ -827,7 +865,7 @@ class ASTParser:
     def create_struct_type(
         self,
         span: tuple[int, int],
-        fields: SequenceNode[ast.StructFieldNode],
+        fields: SequenceNode[ast.StructTypeFieldNode],
     ) -> ast.StructTypeNode:
         return ast.StructTypeNode(
             start=span[0],
@@ -835,13 +873,13 @@ class ASTParser:
             fields=fields.items,
         )
 
-    def create_struct_field(
+    def create_struct_type_field(
         self,
         span: tuple[int, int],
         name: IdentifierToken,
         type: ast.TypeExpressionNode,
-    ) -> ast.StructFieldNode:
-        return ast.StructFieldNode(
+    ) -> ast.StructTypeFieldNode:
+        return ast.StructTypeFieldNode(
             start=span[0],
             end=span[1],
             name=name.content,
@@ -876,13 +914,13 @@ class ASTParser:
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        data_type: OptionNode[ast.DataTypeNode],
+        type: OptionNode[ast.TypeExpressionNode],
     ) -> ast.SumTypeFieldNode:
         return ast.SumTypeFieldNode(
             start=span[0],
             end=span[1],
             name=name.content,
-            data_type=data_type.item,
+            type=type.item,
         )
 
     def create_type_parameter(

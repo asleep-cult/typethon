@@ -25,8 +25,7 @@ simple_statement:
     | "return" !expression?
     #[create_expr_statement]
     | !expression
-    #[create_assignment]
-    | !expression "=" !expression
+    | assignment
     | !function_prototype
     | !type_declaration
     | !declaration_statement
@@ -42,6 +41,10 @@ block:
 declaration_statement:
     #[create_declaration]
     | "let" !IDENTIFIER (":" !type_expression)? ("=" !expression)?
+
+assignment:
+    #[create_assignment]
+    | !expression "=" !expression
 
 decorators: ("@" !expression NEWLINE)+
 
@@ -91,6 +94,11 @@ while_statement:
 
 expression:
     | !disjunction
+    | !annotated_expresion
+
+annotated_expresion:
+    #[create_annotated_expression]
+    | !disjunction ":" !type_expression
 
 disjunction:
     #[create_disjunction]
@@ -225,6 +233,7 @@ atom:
     | !NUMBER
     #[create_string]
     | !STRING+
+    | !struct
     | !tuple_or_lambda
     | !group_or_lambda
 
@@ -243,6 +252,18 @@ lambda:
     | "::" !lambda_block "::"
     #[create_expression_lambda]
     | "::" !expression
+
+struct:
+    #[create_struct]
+    | "{" !struct_fields? "}"
+
+struct_fields:
+    #[@prepend]
+    | !struct_field ("," !struct_field)* ","?
+
+struct_field:
+    #[create_struct_field]
+    | !IDENTIFIER "=" !expression
 
 tuple_or_lambda_parameters:
     #[create_tuple_or_lambda_parameters]
@@ -264,17 +285,7 @@ group_or_lambda:
 
 type_declaration:
     #[create_type_declaration]
-    | "type" !IDENTIFIER "=" !type_declaration_expression
-
-type_declaration_expression:
-    | !type_expression
-    | !data_type
-
-data_type:
-    #[create_struct_type]
-    | "{" !type_struct_fields "}"
-    #[create_tuple_type]
-    | "(" !type_expression_list? ")"
+    | "type" !IDENTIFIER "=" !type_expression
 
 type_expression:
     | !type_primary
@@ -290,12 +301,12 @@ type_expression_list:
     #[@prepend]
     | !type_expression ("," !type_expression)* ","?
 
-type_struct_fields:
+struct_type_fields:
     #[@prepend]
-    | !type_struct_field ("," !type_struct_field)* ","?
+    | !struct_type_field ("," !struct_type_field)* ","?
 
-type_struct_field:
-    #[create_struct_field]
+struct_type_field:
+    #[create_struct_type_field]
     | !IDENTIFIER ":" !type_expression
 
 sum_type_statement:
@@ -304,7 +315,7 @@ sum_type_statement:
 
 sum_type_field:
     #[create_sum_field]
-    | !IDENTIFIER !data_type?
+    | !IDENTIFIER ("of" !type_expression)?
 
 type_parameter:
     #[create_type_parameter]
@@ -320,4 +331,8 @@ type_atom:
     | "Self"
     #[create_name]
     | !IDENTIFIER
+    #[create_struct_type]
+    | "{" !struct_type_fields "}"
+    #[create_tuple_type]
+    | "(" !type_expression_list? ")"
     | "(" !type_atom ")"

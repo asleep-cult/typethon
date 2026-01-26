@@ -52,31 +52,15 @@ type UnnamedPoint = (int, int)
 # Data can also be a sum types
 
 type Expr = 
-    | Number(int)
-    | Attribute(Expr, str)
-    | Add(Expr, Expr)
-    | Sub(Expr, Expr)
-
-# Tuples and structures can be instantiated in code like this:
-
-{ x = 10, y = 20 }
-(10, 20)
-
-# Sum type instantiation?
-
-# This is pretty rough.
-
-((10,): Expr.Number, (20,): Expr.Number): Expr.Add
-
-# An alternative option
-
-type Expr = 
     | Number of int
     | Attribute of (Expr, str)
     | Add of (Expr, Expr)
     | Sub of (Expr, Expr)
 
-Expr.Add of (Expr.Number of 10, Expr.Number of 20)
+# Tuples and structures can be instantiated in code like this:
+
+{ x = 10, y = 20 }
+(10, 20)
 
 # Data defined in code is compatible with anything that shares the same layout,
 # so in many cases, it is not necessary to write the type.
@@ -180,10 +164,10 @@ type Map = { mapping: dict('k, 'v) }
 
 use Index('k, 'v) for Map('k, 'v):
     def new(self: Self, mapping: dict('k, 'v)) -> Self:
-        return { mapping = mapping }: Self
+        return { mapping = mapping }
 
     def update(self: Self, other: Self) -> Self:
-        return { mapping = self.mapping | other.mapping }: Self
+        return { mapping = self.mapping | other.mapping }
 
     def get_item(self: Self, key: 'k) -> 'v:
         return self.mapping[key]
@@ -278,8 +262,8 @@ def f(x):
         print(10)
         break label
 
-    ~label while True:
+    ~loop while True:
         for i in range(30):
             if is_special_enough_to_break(i):
-                break label
+                break loop
 ```

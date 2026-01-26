@@ -205,6 +205,12 @@ class BlockLambdaNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
+class AnnotatedNode(Node):
+    value: ExpressionNode = attr.ib()
+    type: TypeExpressionNode = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class BoolOpNode(Node):
     op: BoolOperatorKind = attr.ib()
     values: list[ExpressionNode] = attr.ib()
@@ -289,12 +295,23 @@ class NameNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class ListNode(Node):
-    elts: list[ExpressionNode] = attr.ib()
+class StructNode(Node):
+    fields: list[StructFieldNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class StructFieldNode(Node):
+    name: str = attr.ib()
+    value: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleNode(Node):
+    elts: list[ExpressionNode] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class ListNode(Node):
     elts: list[ExpressionNode] = attr.ib()
 
 
@@ -361,18 +378,18 @@ class SumTypeNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SumTypeFieldNode(Node):
     name: str = attr.ib()
-    data_type: DataTypeNode | None = attr.ib()
+    type: TypeExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class StructFieldNode(Node):
+class StructTypeFieldNode(Node):
     name: str = attr.ib()
     type: TypeExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class StructTypeNode(Node):
-    fields: list[StructFieldNode] = attr.ib()
+    fields: list[StructTypeFieldNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -404,6 +421,7 @@ type StatementNode = (
 type ExpressionNode = (
     ExpressionLambdaNode
     | BlockLambdaNode
+    | AnnotatedNode
     | BoolOpNode
     | BinaryOpNode
     | UnaryOpNode
@@ -413,8 +431,9 @@ type ExpressionNode = (
     | AttributeNode
     | SubscriptNode
     | NameNode
-    | ListNode
+    | StructNode
     | TupleNode
+    | ListNode
     | SliceNode
 )
 
@@ -438,6 +457,8 @@ def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionN
     yield expression
 
     match expression:
+        case AnnotatedNode():
+            yield from walk_expressions(expression.value)
         case BoolOpNode():
             for value in expression.values:
                 yield from walk_expressions(value)

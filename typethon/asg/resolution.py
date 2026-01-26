@@ -151,12 +151,12 @@ class SymbolResolver:
                 scope = self.create_scope(statement.id, ScopeKind.DECLARATION)
 
                 for field in statement.fields:
-                    if field.data_type is not None:
+                    if field.type is not None:
                         # XXX: If the type parameter syntax going to be
                         # problematic for unions?
                         self.initialize_type_parameters(
                             scope,
-                            field.data_type,
+                            field.type,
                             primary_field=sum_def,
                             secondary_field=owner_field,
                         )
