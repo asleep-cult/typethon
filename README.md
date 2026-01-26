@@ -62,7 +62,7 @@ type Expr =
 Point with { x = 10, y = 20 }
 AnonymousPoint with (10, 20)
 
-Expr.Add.new with (Expr.Number with (10,), Expr.Number with (20,))
+Expr.Add with (Expr.Number with (10,), Expr.Number with (20,))
 # Not sure about this yet.
 
 # Bindings can be created using the let keyword.
