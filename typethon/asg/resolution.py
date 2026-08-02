@@ -34,6 +34,11 @@ type ResolvedAttribute = asg.TypeDeclaration | asg.ClassDef | asg.FunctionDef
 
 
 class SymbolResolver:
+    # Prior to resolving symbols, the resolver must initialize all fields and type parameters.
+    # The resolver is subsequently used by AsgLowering for path and name resolution.
+    # AsgLowering is responsible for calling the add_local_declaration because it is the only
+    # case where a name cannot be used in its scope before it has been defined.
+
     def __init__(
         self,
         asg_ctx: asg.AsgContext,
@@ -152,7 +157,7 @@ class SymbolResolver:
 
                 for field in statement.fields:
                     if field.type is not None:
-                        # XXX: If the type parameter syntax going to be
+                        # XXX: Is the type parameter syntax going to be
                         # problematic for unions?
                         self.initialize_type_parameters(
                             scope,
@@ -270,7 +275,28 @@ class SymbolResolver:
     ) -> None:
         primary_generics = self.asg_ctx.generics.get(primary_field.id)
 
-        if isinstance(secondary_field, asg.UseDef):
+        # I have made the questionable syntactic decision of allowing type paramters
+        # to be referred to without being explicitly defined first.
+        # If a type paramter is referred to, it is subsequently defined.
+        # Rather than def f<T>(x: T), it is simply def f(x: 't).
+        # This complicates matters for the compiler because there are instances
+        # where we might want to refer to a type paramter defined in the context
+        # of the outside field, and there are other instances where a type parameter
+        # of the same name should define a new one in the contex of the current field.
+        # Here are two examples of both cases respectively:
+        # class A('t):
+        #   def f(x: 't) -> 't
+        # ...
+        # def f(x: 't) -> 't:
+        #   def g(y: 't) -> 't
+        # In the second example, both `f` and `g` have their own type parameter named `t`.
+        # The composition of the Generics instance is responsible for this behavior.
+        # Anytime the compiler encounters a type paramter `t`, it looks through the structure
+        # recursively for any parameter of the same name. If that is not found, it simply
+        # creates a new one, and inserts it into the Generic's parameters. As a result,
+        # the compiler only ascribes a Generics.owner value in contexts where the outside
+        # field's type parameters can be utilized.
+        if isinstance(secondary_field, (asg.UseDef, asg.ClassDef)):
             secondary_generics = self.asg_ctx.generics.get(secondary_field.id)
         else:
             secondary_generics = None
@@ -282,9 +308,11 @@ class SymbolResolver:
                     self.asg_ctx.generics[primary_field.id] = primary_generics
 
                 if not primary_generics.has_parameter_named(subexpression.name):
-                    scope.type_parameters[subexpression.name] = asg.TypeParameter(
+                    type_parameter = asg.TypeParameter(
                         name=subexpression.name,
                     )
+                    scope.type_parameters[subexpression.name] = type_parameter
+                    primary_generics.parameters[subexpression.name] = type_parameter
 
     def enter_node(self, node: ast.Node) -> SymbolScope:
         if node.id not in self.scopes:
@@ -315,12 +343,10 @@ class SymbolResolver:
         can_access_declarations = include_local_declarations
 
         for scope in reversed(self.scope_stack):
-            if can_access_declarations:
-                if name in scope.local_declarations:
+            if can_access_declarations and name in scope.local_declarations:
                     return scope.local_declarations[name]
 
-            if can_access_type_parameters:
-                if name in scope.type_parameters:
+            if can_access_type_parameters and name in scope.type_parameters:
                     return scope.type_parameters[name]
 
             if scope.kind is ScopeKind.CLASS and can_access_class_parameters:

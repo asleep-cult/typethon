@@ -49,14 +49,14 @@ type Point = { x: int, y: int }
 
 type UnnamedPoint = (int, int)
 
-# Data can also be a sum types
+# Data can also be a sum type
 
-type Expr = 
-    | Number of int
+type Expr = (
+    Number of int
     | Attribute of (Expr, str)
     | Add of (Expr, Expr)
     | Sub of (Expr, Expr)
-
+)
 # Tuples and structures can be instantiated in code like this:
 
 { x = 10, y = 20 }
@@ -74,12 +74,10 @@ def add(point: Point) -> int:
 
 f({ x = 10, y = 20 })
 
-# If the type of the data is annotated, it is then only compatible with data
-# of the same type
+# Unannotated data is structurally compatible with any type of the same layout,
+# annotating the data enables nominal typing
 
 f({ x = 30, y = -5 }: Point)
-
-# Bindings can be created using the let keyword.
 
 def f():
     let i
@@ -104,11 +102,11 @@ def identity(x: 't) -> 't:
 
 type Box = { value: 't }
 
-# Type constructors and functions can be falled with f(...)
+# Type constructors and functions can be called with f(...)
 identity(10) == 10
 Box(int)
 
-# Type parameters are be inferred when used with values.
+# Type parameters are inferred when used with values.
 
 let x = identity(5) # inferred 't: int
 
@@ -127,7 +125,7 @@ x = unbox(box) # type: int
 x = unbox_int(box) # type: int
 
 # Ad-hoc polymorphism is achieved by constraining a polymorphic type t
-# to what will eventually become classes. The with class for 't constrains
+# to what will eventually become classes. The `with class for 't` constrains
 # the type 't to the class.
 
 def get_str_item(items: 't, index: int) -> str with 't: Index(int, str):
@@ -163,7 +161,7 @@ let x = x.f()
 type Map = { mapping: dict('k, 'v) }
 
 use Index('k, 'v) for Map('k, 'v):
-    def new(self: Self, mapping: dict('k, 'v)) -> Self:
+    def new(mapping: dict('k, 'v)) -> Self:
         return { mapping = mapping }
 
     def update(self: Self, other: Self) -> Self:
@@ -172,7 +170,7 @@ use Index('k, 'v) for Map('k, 'v):
     def get_item(self: Self, key: 'k) -> 'v:
         return self.mapping[key]
 
-# Maybe there with be a Type.new() convention
+# Maybe there will be a Type.new() convention
 
 # I added a proof of concept lambda syntax that simply uses two colons
 # and allows multiline blocks with a delimeter. Here is how it looks:
@@ -188,11 +186,7 @@ use Index('k, 'v) for Map('k, 'v):
     stmtn
 ::
 
-# The expression form is equivalent to
-
-(arg1, arg2, ..., argn) ::
-    return expression
-::
+# I question whether the block form should be able to be assigned to a variable at all
 
 # I'm unsure how traits would be handled as of right now because:
 # 1. Other languages use def f(x: Trait) for dynamic dispatch and def f(x: 't) with Trait for 't
@@ -266,4 +260,33 @@ def f(x):
         for i in range(30):
             if is_special_enough_to_break(i):
                 break loop
+
+# *Data types might automatically derive field names from the variable it is
+# assigned to, for example:
+
+let x = 10
+let y = 20
+
+{ x, y }
+# Would be equivalent to
+{ x = x, y = y }
+
+# *You might be able to chain binary operations across multiple lines with an indent
+type Number = int
+    | float
+    | complex
+
+return numbers.filter(n :: n >= 50)
+    .map(str)
+    .join(", ")
+
+let result = x * y + 200 - z
+    / y**2 - 4 * a + b
+
+# This wouldn't work:
+
+if x > 50
+    and y < 100
+    and z == 20:
+    do_something()
 ```

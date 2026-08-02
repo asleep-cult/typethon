@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import attr
-import typing
 import enum
 
 from ..syntax import tokens
-
-TokenKindT = typing.TypeVar("TokenKindT", bound=enum.Enum)
-KeywordKindT = typing.TypeVar("KeywordKindT", bound=enum.Enum)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -61,12 +57,12 @@ class GroupNode[TokenKindT: enum.Enum, KeywordKindT: enum.Enum](Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class TokenNode(typing.Generic[TokenKindT], Node):
+class TokenNode[TokenKindT: enum.Enum](Node):
     kind: TokenKindT = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class KeywordNode(typing.Generic[KeywordKindT], Node):
+class KeywordNode[KeywordKindT: enum.Enum](Node):
     keyword: KeywordKindT = attr.ib()
 
 

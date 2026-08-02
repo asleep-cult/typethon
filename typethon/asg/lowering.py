@@ -6,7 +6,6 @@ from ..syntax.typethon import ast
 class AsgLowering:
     resolver: SymbolResolver
     module: ast.ModuleNode
-    resolver: SymbolResolver
 
     def __init__(
         self,
@@ -179,7 +178,7 @@ class AsgLowering:
 
                 self.resolver.enter_node(statement)
                 for field in statement.fields:
-                    type = asg.NOTYPE
+                    type = asg.UNIT
                     if field.type is not None:
                         type = self.lower_type_expression(field.type)
 
@@ -234,7 +233,7 @@ class AsgLowering:
                 for substatement in statement.body:
                     if isinstance(substatement, ast.FunctionDefNode):
                         self.lower_statement(substatement, asg_body)
-                        function_def = self.asg_ctx.fields[statement.id]
+                        function_def = self.asg_ctx.fields[substatement.id]
                         assert isinstance(function_def, asg.FunctionDef)
 
                         use_def.functions[substatement.name] = function_def

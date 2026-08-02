@@ -8,7 +8,7 @@ from itertools import count
 from ..diagnostics import DiagnosticReporter
 from ..syntax.typethon import ast
 
-HIR_ID_COUNT = count()
+ASG_ID_COUNT = count()
 
 
 # This is the abstract semantic graph.
@@ -21,21 +21,28 @@ HIR_ID_COUNT = count()
 
 class Singleton(enum.Enum):
     INFERRED = enum.auto()
-    NOTYPE = enum.auto()
 
 INFERRED = Singleton.INFERRED
-NOTYPE = Singleton.NOTYPE
 
 
 @attr.s(kw_only=True, slots=True)
 class DefId:
-    id: int = attr.ib(factory=lambda: next(HIR_ID_COUNT))
+    id: int = attr.ib(factory=lambda: next(ASG_ID_COUNT))
 
 
 @attr.s(kw_only=True, slots=True)
 class AsgContext:
+    # A container that primarily keeps tracks of all fields lowered
+    # regardless of where they are located in the code.
+    # A field is any one of the following:
+    #   xx.tpy: ModuleDef
+    #   type XX = ...: StructDef/TupleDef/AliasDef/SumDef
+    #   def xx(...) -> ...: FunctionDef
+    #   use XX [for YY]: UseDef
     diagnostics: DiagnosticReporter = attr.ib()
     fields: dict[int, AsgField] = attr.ib(factory=dict)
+    # A mapping of field id to Generics instances. Types, functions,
+    # and use blocks can all have one.
     generics: dict[int, Generics] = attr.ib(factory=dict)
 
 
@@ -49,6 +56,7 @@ class ModuleDef(DefId):
 
 @attr.s(kw_only=True, slots=True)
 class Generics:
+    # Similar to a scope that keeps track of type paramters by name.
     owner: Generics | None = attr.ib(default=None)
     parameters: dict[str, TypeParameter] = attr.ib(factory=dict)
 
@@ -83,7 +91,7 @@ INVALID = TupleDef(name="invalid", is_declaration=True, elts=[])
 @attr.s(kw_only=True, slots=True)
 class SumDef(DefId):
     name: str = attr.ib()
-    types: dict[str, AsgType | typing.Literal[NOTYPE]] = attr.ib(factory=dict)
+    types: dict[str, AsgType] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -124,12 +132,18 @@ class LocalDeclaration(DefId):
 
 
 type AsgField = (
-    ModuleDef | StructDef | TupleDef | SumDef | AliasDef | FunctionDef | ClassDef | UseDef
+    ModuleDef
+    | StructDef
+    | TupleDef
+    | SumDef
+    | AliasDef
+    | FunctionDef
+    | ClassDef
+    | UseDef
 )
 
 type TypeDeclaration = (
-    StructDef | TupleDef | SumDef
-    # AliasDef,
+    StructDef | TupleDef | SumDef | AliasDef
 )
 
 
@@ -145,14 +159,14 @@ class Path:
     # Xyz.Abc('t).foo might be represented as
     # Path(segments=[
     #   PathSegment(name='Xyz', result=ModuleDef),
-    #   PathSegment(name='abc', result=ClassDef, arguments=TypeParameter)
+    #   PathSegment(name='Abc', result=ClassDef, arguments=TypeParameter(name='t'))
     #   PathSegment(name='foo', result=FunctionDef)
     # ])
     # Anything in the program written as a name `x` is resolved to a path.
     # Anything in a program written as `x.y` where x is not a local declaration
     # is resolved to a path.
     #   When y is not a local declaration, it is only valid in an executable code block,
-    #   and it is resolved to AttributeLookup (or whetever I decide to call it)
+    #   and it is resolved to Attribute (or whetever I decide to call it)
     # When there are arguments after non-local declaration `y`, the result of the arguments
     # are resolved and added to the segment's arguments.
     segments: list[PathSegment] = attr.ib(factory=list)
