@@ -59,13 +59,21 @@ type Expr = (
 )
 # Tuples and structures can be instantiated in code like this:
 
-{ x = 10, y = 20 }
 (10, 20)
+{ x = 10, y = 20 }
 
-# Data defined in code is compatible with anything that shares the same layout,
-# so in many cases, it is not necessary to write the type.
-# In the same way that (1, 2) is compatible with (int, int),
-# { x = 1, x = 2 } is compatible with { x: int, y: int }
+# Data defined in code without an explicit type is automatically deduced
+# to a structural type.
+
+let point = { x = 10, y = 20 } # This can only be used where { x: int, y: int } is expected, not Point
+let point = (1, 2)  # This can only be used where (int, int) is expected, not UnnamedPoint
+
+# The opposite is also true. Point cannot be coerced to the structural type { x: int, y: int }
+
+# Structural struct types exist to match structural tuple types. The boundary between structural
+# and nominal types cannot be crossed implicity in either case. Whether some variation
+# of a { ..point }/(..point,) should allow you to convert between structural and nominal
+# types of the same form is another question. 
 
 # For example, this would be valid
 
@@ -73,9 +81,6 @@ def add(point: Point) -> int:
     return point.x + point.y
 
 f({ x = 10, y = 20 })
-
-# Unannotated data is structurally compatible with any type of the same layout,
-# annotating the data enables nominal typing
 
 f({ x = 30, y = -5 }: Point)
 
@@ -203,6 +208,66 @@ use Index('k, 'v) for Map('k, 'v):
 # *Function bodies are optional for prototyping
 
 def proto(foo: int) -> str
+
+# *Field privacy
+
+# It is unreasonable to call a data type's constructor when some data is ascribed to that type.
+# It is also unreasonable to allow data to exist in a potentially invalid state when someone
+# wants their constructor to validate it. 
+# Here is an example:
+
+type Student = { name: str, grade_level: int }
+
+use Student:
+    def new(name: str, grade_level: int) -> Self:
+        if grade_level < 1 or grade_level > 12:
+            grade_level = 1
+
+        return { name, grade_level }
+
+def congratulate_student(student: Student) -> ():
+    print(f"Congratulations {student.name}, you've reached grade {student.grade_level}")
+
+congratulate_student({ name = "Jacob", grade_level = -1 })
+# In this case, the Student exists in an invalid state, and calling the new() function
+# would be grossly implicit.
+
+# There must be a mechanism to disallow the creation of a Student without calling new.
+
+# Everything can be private by default and there can be a special syntax for exposing
+# types, functions, and fields.
+
+# Parent defined later
+type Student = { name: str, grade_level: int, parent: Parent }
+
+use Student:
+    expose name, parent.occupation
+
+    def new(name: str, grade_level: int, parent: Parent) -> Self:
+        let self: Self = { name, parent, grade_level = 1 }
+        self.set_grade_level(grade_level)
+        return self
+
+    def grade_level(self: Self) -> int:
+        return self.grade_level
+
+    def set_grade_level(self: Self, grade_level: int) -> ():
+        if grade_level >= 1 and grade_level <= 12:
+            self.grade_level = grade_level
+
+#[expose(*)]
+type Parent = { name: str, occupation: str }
+# Rust attribute style sugar for `use Parent: expose *`
+
+def congratulate_student(student: Student) -> ():
+    student.parent.occupation   # Accessible
+    student.parent.name     # Not Accessible
+    print(f"Congratulations {student.name}, you've reached grade {student.grade_level()}")
+
+# Types and functions also need a mechanism for determining visibility,
+# part of me thinks I can get away without a new keyword but that seems unlikely.
+# I don't really want code sprinkled with pub everywhere. Public by default is an option
+# but might be confusing and inconsistent when fields must be explicitly made public.
 
 # *Classes look like this
 

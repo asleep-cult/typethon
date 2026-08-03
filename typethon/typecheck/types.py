@@ -21,7 +21,7 @@ class Type:
     asg_id: int = attr.ib()
     id: int = attr.ib(factory=lambda: next(TYPE_ID))
 
-    def has_type_parameter(self, type_parameter: TypeParameter, substitution: dict[int, Type]) -> bool:
+    def has_type_parameter(self, type_parameter: TypeParameter, substitutions: dict[int, Type]) -> bool:
         return False
 
 
@@ -29,17 +29,17 @@ class Type:
 class TypeParameter(Type):
     name: str = attr.ib()
 
-    def resolve(self, substitution: dict[int, Type]) -> Type:
-        if self.id in substitution:
-            result = substitution[self.id]
+    def resolve(self, substitutions: dict[int, Type]) -> Type:
+        if self.id in substitutions:
+            result = substitutions[self.id]
             if isinstance(result, TypeParameter):
-                result = result.resolve(substitution)
+                result = result.resolve(substitutions)
             
             return result
         return self
 
-    def has_type_parameter(self, type_parameter: TypeParameter, substitution: dict[int, Type]) -> bool:
-        result = self.resolve(substitution)
+    def has_type_parameter(self, type_parameter: TypeParameter, substitutions: dict[int, Type]) -> bool:
+        result = self.resolve(substitutions)
         return result.id == type_parameter.id
 
 
@@ -47,8 +47,8 @@ class TypeParameter(Type):
 class ListType(Type):
     elt: Type = attr.ib()
 
-    def has_type_parameter(self, type_parameter: TypeParameter, substitution: dict[int, Type]) -> bool:
-        return self.elt.has_type_parameter(type_parameter, substitution)
+    def has_type_parameter(self, type_parameter: TypeParameter, substitutions: dict[int, Type]) -> bool:
+        return self.elt.has_type_parameter(type_parameter, substitutions)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -62,9 +62,9 @@ class PolymorphicType(Type):
 
         return self.id
 
-    def has_type_parameter(self, type_parameter: TypeParameter, substitution: dict[int, Type]) -> bool:
+    def has_type_parameter(self, type_parameter: TypeParameter, substitutions: dict[int, Type]) -> bool:
         return any(
-            parameter.has_type_parameter(type_parameter, substitution)
+            parameter.has_type_parameter(type_parameter, substitutions)
             for parameter in self.parameters.values()
         )
 
@@ -75,13 +75,13 @@ class FunctionType(PolymorphicType):
     parameters: dict[str, Type | None] = attr.ib(factory=dict)
     returns: Type | None = attr.ib(default=None)
 
-    def has_type_parameter(self, type_parameter: TypeParameter, substitution: dict[int, Type]) -> bool:
+    def has_type_parameter(self, type_parameter: TypeParameter, substitutions: dict[int, Type]) -> bool:
         result = any(
-            parameter.has_type_parameter(type_parameter, substitution)
+            parameter.has_type_parameter(type_parameter, substitutions)
             for parameter in self.parameters.values() if parameter is not None
         )
         if not result and self.returns is not None:
-            result = self.returns.has_type_parameter(type_parameter, substitution)
+            result = self.returns.has_type_parameter(type_parameter, substitutions)
 
         return result
 
@@ -97,9 +97,9 @@ class StructType(PolymorphicType):
     is_declaration: bool = attr.ib()
     fields: dict[str, Type] = attr.ib(factory=list)
 
-    def has_type_parameter(self, type_parameter: TypeParameter, substitution: dict[int, Type]) -> bool:
+    def has_type_parameter(self, type_parameter: TypeParameter, substitutions: dict[int, Type]) -> bool:
         return any(
-            field.has_type_parameter(type_parameter, substitution)
+            field.has_type_parameter(type_parameter, substitutions)
             for field in self.fields.values()
         )
 
@@ -110,5 +110,5 @@ class TupleType(PolymorphicType):
     is_declaration: bool = attr.ib()
     elts: list[Type] = attr.ib(factory=list)
 
-    def has_type_parameter(self, type_parameter: TypeParameter, substitution: dict[int, Type]) -> bool:
-        return any(elt.has_type_parameter(type_parameter, substitution) for elt in self.elts)
+    def has_type_parameter(self, type_parameter: TypeParameter, substitutions: dict[int, Type]) -> bool:
+        return any(elt.has_type_parameter(type_parameter, substitutions) for elt in self.elts)

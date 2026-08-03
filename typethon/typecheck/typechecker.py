@@ -9,8 +9,14 @@ class TypeChecker:
     type_ctx: types.TypeContext = attr.ib()
     module: asg.ModuleDef = attr.ib()
 
+    def get_asg_fields(self) -> dict[str, asg.AsgField]:
+        return self.type_ctx.asg_ctx.fields
+
+    def get_asg_generics(self) -> dict[int, asg.Generics]:
+        return self.type_ctx.asg_ctx.generics
+
     def create_types(self) -> None:
-        for field in self.type_ctx.asg_ctx.fields.values():
+        for field in self.get_asg_fields().values():
             self.create_type_for_field(field)
 
     def create_type_for_field(self, field: asg.AsgField, *, is_declaration: bool = True) -> None:
@@ -33,27 +39,28 @@ class TypeChecker:
                 return
 
         self.type_ctx.types[field.id] = type
-        if field.id in self.type_ctx.asg_ctx.generics:
-            generics = self.type_ctx.asg_ctx.generics[field.id]
+
+        generics = self.get_asg_generics()
+        if field.id in generics:
             assert isinstance(type, types.PolymorphicType)
 
-            for name, parameter in generics.parameters.items():
-                parameter = types.TypeParameter(asg_id=parameter.id, name=name)
+            for parameter_name, parameter in generics[field.id].parameters.items():
+                parameter = types.TypeParameter(asg_id=parameter.id, name=parameter_name)
                 self.type_ctx.types[parameter.asg_id] = parameter
-                type.parameters[name] = parameter
+                type.parameters[parameter_name] = parameter
 
     def initialize_types(self) -> None:
-        for field in self.type_ctx.asg_ctx.fields.values():
-            self.initialize_type_fields(field)
+        for field in self.get_asg_fields().values():
+            self.initialize_type(field)
 
-    def initialize_type_fields(self, field: asg.AsgField) -> None:
+    def initialize_type(self, field: asg.AsgField) -> None:
         type = self.type_ctx.types.get(field.id)
 
         match field:
             case asg.StructDef():
                 assert isinstance(type, types.StructType)
-                for struct_field in field.fields:
-                    type.fields[field.id] = self.evaluate_asg_type(field.fields[struct_field])
+                for field_name in field.fields:
+                    type.fields[field.id] = self.evaluate_asg_type(field.fields[field_name])
 
             case asg.TupleDef():
                 assert isinstance(type, types.TupleType)
@@ -62,11 +69,11 @@ class TypeChecker:
 
             case asg.FunctionDef():
                 assert isinstance(type, types.FunctionType)
-                for name, parameter in field.parameters.items():
+                for parameter_name, parameter in field.parameters.items():
                     if parameter != asg.INFERRED:
-                        type.parameters[name] = self.evaluate_asg_type(parameter)
+                        type.parameters[parameter_name] = self.evaluate_asg_type(parameter)
                     else:
-                        type.parameters[name] = None
+                        type.parameters[parameter_name] = None
 
                 if field.returns != asg.INFERRED:
                     type.returns = self.evaluate_asg_type(field.returns)
@@ -83,7 +90,7 @@ class TypeChecker:
                     self.validate_path_segment(segment)
 
                 result = asg_type.get_result()
-                if isinstance(result, (asg.ModuleDef, asg.FunctionDef, asg.UseDef, asg.LocalDeclaration)):
+                if isinstance(result, (asg.FunctionDef, asg.LocalDeclaration)):
                     assert False, f'{result!r} is not a valid type'
 
                 return self.evaluate_asg_type(result)
@@ -104,11 +111,18 @@ class TypeChecker:
 
         return self.type_ctx.types[asg_type.id]
 
-    def check_block(self, field: asg.ModuleDef | asg.FunctionDef, statements: list[asg.Statement]) -> None:
-        for statement in statements:
-            self.check_statement(field, statement)
+    def check_code(self, field: asg.ModuleDef | asg.FunctionDef) -> None:
+        if field.body is not None:
+            substitutions: dict[int, types.Type] = {}
+            for statement in field.body.statements:
+                self.check_statement(field, statement, substitutions)
 
-    def check_statement(self, field: asg.ModuleDef | asg.FunctionDef, statement: asg.Statement) -> None:
+    def check_statement(
+        self,
+        field: asg.ModuleDef | asg.FunctionDef,
+        statement: asg.Statement,
+        type_substitutions: dict[int, types.Type],
+    ) -> None:
         match statement:
             case asg.Declaration():
                 ...
@@ -123,7 +137,8 @@ class TypeChecker:
             case asg.AugAssignment():
                 ...
             case asg.Return():
-                assert isinstance(field, asg.FunctionDef)
+                if not isinstance(field, asg.FunctionDef):
+                    assert False, 'Return only valid in function'
 
                 function = self.type_ctx.types[field.id]
                 assert isinstance(function, types.FunctionType)
@@ -133,7 +148,7 @@ class TypeChecker:
                 else:
                     assert False
 
-                if not self.unify(type, function.returns, {}):
+                if not self.unify(type, function.returns, type_substitutions):
                     assert False, f'{type} and {function.returns}'
             case asg.Break():
                 ...
@@ -143,27 +158,49 @@ class TypeChecker:
                 self.check_expression(statement.expr)
 
     def check_expression(self, expression: asg.Expression) -> types.Type:
-        ...
+        """
+        CoPath
+        | Annotated
+        | BoolOp
+        | BinaryOp
+        | UnaryOp
+        | Compare
+        | Call
+        | Integer
+        | Float
+        | Complex
+        | String
+        | Constant
+        | Attribute
+        | Subscript
+        | Struct
+        | Tuple
+        | List
+        | Slice
+        """
+        match expression:
+            case asg.CoPath():
+                ...
 
-    def unify(self, type1: types.Type, type2: types.Type, substitution: dict[str, types.Type]) -> bool:
+    def unify(self, type1: types.Type, type2: types.Type, substitutions: dict[int, types.Type]) -> bool:
         if isinstance(type1, types.TypeParameter):
-            type1 = type1.resolve(substitution)
+            type1 = type1.resolve(substitutions)
 
         if isinstance(type2, types.TypeParameter):
-            type2 = type2.resolve(substitution)
+            type2 = type2.resolve(substitutions)
 
         if type1.id == type2.id:
             return True
 
         if isinstance(type1, types.TypeParameter):
-            if type2.has_type_parameter(type1, substitution):
+            if type2.has_type_parameter(type1, substitutions):
                 return False
 
-            substitution[type1.id] = type2
+            substitutions[type1.id] = type2
             return True
 
-        if isinstance(type2.id, types.TypeParameter):
-            return self.unify(type2, type1, substitution)
+        if isinstance(type2, types.TypeParameter):
+            return self.unify(type2, type1, substitutions)
 
         if isinstance(type1, types.PolymorphicType) and isinstance(type2, types.PolymorphicType):
             if (
@@ -173,7 +210,7 @@ class TypeChecker:
                 return False
 
             for parameter1, parameter2 in zip(type1.parameters, type2.parameters):
-                if not self.unify(parameter1, parameter2, substitution):
+                if not self.unify(parameter1, parameter2, substitutions):
                     return False
 
         return False
@@ -182,9 +219,7 @@ class TypeChecker:
         self.create_types()
         self.initialize_types()
 
-        if self.module.body is not None:
-            self.check_block(self.module, self.module.body.statements)
-
-        for field in self.type_ctx.asg_ctx.fields.values():
-            if isinstance(field, asg.FunctionDef) and field.body is not None:
-                self.check_block(field, field.body.statements)
+        self.check_code(self.module)
+        for field in self.get_asg_fields().values():
+            if isinstance(field, asg.FunctionDef):
+                self.check_code(field)

@@ -188,7 +188,7 @@ class AsgError:
 type AsgType = Path | ClassDef | TypeParameter | ListType | TypeDeclaration | AsgError
 
 type AsgPathResult = (
-    LocalDeclaration | FunctionDef | ClassDef | TypeParameter | ListType | TypeDeclaration | AsgField | AsgError
+    LocalDeclaration | FunctionDef | ClassDef | TypeParameter | ListType | TypeDeclaration | AsgError
 )
 
 
