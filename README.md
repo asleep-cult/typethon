@@ -84,8 +84,25 @@ f({ x = 10, y = 20 })
 
 f({ x = 30, y = -5 }: Point)
 
+# All data fields are private and immutable by default
+# The pub and var keywords can be used to make individual fields public and mutable
+# pub(...) and var(...) can change visibility and mutability
+# to specific parts of a code base
+
+type Counter = { pub var(self) n: int }
+# If var was bare, anyone with mutable access could mutate n
+# var(self) makes the field invariant
+
+use Counter:
+    # The var self means the callee must have mutable access to the Counter
+    def next(var self: Self) -> ():
+        if self.n < 100:
+            self.n += 1
+
+# Bindings are created by annotating a name or simply using the assignment operator
+
 def f():
-    let i
+    i: int
     if some_condition:
         i = 10
     else:
@@ -94,7 +111,12 @@ def f():
 # They are immutable and can only be assigned to once on all code paths.
 # They also must be assigned to on all code paths before they can be used.
 
-# I think there should only be mutable references and no mutable bindings.
+# Bindings can be made mutable using var
+
+def f():
+    var x = 10
+    if some_condition:
+        x += 20
 
 # Parametric polymorphism is achieved through the use of 't
 
@@ -208,66 +230,6 @@ use Index('k, 'v) for Map('k, 'v):
 # *Function bodies are optional for prototyping
 
 def proto(foo: int) -> str
-
-# *Field privacy
-
-# It is unreasonable to call a data type's constructor when some data is ascribed to that type.
-# It is also unreasonable to allow data to exist in a potentially invalid state when someone
-# wants their constructor to validate it. 
-# Here is an example:
-
-type Student = { name: str, grade_level: int }
-
-use Student:
-    def new(name: str, grade_level: int) -> Self:
-        if grade_level < 1 or grade_level > 12:
-            grade_level = 1
-
-        return { name, grade_level }
-
-def congratulate_student(student: Student) -> ():
-    print(f"Congratulations {student.name}, you've reached grade {student.grade_level}")
-
-congratulate_student({ name = "Jacob", grade_level = -1 })
-# In this case, the Student exists in an invalid state, and calling the new() function
-# would be grossly implicit.
-
-# There must be a mechanism to disallow the creation of a Student without calling new.
-
-# Everything can be private by default and there can be a special syntax for exposing
-# types, functions, and fields.
-
-# Parent defined later
-type Student = { name: str, grade_level: int, parent: Parent }
-
-use Student:
-    expose name, parent.occupation
-
-    def new(name: str, grade_level: int, parent: Parent) -> Self:
-        let self: Self = { name, parent, grade_level = 1 }
-        self.set_grade_level(grade_level)
-        return self
-
-    def grade_level(self: Self) -> int:
-        return self.grade_level
-
-    def set_grade_level(self: Self, grade_level: int) -> ():
-        if grade_level >= 1 and grade_level <= 12:
-            self.grade_level = grade_level
-
-#[expose(*)]
-type Parent = { name: str, occupation: str }
-# Rust attribute style sugar for `use Parent: expose *`
-
-def congratulate_student(student: Student) -> ():
-    student.parent.occupation   # Accessible
-    student.parent.name     # Not Accessible
-    print(f"Congratulations {student.name}, you've reached grade {student.grade_level()}")
-
-# Types and functions also need a mechanism for determining visibility,
-# part of me thinks I can get away without a new keyword but that seems unlikely.
-# I don't really want code sprinkled with pub everywhere. Public by default is an option
-# but might be confusing and inconsistent when fields must be explicitly made public.
 
 # *Classes look like this
 
