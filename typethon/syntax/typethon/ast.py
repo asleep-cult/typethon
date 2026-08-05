@@ -118,16 +118,9 @@ class ReturnNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class DeclarationNode(Node):
-    target: str = attr.ib()
-    type: TypeExpressionNode | None = attr.ib()
-    value: ExpressionNode | None = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
 class AssignNode(Node):
     target: ExpressionNode = attr.ib()
-    value: ExpressionNode = attr.ib()
+    value: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -190,17 +183,26 @@ class ContinueNode(Node): ...
 @attr.s(kw_only=True, slots=True)
 class LambdaParameterNode(Node):
     name: str = attr.ib()
+    type: TypeExpressionNode | None = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class LambdaHeaderNode(Node):
+    parameters: list[LambdaParameterNode] = attr.ib()
+    returns: TypeExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ExpressionLambdaNode(Node):
     parameters: list[LambdaParameterNode] = attr.ib()
+    returns: TypeExpressionNode | None = attr.ib()
     body: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class BlockLambdaNode(Node):
     parameters: list[LambdaParameterNode] = attr.ib()
+    returns: TypeExpressionNode | None = attr.ib()
     body: list[StatementNode] = attr.ib()
 
 
@@ -400,7 +402,6 @@ class TupleTypeNode(Node):
 type StatementNode = (
     FunctionDefNode
     | ClassDefNode
-    | DeclarationNode
     | ForNode
     | WhileNode
     | IfNode

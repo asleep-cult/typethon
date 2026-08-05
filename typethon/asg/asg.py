@@ -17,6 +17,7 @@ ASG_ID_COUNT = count()
 # The ASG is very similar to the AST, but all symbols are defined
 # and resolved. Every attribute access that isn't on a local declaration
 # gets resolved as well.
+# TODO: Fix broken assignment/declaration change
 
 
 class Singleton(enum.Enum):
@@ -103,6 +104,7 @@ class AliasDef(DefId):
 class FunctionDef(DefId):
     name: str = attr.ib()
     parameters: dict[str, AsgType | Singleton] = attr.ib(factory=dict)
+    parameter_declarations: dict[str, LocalDeclaration] = attr.ib(factory=dict)
     returns: AsgType | Singleton = attr.ib(default=UNIT)
     body: AsgBody | None = attr.ib(default=None)
 
@@ -232,6 +234,7 @@ class If(AsgCode):
 @attr.s(kw_only=True, slots=True)
 class Assignment(AsgCode):
     target: Expression = attr.ib()
+    type: AsgType | None = attr.ib()
     value: Expression = attr.ib()
 
 

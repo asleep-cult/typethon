@@ -234,19 +234,44 @@ use Index('k, 'v) for Map('k, 'v):
     ...
     stmtn
 
-# I actually think this looks better
-
-filter(items, |item|:
-    if item.len() > 200:
-        item.length < 250  # Automatic return insertion
-    else:
-        item.length == 150  # And here
-)
-
 spawn((|context, timeout| -> ():
     while true:
         sleep(timeout)
-        print("{context.thread_id} is working")), time=50)
+        print(f"{context.thread_id} is working")), 50)
+
+items.filer(|item| item.len() >= 50)
+
+items.filter(
+    |item|:
+        item.len >= 50
+)
+
+# Closures should have automatic return insertion for trailing expressions
+
+items.map(
+    |item|:
+        if item.name == "Sword":
+            150
+        else:
+            120
+)
+
+# This makes sense because it is the only block that is an expression, but the
+# lack of a similar mechanism throughout the language makes me question
+# whether this could serve a more powerful purpose in the language.
+
+account = (||:
+    if price >= 150:
+        Account.Savings
+    else:
+        Account.Checkings)()
+
+# For example, something like this would be possible but in this form its undesirable.
+# The simplicity and automatic return insertion would significantly encourage more
+# functional practices within the language.
+
+# Closures can appear as a single expression, the final expression in a list of expressions,
+# or the only expression in a list of expressions.
 
 # I question whether the block form should be able to be assigned to a variable at all
 

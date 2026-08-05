@@ -3,7 +3,8 @@
     | !statement+
 
 statement:
-    | !simple_statements
+    | !simple_statement NEWLINE
+    | !assignment_with_lambda
     | !function_def
     | !class_def
     | !use_statement
@@ -11,10 +12,6 @@ statement:
     | !if_statement
     | !while_statement
     | !sum_type_statement
-
-simple_statements:
-    #[@prepend]
-    | !simple_statement (";" !simple_statement)* ";"? NEWLINE
 
 simple_statement:
     #[create_break_statement]
@@ -24,27 +21,23 @@ simple_statement:
     #[create_return_statement]
     | "return" !expression?
     #[create_expr_statement]
-    | !expression
-    | assignment
+    | !expression_with_annotation
+    | !assignment
     | !function_prototype
     | !type_declaration
-    | !declaration_statement
-
-complex_block:
-    #[@flatten]
-    | NEWLINE INDENT !statement+ DEDENT
 
 block:
-    | !complex_block
-    | !simple_statements
+    #[@flatten]
+    | NEWLINE INDENT !statement+ DEDENT
+    | !simple_statement
 
-declaration_statement:
-    #[create_declaration]
-    | "let" !IDENTIFIER (":" !type_expression)? ("=" !expression)?
+assignment_with_lambda:
+    #[create_assignment]
+    | !expression_with_annotation "=" !expression_with_lambda
 
 assignment:
     #[create_assignment]
-    | !expression "=" !expression
+    | !expression_with_annotation "=" !expression
 
 decorators: ("@" !expression NEWLINE)+
 
@@ -94,11 +87,16 @@ while_statement:
 
 expression:
     | !disjunction
-    | !annotated_expresion
+    | !expression_lambda
 
-annotated_expresion:
+expression_with_annotation:
+    | !expression
     #[create_annotated_expression]
-    | !disjunction ":" !type_expression
+    | !expression ":" !type_expression
+
+expression_with_lambda:
+    | !expression
+    | !block_lambda
 
 disjunction:
     #[create_disjunction]
@@ -198,6 +196,14 @@ power:
     | !primary !"**" !factor
     | !primary
 
+arguments:
+    #[@flatten]
+    | !expression_with_annotation ("," !expression_with_annotation)* "," !block_lambda
+    #[@flatten]
+    | !expression_with_annotation ("," !expression_with_annotation)+ ","?
+    #[@sequence]
+    | !expression_with_lambda
+
 primary:
     #[create_attribute]
     | !primary "." !IDENTIFIER
@@ -216,10 +222,6 @@ slice:
     | !expression ":" !expression (":" !expression)?
     | !expression
 
-arguments:
-    #[@prepend]
-    | !expression ("," !expression)* ","?
-
 atom:
     #[create_constant]
     | !"true"
@@ -234,24 +236,49 @@ atom:
     #[create_string]
     | !STRING+
     | !struct
-    | !tuple_or_lambda
-    | !group_or_lambda
+    | !tuple
+    | !group
 
 expression_list:
     #[@prepend]
-    | !expression ("," !expression)+ ","?
+    | !expression_with_annotation ("," !expression_with_annotation)+ ","?
     #[@sequence]
-    | !expression ","
+    | !expression_with_annotation ","
+
+expression_list_with_lambda:
+    #[@flatten]
+    | !expression_with_annotation ("," !expression_with_annotation)* "," !block_lambda
+    #[@flatten]
+    | !expression_with_annotation ("," !expression_with_annotation)+ ","?
+    #[@sequence]
+    | !expression_with_annotation ","
+
+lambda_parameters:
+    #[@prepend]
+    | !lambda_parameter ("," !lambda_parameter)* ","?
+
+lambda_parameter:
+    #[create_lambda_parameter]
+    | !IDENTIFIER (":" !type_expression)?
+
+lambda_header:
+    #[create_lambda_header]
+    | "|" !lambda_parameters? "|" ("->" !type_expression)?
+
+expression_lambda:
+    #[create_expression_lambda]
+    | !lambda_header !expression
+
+lambda_block_hook:
+    #[exit_lambda_block]
+    | NEWLINE INDENT !statement+
 
 lambda_block:
-    #[exit_lambda_block]
-    | !complex_block
+    | !lambda_block_hook DEDENT
 
-lambda:
+block_lambda:
     #[create_block_lambda]
-    | "::" !lambda_block "::"
-    #[create_expression_lambda]
-    | "::" !expression
+    | !lambda_header ":" !lambda_block
 
 struct:
     #[create_struct]
@@ -263,25 +290,15 @@ struct_fields:
 
 struct_field:
     #[create_struct_field]
-    | !IDENTIFIER "=" !expression
+    | !IDENTIFIER "=" !expression_with_annotation
 
-tuple_or_lambda_parameters:
-    #[create_tuple_or_lambda_parameters]
-    | "(" !expression_list? ")"
+tuple:
+    #[create_tuple]
+    | "(" !expression_list_with_lambda? ")"
 
-tuple_or_lambda:
-    | !tuple_or_lambda_parameters
-    #[add_lambda_parameters]
-    | !tuple_or_lambda_parameters !lambda
-
-group_or_lambda_parameters:
-    #[create_group_or_lambda_parameters]
-    | "(" !expression ")"
-
-group_or_lambda:
-    | !group_or_lambda_parameters
-    #[add_lambda_parameters]
-    | !group_or_lambda_parameters !lambda
+group:
+    | "(" !expression_with_annotation ")"
+    | "(" !block_lambda ")"
 
 type_declaration:
     #[create_type_declaration]
@@ -299,7 +316,7 @@ type_primary:
 
 type_expression_list:
     #[@prepend]
-    | !type_expression ("," !type_expression)* ","?
+    | !type_expression ("," !type_expression)+ ","?
 
 struct_type_fields:
     #[@prepend]
@@ -311,7 +328,13 @@ struct_type_field:
 
 sum_type_statement:
     #[create_sum_type]
-    | "type" !IDENTIFIER "=" NEWLINE INDENT ("|" !sum_type_field NEWLINE)+ DEDENT
+    | "type" !IDENTIFIER "=" !sum_type_fields
+    #[create_sum_type]
+    | "type" !IDENTIFIER "=" "(" !sum_type_fields ")"
+
+sum_type_fields:
+    #[@prepend]
+    | !sum_type_field ("|" !sum_type_field)+
 
 sum_type_field:
     #[create_sum_field]

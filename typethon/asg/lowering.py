@@ -242,24 +242,6 @@ class AsgLowering:
 
                 self.resolver.exit_node(statement)
 
-            case ast.DeclarationNode():
-                type = None
-                if statement.type is not None:
-                    type = self.lower_type_expression(statement.type)
-
-                value = None
-                if statement.value is not None:
-                    value = self.lower_expression(statement.value)
-
-                declaration = self.resolver.add_local_declaration(statement)
-                asg_code = asg.Declaration(
-                    node_id=statement.id,
-                    local_declaration=declaration,
-                    type=type,
-                    value=value,
-                )
-                asg_body.statements.append(asg_code)
-
             case ast.ForNode():
                 asg_code = asg.For(
                     node_id=statement.id,
@@ -303,10 +285,73 @@ class AsgLowering:
                 asg_body.statements.append(asg_code)
 
             case ast.AssignNode():
-                target = self.lower_expression(statement.target)
-                value = self.lower_expression(statement.value)
-                asg_code = asg.Assignment(node_id=statement.id, target=target, value=value)
-                asg_body.statements.append(asg_code)
+                target_node = statement.target
+                type = None
+                if isinstance(target_node, ast.AnnotatedNode):
+                    type = self.lower_type_expression(target_node.type)
+                    target_node = target_node.value
+
+                if not isinstance(target_node, (ast.NameNode, ast.AttributeNode)):
+                    assert False, 'Unassignable target'
+
+                value = None
+                if statement.value is not None:
+                    value = self.lower_expression(statement.value)
+
+                match target_node:
+                    case ast.NameNode():
+                        declaration = self.resolver.resolve_symbol(
+                            target_node.value,
+                            include_functions=False,
+                            include_type_parameters=False,
+                            include_type_declarations=False,
+                            include_classes=False,
+                        )
+                        if declaration is None or type is not None:
+                            declaration = self.resolver.add_local_declaration(target_node.value, statement)
+
+                            asg_code = asg.Declaration(
+                                node_id=statement.id,
+                                local_declaration=declaration,
+                                type=type,
+                                value=value,
+                            )
+                        else:
+                            assert value is not None  # Type and value cannot both be None
+                            assert isinstance(declaration, asg.LocalDeclaration)
+                            path = asg.Path()
+                            segment = asg.PathSegment(name=target_node.value, result=declaration)
+                            path.segments.append(segment)
+
+                            asg_code = asg.Assignment(
+                                node_id=statement.id,
+                                target=asg.CoPath(node_id=target_node.id, path=path),
+                                type=type,
+                                value=value,
+                            )
+                        
+                        asg_body.statements.append(asg_code)
+
+                    case ast.AttributeNode():
+                        target = self.lower_expression(target_node)
+                        if value is None:
+                            assert type is not None  # Ditto
+
+                            asg_code = asg.Annotated(
+                                node_id=statement.target.id,
+                                value=target,
+                                type=type,
+                            )
+                            asg_code = asg.Expr(node_id=statement.id, expr=asg_code)
+                        else:
+                            asg_code = asg.Assignment(
+                                node_id=statement.id,
+                                target=target,
+                                type=type,
+                                value=value,
+                            )
+
+                        asg_body.statements.append(asg_code)
 
             case ast.AugAssignNode():
                 target = self.lower_expression(statement.target)

@@ -42,41 +42,31 @@ logger = logging.getLogger(__name__)
 
 GRAMMAR_PATH = "./typethon.gram"
 GRAMMAR_CACHE_PATH = "./parsertables.bin"
-EXPERIMENTAL_LAMBDAS = True
 """
-The syntax for experimental lambdas is as follows:
-(args...) :: expr
-
-(args...) ::
-    block
-::
-
-Since this syntax introduces a REDUCE/REDUCE conflict,
-the grammar for tuple/group and lambda are combined and disambiguated
-later.
-
-This can probably be avoided entirely with a different syntax
-for the argument list, such as |x, y, z| (as in Rust).
-|x, y, z| ::
-    print(x, y, z)
-::
-
-Aside from the ambiguity issue, the lambda has another
-problem as well. When the scanner is in any sort of
-parenthesis, it skips all newlines and indentation.
-So, for the block lambda to work, it has "trick"
-the scanner into thinking there are no parenthesis.
-The way I did this was with a new stack bottom state that the
+When the scanner is in any sort of parenthesis, it skips all newlines and indentation.
+So, for the block lambda to work, it has "trick" the scanner into thinking there
+are no parenthesis. The way I did this was with a new stack bottom state that the
 scanner uses to determine whether to skip whitespace.
-So, at the star, something like this ((x) :: * would have
-a stack like this [`(`], suggesting the scanner should
-skip newlines. In the parameter list, we use a lookahead
-to determine whether to create a sequence of parameters or a
-tuple/group. If the next token is a double colon, it returns
-the parameter list and sets the bottom of the stack to 1.
-I initially tried to implement this as a transformer for the
-:: token, but the parser will already scan the next token
-before we can a chance to update the stack bottom.
+The tricky part about entering and exiting a nested stack to start/stop scanning whitespace
+is that it has to be done one token early to prevent the parser from using a token that
+should/shouldn't be next as the lookahead.
+
+The scanner also does automatic newline dedent insertion when the parenthesis nesting
+level drops below the bounds of the current block. So for example the following
+block would be valid despite the lack of a dedent token.
+
+f(|a, b|:
+    if a > b:
+        return true
+    else:
+        return b == 5)
+
+Block lambdas are only valid in the following contexts:
+1) Anywhere as a prarenthesized expression
+2) As the last/only argument to a function call
+3) As the last/only element in a tuple, (lists don't exist yet)
+
+Expression lambdas are valid anywhere an expression is
 """
 
 
@@ -101,11 +91,7 @@ class ASTParser:
             return inspect.ismethod(member) and (
                 member.__name__.startswith("create_")
                 or member.__name__
-                in (
-                    "add_lambda_parameters",
-                    "exit_lambda_block",
-                    "add_function_body",
-                )
+                in ("add_function_body", "exit_lambda_block")
             )
 
         for _, function in inspect.getmembers(self, is_transformer):
@@ -180,7 +166,10 @@ class ASTParser:
 
     def create_expr_statement(
         self, span: tuple[int, int], expression: ast.ExpressionNode
-    ) -> ast.ExprNode:
+    ) -> ast.ExprNode | ast.AssignNode:
+        if isinstance(expression, ast.AnnotatedNode):
+            return ast.AssignNode(start=span[0], end=span[1], target=expression, value=None)
+
         return ast.ExprNode(
             start=span[0],
             end=span[1],
@@ -329,19 +318,6 @@ class ASTParser:
             body=body.items,
         )
 
-    def create_assignment(
-        self,
-        span: tuple[int, int],
-        target: ast.ExpressionNode,
-        value: ast.ExpressionNode,
-    ) -> ast.AssignNode:
-        return ast.AssignNode(
-            start=span[0],
-            end=span[1],
-            target=target,
-            value=value,
-        )
-
     def create_annotated_expression(
         self,
         span: tuple[int, int],
@@ -369,19 +345,17 @@ class ASTParser:
             values=sequence.items,
         )
 
-    def create_declaration(
+    def create_assignment(
         self,
         span: tuple[int, int],
-        target: IdentifierToken,
-        type: OptionNode[ast.TypeExpressionNode],
-        value: OptionNode[ast.ExpressionNode],
-    ) -> ast.DeclarationNode:
-        return ast.DeclarationNode(
+        target: ast.ExpressionNode,
+        value: ast.ExpressionNode,
+    ) -> ast.AssignNode:
+        return ast.AssignNode(
             start=span[0],
             end=span[1],
-            target=target.content,
-            type=type.item,
-            value=value.item,
+            target=target,
+            value=value,
         )
 
     def create_conjunction(
@@ -726,119 +700,82 @@ class ASTParser:
             value=value,
         )
 
-    def potentially_enter_lambda_stack(self) -> None:
-        assert EXPERIMENTAL_LAMBDAS, "Lambdas not allowed"
-
-        position = self.scanner.position
-        self.scanner.enter_nested_stack()
-        token = self.parser.peek_token(2)
-        if token.kind is not StdTokenKind.NEWLINE:
-            # Its an expression lambda, we need to backtrack
-            last_token = self.parser.tokens.pop()
-            assert token is last_token
-            self.scanner.exit_nested_stack()
-            self.scanner.position = position
-
-    def create_tuple_or_lambda_parameters(
-        self,
-        span: tuple[int, int],
-        elts: OptionNode[SequenceNode[ast.ExpressionNode]],
-    ) -> ast.TupleNode | SequenceNode[ast.LambdaParameterNode]:
-        token = self.parser.peek_token(1)
-        if token.kind is not TokenKind.DOUBLECOLON:
-            return ast.TupleNode(
-                start=span[0],
-                end=span[1],
-                elts=elts.sequence().items,
-            )
-
-        parameters: list[ast.LambdaParameterNode] = []
-        for elt in elts.sequence().items:
-            if not isinstance(elt, ast.NameNode):
-                assert False, "Invalid lambda parameter"
-
-            parameter = ast.LambdaParameterNode(
-                start=elt.start,
-                end=elt.end,
-                name=elt.value,
-            )
-            parameters.append(parameter)
-
-        self.potentially_enter_lambda_stack()
-        return SequenceNode(
-            start=span[0],
-            end=span[1],
-            items=parameters,
-        )
-
-    def create_group_or_lambda_parameters(
-        self,
-        span: tuple[int, int],
-        expression: ast.ExpressionNode,
-    ) -> ast.ExpressionNode | SequenceNode[ast.LambdaParameterNode]:
-        token = self.parser.peek_token(1)
-        if token.kind is not TokenKind.DOUBLECOLON:
-            return expression
-
-        # TODO: We allow annotations here
-        if not isinstance(expression, ast.NameNode):
-            assert False, "Non-name lambda parameter"
-
-        parameter = ast.LambdaParameterNode(
-            start=expression.start,
-            end=expression.end,
-            name=expression.value,
-        )
-
-        self.potentially_enter_lambda_stack()
-        return SequenceNode(
-            start=span[0],
-            end=span[1],
-            items=[parameter],
-        )
-
     def exit_lambda_block(
         self,
         span: tuple[int, int],
         body: SequenceNode[ast.StatementNode],
     ) -> SequenceNode[ast.StatementNode]:
-        self.scanner.exit_nested_stack()
-        return body
+        self.scanner.stop_nested_indentation()
+        return self.parser.transform_flatten(span, body)
 
-    def create_block_lambda(
+    def create_tuple(
         self,
         span: tuple[int, int],
-        body: SequenceNode[ast.StatementNode],
-    ) -> ast.BlockLambdaNode:
-        return ast.BlockLambdaNode(
+        elts: OptionNode[SequenceNode[ast.ExpressionNode]],
+    ) -> ast.TupleNode:
+        return ast.TupleNode(
             start=span[0],
             end=span[1],
-            parameters=[],
-            body=body.items,
+            elts=elts.sequence().items,
+        )
+
+    def create_lambda_parameter(
+        self,
+        span: tuple[int, int],
+        name: IdentifierToken,
+        type: OptionNode[ast.TypeExpressionNode],
+    ) -> ast.LambdaParameterNode:
+        return ast.LambdaParameterNode(
+            start=span[0],
+            end=span[1],
+            name=name.content,
+            type=type.item,
+        )
+
+    def create_lambda_header(
+        self,
+        span: tuple[int, int],
+        parameters: OptionNode[SequenceNode[ast.LambdaParameterNode]],
+        returns: OptionNode[ast.TypeExpressionNode],
+    ) -> ast.LambdaHeaderNode:
+        token = self.parser.peek_token(1)
+        if token.kind is TokenKind.COLON:
+            self.scanner.start_nested_indentation()
+
+        return ast.LambdaHeaderNode(
+            start=span[0],
+            end=span[1],
+            parameters=parameters.sequence().items,
+            returns=returns.item,
         )
 
     def create_expression_lambda(
         self,
         span: tuple[int, int],
+        header: ast.LambdaHeaderNode,
         body: ast.ExpressionNode,
-    ) -> ast.ExpressionNode:
+    ) -> ast.ExpressionLambdaNode:
         return ast.ExpressionLambdaNode(
             start=span[0],
             end=span[1],
-            parameters=[],
+            parameters=header.parameters,
+            returns=header.returns,
             body=body,
         )
 
-    def add_lambda_parameters(
+    def create_block_lambda(
         self,
         span: tuple[int, int],
-        parameters: SequenceNode[ast.LambdaParameterNode],
-        lambdef: ast.ExpressionLambdaNode | ast.BlockLambdaNode,
-    ) -> ast.ExpressionLambdaNode | ast.BlockLambdaNode:
-        for parameter in parameters.items:
-            lambdef.parameters.append(parameter)
-
-        return lambdef
+        header: ast.LambdaHeaderNode,
+        body: SequenceNode[ast.StatementNode],
+    ) -> ast.BlockLambdaNode:
+        return ast.BlockLambdaNode(
+            start=span[0],
+            end=span[1],
+            parameters=header.parameters,
+            returns=header.returns,
+            body=body.items,
+        )
 
     def create_self_type(
         self,

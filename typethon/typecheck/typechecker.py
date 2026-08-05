@@ -96,6 +96,9 @@ class TypeChecker:
                 return self.evaluate_asg_type(result)
 
             case asg.StructDef() | asg.TupleDef() | asg.SumDef() | asg.AliasDef():
+                if asg_type.id in self.type_ctx.types:
+                    return self.type_ctx.types[asg_type.id]
+
                 self.create_type_for_field(asg_type, is_declaration=False)
                 return self.type_ctx.types[asg_type.id]
 
@@ -114,18 +117,28 @@ class TypeChecker:
     def check_code(self, field: asg.ModuleDef | asg.FunctionDef) -> None:
         if field.body is not None:
             substitutions: dict[int, types.Type] = {}
+            type_environment: dict[int, types.Type] = {}
+
+            if isinstance(field, asg.FunctionDef):
+                for name, declaration in field.parameter_declarations.items():
+                    type = field.parameters[name]
+                    assert type is not asg.INFERRED
+                    type_environment[declaration.id] = self.evaluate_asg_type(type)
+
             for statement in field.body.statements:
-                self.check_statement(field, statement, substitutions)
+                self.check_statement(field, statement, substitutions, type_environment)
 
     def check_statement(
         self,
         field: asg.ModuleDef | asg.FunctionDef,
         statement: asg.Statement,
         type_substitutions: dict[int, types.Type],
+        type_environment: dict[int, types.Type],
     ) -> None:
         match statement:
             case asg.Declaration():
-                ...
+                print(statement)
+                type_environment[statement.local_declaration.id] = self.evaluate_asg_type(statement.type)
             case asg.For():
                 ...
             case asg.While():
@@ -144,7 +157,7 @@ class TypeChecker:
                 assert isinstance(function, types.FunctionType)
 
                 if statement.value is not None:
-                    type = self.check_expression(statement.value)
+                    type = self.check_expression(statement.value, type_environment)
                 else:
                     assert False
 
@@ -155,9 +168,9 @@ class TypeChecker:
             case asg.Continue():
                 ...
             case asg.Expr():
-                self.check_expression(statement.expr)
+                self.check_expression(statement.expr, type_environment)
 
-    def check_expression(self, expression: asg.Expression) -> types.Type:
+    def check_expression(self, expression: asg.Expression, type_environment: dict[int, types.Type]) -> types.Type:
         """
         CoPath
         | Annotated
@@ -180,7 +193,10 @@ class TypeChecker:
         """
         match expression:
             case asg.CoPath():
-                ...
+                result = expression.path.get_result()
+                print(result)
+                assert isinstance(result, asg.LocalDeclaration)
+                return type_environment[result.id]
 
     def unify(self, type1: types.Type, type2: types.Type, substitutions: dict[int, types.Type]) -> bool:
         if isinstance(type1, types.TypeParameter):

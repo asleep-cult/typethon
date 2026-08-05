@@ -30,7 +30,6 @@ class TokenKind(enum.Enum):
     CIRCUMFLEX = enum.auto()
     TICK = enum.auto()
 
-    DOUBLECOLON = enum.auto()
     DOUBLESLASH = enum.auto()
     EQEQUAL = enum.auto()
     NOTEQUAL = enum.auto()
@@ -83,7 +82,6 @@ TOKENS: TokenMap[TokenKind] = (
     ("~", TokenKind.TILDE),
     ("^", TokenKind.CIRCUMFLEX),
     ("'", TokenKind.TICK),
-    ("::", TokenKind.DOUBLECOLON),
     ("//", TokenKind.DOUBLESLASH),
     ("==", TokenKind.EQEQUAL),
     ("!=", TokenKind.NOTEQUAL),
@@ -112,7 +110,6 @@ TOKENS: TokenMap[TokenKind] = (
 
 
 class KeywordKind(enum.Enum):
-    LET = enum.auto()
     OF = enum.auto()
     SELF = enum.auto()
     TYPE = enum.auto()
@@ -140,7 +137,6 @@ class KeywordKind(enum.Enum):
 
 
 KEYWORDS = (
-    ("let", KeywordKind.LET),
     ("of", KeywordKind.OF),
     ("Self", KeywordKind.SELF),
     ("type", KeywordKind.TYPE),

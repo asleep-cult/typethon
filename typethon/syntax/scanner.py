@@ -92,21 +92,25 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         self.is_newline = False
         self.match_stack: list[TokenKindT] = []
-        self.indentstack: list[tuple[int, int]] = [(0, 0)]
-        self.indents: list[IndentToken | DedentToken] = []
+        self.indent_stack: list[tuple[int, int]] = [(0, 0)]
+        self.pending_tokens: list[Token[TokenKindT, KeywordKindT]] = []
 
         self.match_stack_bottom = 0
-        self.match_bottom_stack: list[int] = []
+        self.indentation_nesting_stack: list[tuple[int, tuple[int, int]]] = []
 
     def is_match_stack_effectively_empty(self) -> bool:
         return len(self.match_stack) - self.match_stack_bottom <= 0
 
-    def enter_nested_stack(self) -> None:
-        self.match_bottom_stack.append(self.match_stack_bottom)
+    def start_nested_indentation(self) -> None:
+        self.indentation_nesting_stack.append((self.match_stack_bottom, self.indent_stack[-1]))
         self.match_stack_bottom = len(self.match_stack)
 
-    def exit_nested_stack(self) -> None:
-        self.match_stack_bottom = self.match_bottom_stack.pop()
+    def stop_nested_indentation(self) -> None:
+        self.match_stack_bottom, (indent, altindent) = self.indentation_nesting_stack.pop()
+        # Add pending indentation to make it match the indentation level prior to starting nesting.
+        # This call could've happened automatically if the scanner reached a parenthesis level
+        # below the current parenthesis stack bottom, in which case it will do nothing.
+        self.add_pending_indentation(0, indent, altindent)
 
     def create_lookup_table(self, tokens: dict[str, TokenKindT]) -> TokenLookupTable[TokenKindT]:
         table: TokenLookupTable[TokenKindT] = {}
@@ -199,36 +203,39 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         if is_blank(self.peek_char()):
             return
 
-        last_indent, last_altindent = self.indentstack[-1]
+        self.add_pending_indentation(start, indent, altindent)
+
+    def add_pending_indentation(self, start:int, indent: int, altindent: int) -> None:
+        last_indent, last_altindent = self.indent_stack[-1]
 
         if indent == last_indent:
             if altindent != last_altindent:
-                self.indents.append(IndentToken(start=start, end=self.position, inconsistent=True))
+                self.pending_tokens.append(IndentToken(start=start, end=self.position, inconsistent=True))
         elif indent > last_indent:
             if altindent <= last_altindent:
-                self.indents.append(IndentToken(start=start, end=self.position, inconsistent=True))
+                self.pending_tokens.append(IndentToken(start=start, end=self.position, inconsistent=True))
             else:
-                self.indents.append(IndentToken(start=start, end=self.position))
+                self.pending_tokens.append(IndentToken(start=start, end=self.position))
 
-            self.indentstack.append((indent, altindent))
+            self.indent_stack.append((indent, altindent))
         else:
-            while indent < self.indentstack[-2][0]:
-                self.indentstack.pop()
-                self.indents.append(DedentToken(start=start, end=self.position))
+            while indent < self.indent_stack[-2][0]:
+                self.indent_stack.pop()
+                self.pending_tokens.append(DedentToken(start=start, end=self.position))
 
-            self.indentstack.pop()
-            last_indent, last_altindent = self.indentstack[-1]
+            self.indent_stack.pop()
+            last_indent, last_altindent = self.indent_stack[-1]
 
             if indent == last_indent:
                 if altindent != last_altindent:
-                    self.indents.append(
+                    self.pending_tokens.append(
                         DedentToken(start=start, end=self.position, inconsistent=True)
                     )
                 else:
-                    self.indents.append(DedentToken(start=start, end=self.position))
+                    self.pending_tokens.append(DedentToken(start=start, end=self.position))
             else:
                 inconsistent = indent == last_indent and altindent != last_altindent
-                self.indents.append(
+                self.pending_tokens.append(
                     DedentToken(
                         start=start,
                         end=self.position,
@@ -447,6 +454,12 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 if current_kind in self.matched_tokens:
                     self.match_stack.append(current_kind)
                 elif current_kind in self.matched_tokens_inverse:
+                    if self.is_match_stack_effectively_empty() and self.indentation_nesting_stack:
+                        self.pending_tokens.append(TokenData(kind=StdTokenKind.NEWLINE, start=0, end=0))
+
+                        indent, altindent = self.indentation_nesting_stack[-1][1]
+                        self.add_pending_indentation(0, indent, altindent)
+
                     if not self.match_stack:
                         return StdTokenKind.EUNMATCHED
 
@@ -463,8 +476,8 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             if self.is_newline:
                 self.scan_indentation()
 
-            if self.indents:
-                return self.indents.pop(0)
+            if self.pending_tokens:
+                return self.pending_tokens.pop(0)
 
             self.consume_while(is_whitespace)
 
@@ -511,4 +524,9 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             if kind is StdTokenKind.EINVALID:
                 self.consume_while(lambda char: not is_whitespace(char))
 
-            return TokenData(kind=kind, start=start, end=self.position)
+            token = TokenData(kind=kind, start=start, end=self.position)
+            if self.pending_tokens:
+                self.pending_tokens.append(token)
+                return self.pending_tokens.pop(0)
+
+            return token

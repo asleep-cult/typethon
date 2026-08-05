@@ -3,6 +3,7 @@ import enum
 
 from . import asg
 from ..syntax.typethon import ast
+from ..syntax import tokens
 
 
 class ScopeKind(enum.Enum):
@@ -62,14 +63,15 @@ class SymbolResolver:
 
     def add_local_declaration(
         self,
-        statement: ast.DeclarationNode,
+        name: str,
+        statement: ast.AssignNode,
     ) -> asg.LocalDeclaration:
         scope = self.scope_stack[-1]
         declaration = asg.LocalDeclaration(
-            name=statement.target,
+            name=name,
             node_id=statement.id,
         )
-        scope.local_declarations[statement.target] = declaration
+        scope.local_declarations[name] = declaration
         return declaration
 
     def initialize_symbols_for_statement(
@@ -91,10 +93,12 @@ class SymbolResolver:
                         primary_field=function_def,
                         secondary_field=owner_field,
                     )
-                    scope.local_declarations[parameter.name] = asg.LocalDeclaration(
+                    declaration = asg.LocalDeclaration(
                         name=parameter.name,
                         node_id=parameter.id,
                     )
+                    scope.local_declarations[parameter.name] = declaration
+                    function_def.parameter_declarations[parameter.name] = declaration
 
                 self.initialize_type_parameters(
                     scope,
@@ -202,11 +206,6 @@ class SymbolResolver:
                 )
                 self.initialize_symbols_for_block(use_def, scope, statement.body)
 
-            case ast.DeclarationNode():
-                # Declarations are not initialized on the first pass to allow shadowing
-                if statement.value is not None:
-                    self.initialize_lambdas(owner_field, statement.value)
-
             case ast.ForNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
                 self.initialize_symbols_for_block(owner_field, scope, statement.body)
@@ -230,7 +229,8 @@ class SymbolResolver:
 
             case ast.AssignNode() | ast.AugAssignNode():
                 self.initialize_lambdas(owner_field, statement.target)
-                self.initialize_lambdas(owner_field, statement.value)
+                if statement.value is not None:
+                    self.initialize_lambdas(owner_field, statement.value)
 
             case ast.ReturnNode():
                 if statement.value is not None:
@@ -336,6 +336,8 @@ class SymbolResolver:
         include_local_declarations: bool = True,
         include_functions: bool = True,
         include_type_parameters: bool = True,
+        include_type_declarations: bool = True,
+        include_classes: bool = True,
     ) -> ResolvedSymbol | None:
         first_iteration = True
         can_access_type_parameters = include_type_parameters
@@ -358,10 +360,10 @@ class SymbolResolver:
             if include_functions and name in scope.function_defs:
                 return scope.function_defs[name]
 
-            if name in scope.type_declarations:
+            if include_type_declarations and name in scope.type_declarations:
                 return scope.type_declarations[name]
 
-            if name in scope.class_defs:
+            if include_classes and name in scope.class_defs:
                 return scope.class_defs[name]
 
             if scope.kind is not ScopeKind.BLOCK and scope.kind is not ScopeKind.LAMBDA:
