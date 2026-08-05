@@ -222,6 +222,32 @@ use Index('k, 'v) for Map('k, 'v):
     stmtn
 ::
 
+# Lambda syntax alternative
+
+|arg1, arg2, ..., argn| expression
+
+# This is the block form
+
+|arg1, arg2, ..., argn|:
+    stmt1
+    stmt2
+    ...
+    stmtn
+
+# I actually think this looks better
+
+filter(items, |item|:
+    if item.len() > 200:
+        item.length < 250  # Automatic return insertion
+    else:
+        item.length == 150  # And here
+)
+
+spawn((|context, timeout| -> ():
+    while true:
+        sleep(timeout)
+        print("{context.thread_id} is working")), time=50)
+
 # I question whether the block form should be able to be assigned to a variable at all
 
 # I'm unsure how traits would be handled as of right now because:
@@ -351,7 +377,7 @@ type Number = int
     | float
     | complex
 
-return numbers.filter(n :: n >= 50)
+return numbers.filter(|n| n >= 50)
     .map(str)
     .join(", ")
 
