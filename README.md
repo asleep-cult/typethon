@@ -230,7 +230,7 @@ use Index('k, 'v) for Map('k, 'v):
 #       you to use the dyn keyword.
 
 # I don't currently know much about memory management, but I want the
-# language to enforce memory safety preferrably without a GC.
+# language to enforce memory safety preferably without a GC.
 # However, I also don't like the restrictions that come from implementing
 # a borrow checker. It seems they would make the language significantly
 # less expressive, which is one thing I would like to retain from Python.
@@ -249,15 +249,15 @@ use Index('k, 'v) for Map('k, 'v):
 
 type Player = { mut score: int }
 
-# Struct initialization is implicit move (i.e. player1: move Player)
+# Struct initialization is implicit move (i.e. mut player1 = move { ... })
 mut player1: Player = { score = 10 }  # Mutable binding
 player1.score = 20  # Valid
 
 player2: Player = { score = 10 }  # Immutable binding
 player2.score = 20  # Invalid
 
-new_player2: move Player = player2  # Move ownership of player2 to new_player2
-                                    # player2 is dead and inaccessible
+new_player2 = move player2  # Move ownership of player2 to new_player2
+                            # player2 is dead and inaccessible
 
 player1_immutable = player1  # Immutable reference to data owned by player1
                              # player1 is write-locked until this reference is dropped
@@ -269,28 +269,11 @@ def shared_borrow(player: Player) -> ()
 def exclusive_borrow(mut player: Player) -> ()
 def transfer_ownership(player: move Player) -> ()
 
-# Is it problematic that after calling this function player1 would be dead
-# but there is no syntactic indication at the call site?
-transfer_ownership(player1)
+shared_borrow(player1)
+exclusive_borrow(mut player1)
+transfer_ownership(move player1)
 
-# Should an explicit ascription to move T be necessary anywhere ownership of a local
-# binding is lost to non-return value
-transfer_ownership(player1: move Player)
-
-# Should T be optional in move T?
-# Should move use type constructor syntax instead of keyword? move(T)
-# We've already decided that T should be optional in constructor(T)
-# when it can be synthesized from the code to simplify struct initialization,
-# so it could be make some sense.
-# Is there difference in placement between mut and move confusing? mut is for mutable
-# bindings not mutable types so the placement is justified. move is for owned types
-# so the placement is also justified.
-# Alternative syntax example:
-
-def transfer_mutable_ownership(mut player: move(Player)) -> ()
-
-transfer_ownership(mut player1: move(Player))
-transfer_ownership(mut player1: move)
+# Move is only explicitly necessary when it would kill a binding in the current scope
 
 # *Function bodies are optional for prototyping
 
