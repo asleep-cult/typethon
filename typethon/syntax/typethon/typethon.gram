@@ -265,9 +265,12 @@ lambda_header:
     #[create_lambda_header]
     | "|" !lambda_parameters? "|" ("->" !type_expression)?
 
-expression_lambda:
+lambda_expression_hook:
     #[create_expression_lambda]
-    | !lambda_header !expression
+    | !lambda_header ":" !simple_statement
+
+expression_lambda:
+    | !lambda_expression_hook NEWLINE
 
 lambda_block_hook:
     #[exit_lambda_block]

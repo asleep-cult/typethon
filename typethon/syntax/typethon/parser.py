@@ -738,10 +738,7 @@ class ASTParser:
         parameters: OptionNode[SequenceNode[ast.LambdaParameterNode]],
         returns: OptionNode[ast.TypeExpressionNode],
     ) -> ast.LambdaHeaderNode:
-        token = self.parser.peek_token(1)
-        if token.kind is TokenKind.COLON:
-            self.scanner.start_nested_indentation()
-
+        self.scanner.start_nested_indentation()
         return ast.LambdaHeaderNode(
             start=span[0],
             end=span[1],
@@ -755,6 +752,7 @@ class ASTParser:
         header: ast.LambdaHeaderNode,
         body: ast.ExpressionNode,
     ) -> ast.ExpressionLambdaNode:
+        self.scanner.stop_nested_indentation()
         return ast.ExpressionLambdaNode(
             start=span[0],
             end=span[1],

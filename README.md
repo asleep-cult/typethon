@@ -239,7 +239,7 @@ spawn((|context, timeout| -> ():
         sleep(timeout)
         print(f"{context.thread_id} is working")), 50)
 
-items.filer(|item| item.len() >= 50)
+items.filer(|item|: item.len() >= 50)
 
 items.filter(
     |item|:
