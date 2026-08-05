@@ -65,8 +65,8 @@ type Expr = (
 # Data defined in code without an explicit type is automatically deduced
 # to a structural type.
 
-let point = { x = 10, y = 20 } # This can only be used where { x: int, y: int } is expected, not Point
-let point = (1, 2)  # This can only be used where (int, int) is expected, not UnnamedPoint
+point = { x = 10, y = 20 } # This can only be used where { x: int, y: int } is expected, not Point
+point = (1, 2)  # This can only be used where (int, int) is expected, not UnnamedPoint
 
 # The opposite is also true. Point cannot be coerced to the structural type { x: int, y: int }
 
@@ -85,19 +85,28 @@ f({ x = 10, y = 20 })
 f({ x = 30, y = -5 }: Point)
 
 # All data fields are private and immutable by default
-# The pub and var keywords can be used to make individual fields public and mutable
-# pub(...) and var(...) can change visibility and mutability
-# to specific parts of a code base
+# The pub and mut keywords can be used to make individual fields public and mutable
+# pub(...) and mut(...) can change visibility and mutability to specific parts of a code base
 
-type Counter = { pub var(self) n: int }
-# If var was bare, anyone with mutable access could mutate n
-# var(self) makes the field invariant
+type Counter = {
+    pub mut(self) n: int
+}
+# If mut was bare, anyone with mutable access could mutate n
+# mut(self) makes the field invariant
 
 use Counter:
-    # The var self means the callee must have mutable access to the Counter
-    def next(var self: Self) -> ():
+    def new() -> move Self:
+        return { n = 0 }
+
+    # The mut self means the callee must have mutable access to the Counter
+    def next(mut self: Self) -> ():
         if self.n < 100:
             self.n += 1
+
+def fn() -> ():
+    mut counter = Counter.new()
+    other_counter = counter
+    counter.next()
 
 # Bindings are created by annotating a name or simply using the assignment operator
 
@@ -111,10 +120,10 @@ def f():
 # They are immutable and can only be assigned to once on all code paths.
 # They also must be assigned to on all code paths before they can be used.
 
-# Bindings can be made mutable using var
+# Bindings can be made mutable using mut
 
 def f():
-    var x = 10
+    mut x = 10
     if some_condition:
         x += 20
 
@@ -135,7 +144,7 @@ Box(int)
 
 # Type parameters are inferred when used with values.
 
-let x = identity(5) # inferred 't: int
+x = identity(5) # inferred 't: int
 
 def unbox(box: Box('t)) -> 't:
     return box.value
@@ -143,7 +152,7 @@ def unbox(box: Box('t)) -> 't:
 def unbox_int(box: Box(int)) -> int:
     return box.value
 
-let box: Box = { value = 10 }
+box: Box = { value = 10 }
 # What if you want to make sure box: Box, but infer type parameters?
 # This potentially means all means that all annotations in asg code
 # can refer to types and pass no parameters.
@@ -179,8 +188,8 @@ use Identity:
     def f(self: Self) -> Self:
         return self
 
-let x: Identity = ()
-let x = x.f()
+x: Identity = ()
+x = x.f()
 
 # The use/for syntax can be used to denote
 # a function serves as the implementation function for a type class function.
@@ -227,6 +236,62 @@ use Index('k, 'v) for Map('k, 'v):
 # less expressive, which is one thing I would like to retain from Python.
 
 # Other notes:
+# *Mutability and reference model
+
+# All values, except primitives, are implicitly references.
+# All bindings and struct fields can be made mutable. Types are not mutable, names are.
+# All types can be qualified with move, suggesting that ownership is taken.
+
+# Aliasing XOR Mutability
+# There can exist either 1 mutable reference, or many immutable references to any data.
+# If there is a mutable reference, the owner/move type is unreadable and unwritable.
+# If there are any immutable references, the owner/move type is unwritable.
+
+type Player = { mut score: int }
+
+# Struct initialization is implicit move (i.e. player1: move Player)
+mut player1: Player = { score = 10 }  # Mutable binding
+player1.score = 20  # Valid
+
+player2: Player = { score = 10 }  # Immutable binding
+player2.score = 20  # Invalid
+
+new_player2: move Player = player2  # Move ownership of player2 to new_player2
+                                    # player2 is dead and inaccessible
+
+player1_immutable = player1  # Immutable reference to data owned by player1
+                             # player1 is write-locked until this reference is dropped
+
+mut player2_mutable = mut new_player2  # Mutable reference to data owned by player2
+                                       # new_player2 is read/write-locked until this reference is dropped
+
+def shared_borrow(player: Player) -> ()
+def exclusive_borrow(mut player: Player) -> ()
+def transfer_ownership(player: move Player) -> ()
+
+# Is it problematic that after calling this function player1 would be dead
+# but there is no syntactic indication at the call site?
+transfer_ownership(player1)
+
+# Should an explicit ascription to move T be necessary anywhere ownership of a local
+# binding is lost to non-return value
+transfer_ownership(player1: move Player)
+
+# Should T be optional in move T?
+# Should move use type constructor syntax instead of keyword? move(T)
+# We've already decided that T should be optional in constructor(T)
+# when it can be synthesized from the code to simplify struct initialization,
+# so it could be make some sense.
+# Is there difference in placement between mut and move confusing? mut is for mutable
+# bindings not mutable types so the placement is justified. move is for owned types
+# so the placement is also justified.
+# Alternative syntax example:
+
+def transfer_mutable_ownership(mut player: move(Player)) -> ()
+
+transfer_ownership(mut player1: move(Player))
+transfer_ownership(mut player1: move)
+
 # *Function bodies are optional for prototyping
 
 def proto(foo: int) -> str
@@ -291,8 +356,8 @@ def f(x):
 # *Data types might automatically derive field names from the variable it is
 # assigned to, for example:
 
-let x = 10
-let y = 20
+x = 10
+y = 20
 
 { x, y }
 # Would be equivalent to
