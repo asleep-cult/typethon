@@ -91,7 +91,12 @@ class ASTParser:
             return inspect.ismethod(member) and (
                 member.__name__.startswith("create_")
                 or member.__name__
-                in ("add_function_body", "exit_lambda_block")
+                in (
+                    "add_function_body",
+                    "add_simple_statement_to_lambda",
+                    "add_statements_to_lambda",
+                    "stop_nested_indentation",
+                )
             )
 
         for _, function in inspect.getmembers(self, is_transformer):
@@ -732,48 +737,43 @@ class ASTParser:
             type=type.item,
         )
 
-    def create_lambda_header(
+    def create_lambda(
         self,
         span: tuple[int, int],
         parameters: OptionNode[SequenceNode[ast.LambdaParameterNode]],
         returns: OptionNode[ast.TypeExpressionNode],
-    ) -> ast.LambdaHeaderNode:
+    ) -> ast.LambdaNode:
         self.scanner.start_nested_indentation()
-        return ast.LambdaHeaderNode(
+        return ast.LambdaNode(
             start=span[0],
             end=span[1],
             parameters=parameters.sequence().items,
             returns=returns.item,
+            body=[],
         )
 
-    def create_expression_lambda(
-        self,
-        span: tuple[int, int],
-        header: ast.LambdaHeaderNode,
-        body: ast.ExpressionNode,
-    ) -> ast.ExpressionLambdaNode:
+    def stop_nested_indentation(self, span: tuple[int, int], expression: ast.LambdaNode) -> ast.LambdaNode:
         self.scanner.stop_nested_indentation()
-        return ast.ExpressionLambdaNode(
-            start=span[0],
-            end=span[1],
-            parameters=header.parameters,
-            returns=header.returns,
-            body=body,
-        )
+        return expression
 
-    def create_block_lambda(
+    def add_simple_statement_to_lambda(
         self,
         span: tuple[int, int],
-        header: ast.LambdaHeaderNode,
-        body: SequenceNode[ast.StatementNode],
-    ) -> ast.BlockLambdaNode:
-        return ast.BlockLambdaNode(
-            start=span[0],
-            end=span[1],
-            parameters=header.parameters,
-            returns=header.returns,
-            body=body.items,
-        )
+        expression: ast.LambdaNode,
+        statement: ast.StatementNode,
+    ) -> ast.LambdaNode:
+        expression.body.append(statement)
+        return expression
+
+    def add_statements_to_lambda(
+        self,
+        span: tuple[int, int],
+        expression: ast.LambdaNode,
+        statements: SequenceNode[ast.StatementNode],
+    ) -> ast.LambdaNode:
+        self.scanner.stop_nested_indentation()
+        expression.body.extend(statements.items)
+        return expression
 
     def create_self_type(
         self,

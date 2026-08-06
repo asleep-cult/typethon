@@ -211,22 +211,11 @@ use Index('k, 'v) for Map('k, 'v):
 # I added a proof of concept lambda syntax that simply uses two colons
 # and allows multiline blocks with a delimeter. Here is how it looks:
 
-(arg1, arg2: annotation, ..., argn: annotation) :: expression
+# Simple lambda
 
-# This is the block form
+|arg1, arg2, ..., argn|: simple stmt
 
-(arg1, arg2, ..., argn) ::
-    stmt1
-    stmt2
-    ...
-    stmtn
-::
-
-# Lambda syntax alternative
-
-|arg1, arg2, ..., argn| expression
-
-# This is the block form
+# Complex lambda
 
 |arg1, arg2, ..., argn|:
     stmt1
@@ -234,12 +223,18 @@ use Index('k, 'v) for Map('k, 'v):
     ...
     stmtn
 
+# Complex lambdas can only exist in parenthesis or as part of an assignment
+# I tried to make it work as the final value in an expression list
+# but it apparently is a conflict, I don't feel like going through the logs
+# to understand why, the amount of trickery needed to make it work is bad enough
+# as it is.
+
 spawn((|context, timeout| -> ():
     while true:
         sleep(timeout)
         print(f"{context.thread_id} is working")), 50)
 
-items.filer(|item|: item.len() >= 50)
+items.filer(|item| -> bool: item.len() >= 50)
 
 items.filter(
     |item|:
@@ -248,13 +243,11 @@ items.filter(
 
 # Closures should have automatic return insertion for trailing expressions
 
-items.map(
-    |item|:
-        if item.name == "Sword":
-            150
-        else:
-            120
-)
+items.map(|item: str|:
+    if item.name == "Sword":
+        150
+    else:
+        120)
 
 # This makes sense because it is the only block that is an expression, but the
 # lack of a similar mechanism throughout the language makes me question

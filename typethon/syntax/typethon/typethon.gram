@@ -87,7 +87,7 @@ while_statement:
 
 expression:
     | !disjunction
-    | !expression_lambda
+    | !simple_lambda
 
 expression_with_annotation:
     | !expression
@@ -96,7 +96,7 @@ expression_with_annotation:
 
 expression_with_lambda:
     | !expression
-    | !block_lambda
+    | !complex_lambda
 
 disjunction:
     #[create_disjunction]
@@ -198,7 +198,7 @@ power:
 
 arguments:
     #[@flatten]
-    | !expression_with_annotation ("," !expression_with_annotation)* "," !block_lambda
+    | !expression_with_annotation ("," !expression_with_annotation)* "," !complex_lambda
     #[@flatten]
     | !expression_with_annotation ("," !expression_with_annotation)+ ","?
     #[@sequence]
@@ -247,7 +247,7 @@ expression_list:
 
 expression_list_with_lambda:
     #[@flatten]
-    | !expression_with_annotation ("," !expression_with_annotation)* "," !block_lambda
+    | !expression_with_annotation ("," !expression_with_annotation)* "," !complex_lambda
     #[@flatten]
     | !expression_with_annotation ("," !expression_with_annotation)+ ","?
     #[@sequence]
@@ -262,26 +262,23 @@ lambda_parameter:
     | !IDENTIFIER (":" !type_expression)?
 
 lambda_header:
-    #[create_lambda_header]
+    #[create_lambda]
     | "|" !lambda_parameters? "|" ("->" !type_expression)?
 
-lambda_expression_hook:
-    #[create_expression_lambda]
-    | !lambda_header ":" !simple_statement
+simple_lambda_hook:
+    #[stop_nested_indentation]
+    | !lambda_header ":"
 
-expression_lambda:
-    | !lambda_expression_hook NEWLINE
+simple_lambda:
+    #[add_simple_statement_to_lambda]
+    | !simple_lambda_hook !simple_statement
 
-lambda_block_hook:
-    #[exit_lambda_block]
-    | NEWLINE INDENT !statement+
+complex_lambda_hook:
+    #[add_statements_to_lambda]
+    | !lambda_header ":" NEWLINE INDENT !statement+
 
-lambda_block:
-    | !lambda_block_hook DEDENT
-
-block_lambda:
-    #[create_block_lambda]
-    | !lambda_header ":" !lambda_block
+complex_lambda:
+    | !complex_lambda_hook DEDENT
 
 struct:
     #[create_struct]
@@ -301,7 +298,7 @@ tuple:
 
 group:
     | "(" !expression_with_annotation ")"
-    | "(" !block_lambda ")"
+    | "(" !complex_lambda ")"
 
 type_declaration:
     #[create_type_declaration]

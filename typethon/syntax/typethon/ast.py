@@ -187,20 +187,7 @@ class LambdaParameterNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class LambdaHeaderNode(Node):
-    parameters: list[LambdaParameterNode] = attr.ib()
-    returns: TypeExpressionNode | None = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class ExpressionLambdaNode(Node):
-    parameters: list[LambdaParameterNode] = attr.ib()
-    returns: TypeExpressionNode | None = attr.ib()
-    body: ExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class BlockLambdaNode(Node):
+class LambdaNode(Node):
     parameters: list[LambdaParameterNode] = attr.ib()
     returns: TypeExpressionNode | None = attr.ib()
     body: list[StatementNode] = attr.ib()
@@ -420,8 +407,7 @@ type StatementNode = (
 )
 
 type ExpressionNode = (
-    ExpressionLambdaNode
-    | BlockLambdaNode
+    LambdaNode
     | AnnotatedNode
     | BoolOpNode
     | BinaryOpNode

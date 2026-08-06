@@ -245,7 +245,7 @@ class SymbolResolver:
         expression: ast.ExpressionNode,
     ) -> None:
         for subexpression in ast.walk_expressions(expression):
-            if isinstance(subexpression, (ast.ExpressionLambdaNode, ast.BlockLambdaNode)):
+            if isinstance(subexpression, ast.LambdaNode):
                 scope = self.create_scope(subexpression.id, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
                     scope.local_declarations[parameter.name] = asg.LocalDeclaration(
@@ -255,15 +255,7 @@ class SymbolResolver:
 
                 function_def = asg.FunctionDef(name="lambda")
                 self.asg_ctx.fields[subexpression.id] = function_def
-
-                if isinstance(subexpression, ast.BlockLambdaNode):
-                    self.initialize_symbols_for_block(
-                        function_def,
-                        scope,
-                        subexpression.body,
-                    )
-                else:
-                    self.initialize_lambdas(function_def, subexpression.body)
+                self.initialize_symbols_for_block(function_def, scope, subexpression.body)
 
     def initialize_type_parameters(
         self,

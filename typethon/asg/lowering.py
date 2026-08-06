@@ -477,7 +477,7 @@ class AsgLowering:
 
                 return asg.CoPath(node_id=expression.id, path=path)
 
-            case ast.ExpressionLambdaNode() | ast.BlockLambdaNode():
+            case ast.LambdaNode():
                 function_def = self.asg_ctx.fields[expression.id]
                 assert isinstance(function_def, asg.FunctionDef)
                 self.resolver.enter_node(expression)
@@ -488,14 +488,8 @@ class AsgLowering:
                 function_def.returns = asg.INFERRED
 
                 function_def.body = asg.AsgBody()
-                if isinstance(expression, ast.BlockLambdaNode):
-                    self.lower_block(expression.body, function_def.body)
-                else:
-                    asg_code = asg.Return(
-                        node_id=expression.body.id,
-                        value=self.lower_expression(expression.body),
-                    )
-                    function_def.body.statements.append(asg_code)
+                self.lower_block(expression.body, function_def.body)
+                # TODO: Automatic reutrn insertion
 
                 self.resolver.exit_node(expression)
 
