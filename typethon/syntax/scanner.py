@@ -106,11 +106,7 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         self.match_stack_bottom = len(self.match_stack)
 
     def stop_nested_indentation(self) -> None:
-        self.match_stack_bottom, (indent, altindent) = self.indentation_nesting_stack.pop()
-        # Add pending indentation to make it match the indentation level prior to starting nesting.
-        # This call could've happened automatically if the scanner reached a parenthesis level
-        # below the current parenthesis stack bottom, in which case it will do nothing.
-        self.add_pending_indentation(0, indent, altindent)
+        self.match_stack_bottom, _ = self.indentation_nesting_stack.pop()
 
     def create_lookup_table(self, tokens: dict[str, TokenKindT]) -> TokenLookupTable[TokenKindT]:
         table: TokenLookupTable[TokenKindT] = {}

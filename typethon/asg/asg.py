@@ -157,7 +157,7 @@ class PathSegment:
 
 
 @attr.s(kw_only=True, slots=True)
-class Path:
+class Path(DefId):
     # Xyz.Abc('t).foo might be represented as
     # Path(segments=[
     #   PathSegment(name='Xyz', result=ModuleDef),
@@ -178,7 +178,7 @@ class Path:
 
 
 @attr.s(kw_only=True, slots=True)
-class ListType:
+class ListType(DefId):
     elt: AsgType = attr.ib()
 
 
