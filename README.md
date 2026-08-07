@@ -105,25 +105,39 @@ use Counter:
 
 def fn() -> ():
     mut counter = Counter.new()
-    other_counter = counter
     counter.next()
 
-# Bindings are created by annotating a name or simply using the assignment operator
+# Bindings are created by using the local keyword
 
 def f():
-    i: int
+    local i
+    i = 20
+    if some_condition:
+        local i  # Explicit shadowing of i
+        i = 30
+        print(i) # Here i is 30
+
+    print(i)  # Here i is 20
+
+    i = 10  # This is invalid because i is an immutable binding
+
+    local i  # Explicit shadowing of i
+    i = 5
+    print(i)  # Here i is 5
+
+# Bindings are implicitly created when assigning to a new name or annotating a name
+
+def f():
+    i: int  # Implicit local i
     if some_condition:
         i = 10
     else:
         i = 20
 
-# They are immutable and can only be assigned to once on all code paths.
-# They also must be assigned to on all code paths before they can be used.
-
 # Bindings can be made mutable using mut
 
 def f():
-    mut x = 10
+    mut x = 10  # Implicit local mut i
     if some_condition:
         x += 20
 

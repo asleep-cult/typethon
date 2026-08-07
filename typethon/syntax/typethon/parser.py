@@ -539,7 +539,7 @@ class ASTParser:
         return ast.CallNode(
             start=span[0],
             end=span[1],
-            callee=callee,
+            callable=callee,
             args=args.sequence().items,
         )
 

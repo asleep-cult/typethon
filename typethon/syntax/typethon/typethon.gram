@@ -316,7 +316,7 @@ type_primary:
 
 type_expression_list:
     #[@prepend]
-    | !type_expression ("," !type_expression)+ ","?
+    | !type_expression ("," !type_expression)* ","?
 
 struct_type_fields:
     #[@prepend]

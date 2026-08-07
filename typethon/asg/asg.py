@@ -70,6 +70,11 @@ class Generics:
 
         return False
 
+    def walk_type_parameters(self) -> typing.Iterator[TypeParameter]:
+        yield from self.parameters.values()
+        if self.owner is not None:
+            yield from self.owner.walk_type_parameters()
+
 
 @attr.s(kw_only=True, slots=True)
 class StructDef(DefId):
@@ -101,10 +106,16 @@ class AliasDef(DefId):
 
 
 @attr.s(kw_only=True, slots=True)
+class FunctionParameter:
+    name: str = attr.ib()
+    type: AsgType | Singleton | None = attr.ib()
+    declaration: LocalDeclaration = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class FunctionDef(DefId):
     name: str = attr.ib()
-    parameters: dict[str, AsgType | Singleton] = attr.ib(factory=dict)
-    parameter_declarations: dict[str, LocalDeclaration] = attr.ib(factory=dict)
+    parameters: dict[str, FunctionParameter] = attr.ib(factory=dict)
     returns: AsgType | Singleton = attr.ib(default=UNIT)
     body: AsgBody | None = attr.ib(default=None)
 
@@ -157,7 +168,7 @@ class PathSegment:
 
 
 @attr.s(kw_only=True, slots=True)
-class Path(DefId):
+class Path:
     # Xyz.Abc('t).foo might be represented as
     # Path(segments=[
     #   PathSegment(name='Xyz', result=ModuleDef),
@@ -178,7 +189,7 @@ class Path(DefId):
 
 
 @attr.s(kw_only=True, slots=True)
-class ListType(DefId):
+class ListType:
     elt: AsgType = attr.ib()
 
 
@@ -269,6 +280,11 @@ class CoPath(AsgCode):
 
 
 @attr.s(kw_only=True, slots=True)
+class Lambda(AsgCode):
+    function_def: FunctionDef = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class Annotated(AsgCode):
     value: Expression = attr.ib()
     type: AsgType = attr.ib()
@@ -307,7 +323,7 @@ class Comparator(AsgCode):
 
 @attr.s(kw_only=True, slots=True)
 class Call(AsgCode):
-    callee: Expression = attr.ib()
+    callable: Expression = attr.ib()
     args: list[Expression] = attr.ib()
 
 
@@ -372,6 +388,7 @@ class Slice(AsgCode):
 
 type Expression = (
     CoPath
+    | Lambda
     | Annotated
     | BoolOp
     | BinaryOp

@@ -3,7 +3,6 @@ import enum
 
 from . import asg
 from ..syntax.typethon import ast
-from ..syntax import tokens
 
 
 class ScopeKind(enum.Enum):
@@ -97,8 +96,12 @@ class SymbolResolver:
                         name=parameter.name,
                         node_id=parameter.id,
                     )
+                    function_def.parameters[parameter.name] = asg.FunctionParameter(
+                        name=parameter.name,
+                        type=None,
+                        declaration=declaration,
+                    )
                     scope.local_declarations[parameter.name] = declaration
-                    function_def.parameter_declarations[parameter.name] = declaration
 
                 self.initialize_type_parameters(
                     scope,
@@ -246,15 +249,22 @@ class SymbolResolver:
     ) -> None:
         for subexpression in ast.walk_expressions(expression):
             if isinstance(subexpression, ast.LambdaNode):
+                function_def = asg.FunctionDef(name="lambda")
+                self.asg_ctx.fields[subexpression.id] = function_def
+
                 scope = self.create_scope(subexpression.id, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
-                    scope.local_declarations[parameter.name] = asg.LocalDeclaration(
+                    declaration = asg.LocalDeclaration(
                         name=parameter.name,
                         node_id=parameter.id,
                     )
+                    function_def.parameters[parameter.name] = asg.FunctionParameter(
+                        name=parameter.name,
+                        type=None,
+                        declaration=declaration,
+                    )
+                    scope.local_declarations[parameter.name] = declaration
 
-                function_def = asg.FunctionDef(name="lambda")
-                self.asg_ctx.fields[subexpression.id] = function_def
                 self.initialize_symbols_for_block(function_def, scope, subexpression.body)
 
     def initialize_type_parameters(

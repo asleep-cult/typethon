@@ -192,8 +192,8 @@ class AsgLowering:
                 self.resolver.enter_node(statement)
 
                 for parameter in statement.parameters:
-                    type = self.lower_type_expression(parameter.annotation)
-                    function_def.parameters[parameter.name] = type
+                    asg_parameter = function_def.parameters[parameter.name]
+                    asg_parameter.type = self.lower_type_expression(parameter.annotation)
 
                 function_def.returns = self.lower_type_expression(statement.returns)
 
@@ -307,7 +307,7 @@ class AsgLowering:
                             include_type_declarations=False,
                             include_classes=False,
                         )
-                        if declaration is None or type is not None:
+                        if declaration is None:
                             declaration = self.resolver.add_local_declaration(target_node.value, statement)
 
                             asg_code = asg.Declaration(
@@ -317,25 +317,30 @@ class AsgLowering:
                                 value=value,
                             )
                         else:
-                            assert value is not None  # Type and value cannot both be None
                             assert isinstance(declaration, asg.LocalDeclaration)
                             path = asg.Path()
                             segment = asg.PathSegment(name=target_node.value, result=declaration)
                             path.segments.append(segment)
+                            co_path = asg.CoPath(node_id=target_node.id, path=path)
 
-                            asg_code = asg.Assignment(
-                                node_id=statement.id,
-                                target=asg.CoPath(node_id=target_node.id, path=path),
-                                type=type,
-                                value=value,
-                            )
+                            if value is None:
+                                assert type is not None
+                                asg_code = asg.Annotated(node_id=statement.id, value=co_path, type=type)
+                                asg_code = asg.Expr(node_id=statement.id, expr=asg_code)
+                            else:
+                                asg_code = asg.Assignment(
+                                    node_id=statement.id,
+                                    target=co_path,
+                                    type=type,
+                                    value=value,
+                                )
                         
                         asg_body.statements.append(asg_code)
 
                     case ast.AttributeNode():
                         target = self.lower_expression(target_node)
                         if value is None:
-                            assert type is not None  # Ditto
+                            assert type is not None  # Type and value cannot be None
 
                             asg_code = asg.Annotated(
                                 node_id=statement.target.id,
@@ -429,11 +434,11 @@ class AsgLowering:
                 return result
 
             case ast.CallNode():
-                match expression.callee:
+                match expression.callable:
                     case ast.AttributeNode() | ast.CallNode() | ast.NameNode():
-                        field = self.create_path_recursive(path, expression.callee)
+                        field = self.create_path_recursive(path, expression.callable)
                     case _:
-                        field = self.lower_expression(expression.callee)
+                        field = self.lower_expression(expression.callable)
 
                 assert not isinstance(field, asg.Path)
                 if not isinstance(field, asg.AsgCode):
@@ -452,7 +457,7 @@ class AsgLowering:
                 for argument in expression.args:
                     arguments.append(self.lower_expression(argument))
 
-                return asg.Call(node_id=expression.id, callee=field, args=arguments)
+                return asg.Call(node_id=expression.id, callable=field, args=arguments)
 
             case ast.NameNode():
                 result = self.resolver.resolve_symbol(expression.value)
@@ -483,15 +488,23 @@ class AsgLowering:
                 self.resolver.enter_node(expression)
 
                 for parameter in expression.parameters:
-                    function_def.parameters[parameter.name] = asg.INFERRED
+                    asg_parameter = function_def.parameters[parameter.name]
+                    if parameter.type is not None:
+                        asg_parameter.type = self.lower_type_expression(parameter.type)
+                    else:
+                        asg_parameter.type = asg.INFERRED
 
-                function_def.returns = asg.INFERRED
+                if expression.returns is not None:
+                    function_def.returns = self.lower_type_expression(expression.returns)
+                else:
+                    function_def.returns = asg.INFERRED
 
                 function_def.body = asg.AsgBody()
                 self.lower_block(expression.body, function_def.body)
                 # TODO: Automatic reutrn insertion
 
                 self.resolver.exit_node(expression)
+                return asg.Lambda(node_id=expression.id, function_def=function_def)
 
             case ast.AnnotatedNode():
                 return asg.Annotated(

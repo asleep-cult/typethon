@@ -232,7 +232,7 @@ class ComparatorNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class CallNode(Node):
-    callee: ExpressionNode = attr.ib()
+    callable: ExpressionNode = attr.ib()
     args: list[ExpressionNode] = attr.ib()
 
 
@@ -459,7 +459,7 @@ def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionN
             for comparator in expression.comparators:
                 yield from walk_expressions(comparator.value)
         case CallNode():
-            yield from walk_expressions(expression.callee)
+            yield from walk_expressions(expression.callable)
             for argument in expression.args:
                 yield from walk_expressions(argument)
         case AttributeNode():
