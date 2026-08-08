@@ -15,9 +15,10 @@ ASG_ID_COUNT = count()
 # It is inspired by the Rust compiler.
 
 # The ASG is very similar to the AST, but all symbols are defined
-# and resolved. Every attribute access that isn't on a local declaration
+# and resolved. Every attribute access that isn't on a local definition
 # gets resolved as well.
-# TODO: Fix broken assignment/declaration change
+
+type DefinitionId = int
 
 
 class Singleton(enum.Enum):
@@ -27,29 +28,29 @@ INFERRED = Singleton.INFERRED
 
 
 @attr.s(kw_only=True, slots=True)
-class DefId:
-    id: int = attr.ib(factory=lambda: next(ASG_ID_COUNT))
+class Definition:
+    id: DefinitionId = attr.ib(factory=lambda: next(ASG_ID_COUNT))
 
 
 @attr.s(kw_only=True, slots=True)
 class AsgContext:
-    # A container that primarily keeps tracks of all fields lowered
+    # A container that primarily keeps tracks of all definitions lowered
     # regardless of where they are located in the code.
-    # A field is any one of the following:
+    # A definition is any one of the following:
     #   xx.tpy: ModuleDef
     #   type XX = ...: StructDef/TupleDef/AliasDef/SumDef
     #   def xx(...) -> ...: FunctionDef
     #   use XX [for YY]: UseDef
     diagnostics: DiagnosticReporter = attr.ib()
-    fields: dict[int, AsgField] = attr.ib(factory=dict)
+    definitions: dict[int, AsgDefinition] = attr.ib(factory=dict)
     # A mapping of field id to Generics instances. Types, functions,
     # and use blocks can all have one.
     generics: dict[int, Generics] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class ModuleDef(DefId):
-    types: dict[str, TypeDeclaration] = attr.ib(factory=dict)
+class ModuleDef(Definition):
+    types: dict[str, TypeDefinition] = attr.ib(factory=dict)
     classes: dict[str, ClassDef] = attr.ib(factory=dict)
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
     body: AsgBody | None = attr.ib(default=None)
@@ -77,31 +78,31 @@ class Generics:
 
 
 @attr.s(kw_only=True, slots=True)
-class StructDef(DefId):
+class StructDef(Definition):
     name: str = attr.ib()
-    is_declaration: bool = attr.ib()
+    is_definition: bool = attr.ib()
     fields: dict[str, AsgType] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class TupleDef(DefId):
+class TupleDef(Definition):
     name: str = attr.ib()
-    is_declaration: bool = attr.ib()
+    is_definition: bool = attr.ib()
     elts: list[AsgType] = attr.ib(factory=list)
 
 
-UNIT = TupleDef(name="unit", is_declaration=False, elts=[])
-INVALID = TupleDef(name="invalid", is_declaration=True, elts=[])
+UNIT = TupleDef(name="unit", is_definition=False, elts=[])
+INVALID = TupleDef(name="invalid", is_definition=True, elts=[])
 
 
 @attr.s(kw_only=True, slots=True)
-class SumDef(DefId):
+class SumDef(Definition):
     name: str = attr.ib()
     types: dict[str, AsgType] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class AliasDef(DefId):
+class AliasDef(Definition):
     name: str = attr.ib()
 
 
@@ -109,11 +110,11 @@ class AliasDef(DefId):
 class FunctionParameter:
     name: str = attr.ib()
     type: AsgType | Singleton | None = attr.ib()
-    declaration: LocalDeclaration = attr.ib()
+    definition: LocalDef = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class FunctionDef(DefId):
+class FunctionDef(Definition):
     name: str = attr.ib()
     parameters: dict[str, FunctionParameter] = attr.ib(factory=dict)
     returns: AsgType | Singleton = attr.ib(default=UNIT)
@@ -121,30 +122,30 @@ class FunctionDef(DefId):
 
 
 @attr.s(kw_only=True, slots=True)
-class ClassDef(DefId):
+class ClassDef(Definition):
     name: str = attr.ib()
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class UseDef(DefId):
+class UseDef(Definition):
     type: AsgType = attr.ib(default=UNIT)
     type_class: AsgType = attr.ib(default=UNIT)
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeParameter(DefId):
+class TypeParameter(Definition):
     name: str = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class LocalDeclaration(DefId):
+class LocalDef(Definition):
     name: str = attr.ib()
     node_id: int = attr.ib()
 
 
-type AsgField = (
+type AsgDefinition = (
     ModuleDef
     | StructDef
     | TupleDef
@@ -155,7 +156,7 @@ type AsgField = (
     | UseDef
 )
 
-type TypeDeclaration = (
+type TypeDefinition = (
     StructDef | TupleDef | SumDef | AliasDef
 )
 
@@ -176,11 +177,11 @@ class Path:
     #   PathSegment(name='foo', result=FunctionDef)
     # ])
     # Anything in the program written as a name `x` is resolved to a path.
-    # Anything in a program written as `x.y` where x is not a local declaration
+    # Anything in a program written as `x.y` where x is not a local definition
     # is resolved to a path.
-    #   When y is not a local declaration, it is only valid in an executable code block,
+    #   When y is not a local definition, it is only valid in an executable code block,
     #   and it is resolved to Attribute (or whetever I decide to call it)
-    # When there are arguments after non-local declaration `y`, the result of the arguments
+    # When there are arguments after non-local definition `y`, the result of the arguments
     # are resolved and added to the segment's arguments.
     segments: list[PathSegment] = attr.ib(factory=list)
 
@@ -198,10 +199,10 @@ class AsgError:
     node: ast.Node = attr.ib()
 
 
-type AsgType = Path | ClassDef | TypeParameter | ListType | TypeDeclaration | AsgError
+type AsgType = Path | ClassDef | TypeParameter | ListType | TypeDefinition | AsgError
 
 type AsgPathResult = (
-    LocalDeclaration | FunctionDef | ClassDef | TypeParameter | ListType | TypeDeclaration | AsgError
+    LocalDef | FunctionDef | ClassDef | TypeParameter | ListType | TypeDefinition | AsgError
 )
 
 
@@ -216,8 +217,8 @@ class AsgBody:
 
 
 @attr.s(kw_only=True, slots=True)
-class Declaration(AsgCode):
-    local_declaration: LocalDeclaration = attr.ib()
+class Local(AsgCode):
+    local_definition: LocalDef = attr.ib()
     type: AsgType | None = attr.ib()
     value: Expression | None = attr.ib()
 
@@ -409,7 +410,7 @@ type Expression = (
 )
 
 type Statement = (
-    Declaration
+    Local
     | For
     | While
     | If

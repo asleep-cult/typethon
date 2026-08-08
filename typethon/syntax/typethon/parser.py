@@ -784,13 +784,13 @@ class ASTParser:
             end=span[1],
         )
 
-    def create_type_declaration(
+    def create_type_definition(
         self,
         span: tuple[int, int],
         name: IdentifierToken,
         type: ast.TypeExpressionNode,
-    ) -> ast.TypeDeclarationNode:
-        return ast.TypeDeclarationNode(
+    ) -> ast.TypeDefinitionNode:
+        return ast.TypeDefinitionNode(
             start=span[0],
             end=span[1],
             name=name.content,

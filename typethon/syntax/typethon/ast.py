@@ -353,7 +353,7 @@ class ListTypeNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeDeclarationNode(Node):
+class TypeDefinitionNode(Node):
     name: str = attr.ib()
     type: TypeExpressionNode = attr.ib()
 
@@ -400,7 +400,7 @@ type StatementNode = (
     | BreakNode
     | ContinueNode
     | ExprNode
-    | TypeDeclarationNode
+    | TypeDefinitionNode
     | SumTypeNode
     | UseNode
     | UseForNode

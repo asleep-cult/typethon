@@ -24,7 +24,7 @@ simple_statement:
     | !expression_with_annotation
     | !assignment
     | !function_prototype
-    | !type_declaration
+    | !type_definition
 
 block:
     #[@flatten]
@@ -300,8 +300,8 @@ group:
     | "(" !expression_with_annotation ")"
     | "(" !complex_lambda ")"
 
-type_declaration:
-    #[create_type_declaration]
+type_definition:
+    #[create_type_definition]
     | "type" !IDENTIFIER "=" !type_expression
 
 type_expression:

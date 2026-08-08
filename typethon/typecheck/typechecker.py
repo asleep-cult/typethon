@@ -16,14 +16,14 @@ class TypeChecker:
     type_ctx: types.TypeContext = attr.ib()
     module: asg.ModuleDef = attr.ib()
 
-    def get_asg_fields(self) -> dict[int, asg.AsgField]:
-        return self.type_ctx.asg_ctx.fields
+    def get_asg_definitions(self) -> dict[int, asg.AsgDefinition]:
+        return self.type_ctx.asg_ctx.definitions
 
-    def get_asg_generics(self, field_id: int) -> asg.Generics | None:
-        return self.type_ctx.asg_ctx.generics.get(field_id)
+    def get_asg_generics(self, definition_id: asg.DefinitionId) -> asg.Generics | None:
+        return self.type_ctx.asg_ctx.generics.get(definition_id)
 
-    def get_actual_type(self, field_id: int) -> types.Type:
-        type = self.type_ctx.types[field_id]
+    def get_actual_type(self, definition_id: asg.DefinitionId) -> types.Type:
+        type = self.type_ctx.types[definition_id]
         if isinstance(type, types.ConstructedType):
             type = type.body
 
@@ -64,28 +64,28 @@ class TypeChecker:
         return instantiated_constructor
 
     def create_types(self) -> None:
-        for field in self.get_asg_fields().values():
-            self.create_type_for_field(field)
+        for definition in self.get_asg_definitions().values():
+            self.create_type_for_definition(definition)
 
-    def create_type_for_field(self, field: asg.AsgField) -> types.Type | types.ConstructedType:
-        assert not isinstance(field, asg.ModuleDef)
-        match field:
+    def create_type_for_definition(self, definition: asg.AsgDefinition) -> types.Type | types.ConstructedType:
+        assert not isinstance(definition, asg.ModuleDef)
+        match definition:
             case asg.StructDef():
-                type = types.StructType(name=field.name, structural=field.is_declaration)
+                type = types.StructType(name=definition.name, structural=definition.is_definition)
             case asg.TupleDef():
-                type = types.TupleType(name=field.name, structural=field.is_declaration)
+                type = types.TupleType(name=definition.name, structural=definition.is_definition)
             case asg.SumDef():
                 assert False, 'Not implemented'
             case asg.AliasDef():
                 assert False, 'Not implemented'
             case asg.FunctionDef():
-                type = types.FunctionType(name=field.name)
+                type = types.FunctionType(name=definition.name)
             case asg.ClassDef():
-                type = types.ClassType(name=field.name)
+                type = types.ClassType(name=definition.name)
             case asg.UseDef():
                 assert False, 'Not implemented'
 
-        generics = self.get_asg_generics(field.id)
+        generics = self.get_asg_generics(definition.id)
         if generics is not None and generics.parameters:
             type = types.ConstructedType(body=type)
             self.type_ctx.general_constructors[type.body.id] = type
@@ -95,79 +95,79 @@ class TypeChecker:
                 self.type_ctx.types[parameter.id] = type_parameter
                 type.arguments.append(type_parameter)
 
-        self.type_ctx.types[field.id] = type
+        self.type_ctx.types[definition.id] = type
         return type
 
     def initialize_types(self) -> None:
-        for field in self.get_asg_fields().values():
-            self.initialize_type(field)
+        for definition in self.get_asg_definitions().values():
+            self.initialize_type(definition)
 
-    def initialize_type(self, field: asg.AsgField) -> None:
-        type = self.get_actual_type(field.id)
+    def initialize_type(self, definition: asg.AsgDefinition) -> None:
+        type = self.get_actual_type(definition.id)
 
-        match field:
+        match definition:
             case asg.StructDef():
                 assert isinstance(type, types.StructType)
-                for field_name, field_type in field.fields.items():
-                    type.fields[field_name] = self.get_type_for_field(field_type)
+                for field_name, field_type in definition.fields.items():
+                    type.fields[field_name] = self.get_type_for_definition(field_type)
 
             case asg.TupleDef():
                 assert isinstance(type, types.TupleType)
-                for elt in field.elts:
-                    type.elts.append(self.get_type_for_field(elt))
+                for elt in definition.elts:
+                    type.elts.append(self.get_type_for_definition(elt))
 
             case asg.FunctionDef():
                 assert isinstance(type, types.FunctionType)
-                for parameter_name, parameter in field.parameters.items():
+                for parameter_name, parameter in definition.parameters.items():
                     assert parameter.type is not None
                     if parameter.type != asg.INFERRED:
-                        type.parameters[parameter_name] = self.get_type_for_field(parameter.type)
+                        type.parameters[parameter_name] = self.get_type_for_definition(parameter.type)
                     else:
                         type.parameters[parameter_name] = None
 
-                if field.returns != asg.INFERRED:
-                    type.returns = self.get_type_for_field(field.returns)
+                if definition.returns != asg.INFERRED:
+                    type.returns = self.get_type_for_definition(definition.returns)
 
             case asg.ClassDef():
                 assert isinstance(type, types.ClassType)
 
-                for function in field.functions.values():
+                for function in definition.functions.values():
                     function_type = self.type_ctx.types[function.id]
                     assert isinstance(function_type, (types.ConstructedType, types.FunctionType))
                     type.functions[function.name] = function_type
 
-    def get_type_for_field(self, field: asg.AsgType) -> types.Type | types.ConstructedType:
+    def get_type_for_definition(self, definition: asg.AsgType) -> types.Type | types.ConstructedType:
         type_arguments: list[types.Type] | None = None
-        if isinstance(field, asg.Path):
-            for segment in field.segments[:-1]:
+        if isinstance(definition, asg.Path):
+            for segment in definition.segments[:-1]:
                 if segment.arguments:
                     assert False, 'Only the final segment can have arguments'
 
-            final_segment = field.segments[-1]
+            final_segment = definition.segments[-1]
             path_result = final_segment.result
-            if isinstance(path_result, (asg.FunctionDef, asg.LocalDeclaration)):
+            if isinstance(path_result, (asg.FunctionDef, asg.LocalDef)):
                 assert False, f'{path_result!r} is not a valid type'
 
-            field = path_result
+            definition = path_result
             if final_segment.arguments:
                 type_arguments = [
-                    self.get_type_for_field(argument) for argument in final_segment.arguments
+                    self.get_type_for_definition(argument) for argument in final_segment.arguments
                 ]
 
-        match field:
+        match definition:
             case asg.AsgError():
-                assert False, f'{field!r}'
+                assert False, f'{definition!r}'
             case asg.ListType():
-                elt = self.get_type_for_field(field.elt)
+                elt = self.get_type_for_definition(definition.elt)
                 return types.ConstructedType(body=types.LIST.body, arguments=[elt])
             case _:
-                result = field
+                result = definition
                 if result.id in self.type_ctx.types:
                     type = self.type_ctx.types[result.id]
                 elif isinstance(result, asg.TypeParameter):
                     assert False, f'Failed to initialize type parameter {result!r}'
                 else:
-                    type = self.create_type_for_field(result)
+                    type = self.create_type_for_definition(result)
 
         if type_arguments:
             if not isinstance(type, types.ConstructedType):
@@ -179,49 +179,49 @@ class TypeChecker:
 
     def add_to_type_environment(
         self,
-        declaration: asg.LocalDeclaration,
+        definition: asg.LocalDef,
         type: types.Type,
         context: UnificationContext,
     ) -> None:
         if isinstance(type, types.ConstructedType) and type.parameter_map is None:
             type = self.get_fresh_constructor(type.body.id)
 
-        context.type_environment[declaration.id] = type
+        context.type_environment[definition.id] = type
 
-    def check_code(self, field: asg.ModuleDef | asg.FunctionDef) -> None:
-        if field.body is not None:
+    def check_code(self, definition: asg.ModuleDef | asg.FunctionDef) -> None:
+        if definition.body is not None:
             context = UnificationContext()
 
-            generics = self.get_asg_generics(field.id)
+            generics = self.get_asg_generics(definition.id)
             if generics is not None:
                 for parameter in generics.walk_type_parameters():
                     type_parameter = self.type_ctx.types[parameter.id]
                     context.rigid_types[type_parameter.id] = types.PrimitiveType(name=parameter.name)
 
-            if isinstance(field, asg.FunctionDef):
-                function_type = self.get_actual_type(field.id)
+            if isinstance(definition, asg.FunctionDef):
+                function_type = self.get_actual_type(definition.id)
                 assert isinstance(function_type, types.FunctionType)
 
-                for parameter in field.parameters.values():
+                for parameter in definition.parameters.values():
                     assert parameter.type is not None
                     assert parameter.type != asg.INFERRED
 
-                    parameter_type = self.get_type_for_field(parameter.type)
-                    self.add_to_type_environment(parameter.declaration, parameter_type, context)
+                    parameter_type = self.get_type_for_definition(parameter.type)
+                    self.add_to_type_environment(parameter.definition, parameter_type, context)
 
-            for statement in field.body.statements:
-                self.check_statement(field, statement, context)
+            for statement in definition.body.statements:
+                self.check_statement(definition, statement, context)
 
     def check_statement(
         self,
-        field: asg.ModuleDef | asg.FunctionDef,
+        definition: asg.ModuleDef | asg.FunctionDef,
         statement: asg.Statement,
         context: UnificationContext,
     ) -> None:
         match statement:
-            case asg.Declaration():
+            case asg.Local():
                 if statement.type is not None:
-                    type = self.get_type_for_field(statement.type)
+                    type = self.get_type_for_definition(statement.type)
 
                     if statement.value is not None:
                         value_type = self.synthesize_expression(statement.value, context)
@@ -231,7 +231,7 @@ class TypeChecker:
                     assert statement.value is not None
                     type = self.synthesize_expression(statement.value, context)
 
-                self.add_to_type_environment(statement.local_declaration, type, context)
+                self.add_to_type_environment(statement.local_definition, type, context)
             case asg.For():
                 ...
             case asg.While():
@@ -243,10 +243,10 @@ class TypeChecker:
             case asg.AugAssignment():
                 ...
             case asg.Return():
-                if not isinstance(field, asg.FunctionDef):
+                if not isinstance(definition, asg.FunctionDef):
                     assert False, 'Return only valid in function'
 
-                function_type = self.get_actual_type(field.id)
+                function_type = self.get_actual_type(definition.id)
                 assert isinstance(function_type, types.FunctionType)
 
                 if statement.value is not None:
@@ -320,16 +320,16 @@ class TypeChecker:
             case asg.CoPath():
                 result = expression.path.get_result()
                 match result:
-                    case asg.LocalDeclaration():
+                    case asg.LocalDef():
                         return context.type_environment[result.id]
                     case asg.FunctionDef():
                         return self.type_ctx.types[result.id]
                     case _:
-                        return self.get_type_for_field(result)
+                        return self.get_type_for_definition(result)
 
             case asg.Annotated():
                 value = self.synthesize_expression(expression.value, context)
-                type = self.get_type_for_field(expression.type)
+                type = self.get_type_for_definition(expression.type)
 
                 if not self.unify(value, type, context):
                     assert False, ""
@@ -396,6 +396,6 @@ class TypeChecker:
         self.initialize_types()
 
         self.check_code(self.module)
-        for field in self.get_asg_fields().values():
-            if isinstance(field, asg.FunctionDef):
-                self.check_code(field)
+        for definition in self.get_asg_definitions().values():
+            if isinstance(definition, asg.FunctionDef):
+                self.check_code(definition)

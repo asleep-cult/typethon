@@ -11,7 +11,7 @@ class ScopeKind(enum.Enum):
     USE = enum.auto()
     FUNCTION = enum.auto()
     BLOCK = enum.auto()
-    DECLARATION = enum.auto()
+    DEFINITION = enum.auto()
     LAMBDA = enum.auto()
 
 
@@ -19,24 +19,24 @@ class ScopeKind(enum.Enum):
 class SymbolScope:
     node_id: int = attr.ib()
     kind: ScopeKind = attr.ib()
-    type_declarations: dict[str, asg.TypeDeclaration] = attr.ib(factory=dict)
+    type_definitions: dict[str, asg.TypeDefinition] = attr.ib(factory=dict)
     type_parameters: dict[str, asg.TypeParameter] = attr.ib(factory=dict)
     class_defs: dict[str, asg.ClassDef] = attr.ib(factory=dict)
     function_defs: dict[str, asg.FunctionDef] = attr.ib(factory=dict)
-    local_declarations: dict[str, asg.LocalDeclaration] = attr.ib(factory=dict)
+    local_definitions: dict[str, asg.LocalDef] = attr.ib(factory=dict)
 
 
 type ResolvedSymbol = (
-    asg.TypeDeclaration | asg.TypeParameter | asg.ClassDef | asg.FunctionDef | asg.LocalDeclaration
+    asg.TypeDefinition | asg.TypeParameter | asg.ClassDef | asg.FunctionDef | asg.LocalDef
 )
 
-type ResolvedAttribute = asg.TypeDeclaration | asg.ClassDef | asg.FunctionDef
+type ResolvedAttribute = asg.TypeDefinition | asg.ClassDef | asg.FunctionDef
 
 
 class SymbolResolver:
-    # Prior to resolving symbols, the resolver must initialize all fields and type parameters.
+    # Prior to resolving symbols, the resolver must initialize all definitions and type parameters.
     # The resolver is subsequently used by AsgLowering for path and name resolution.
-    # AsgLowering is responsible for calling the add_local_declaration because it is the only
+    # AsgLowering is responsible for calling the add_local_definition because it is the only
     # case where a name cannot be used in its scope before it has been defined.
 
     def __init__(
@@ -55,27 +55,27 @@ class SymbolResolver:
         return scope
 
     def initialize_symbols_for_block(
-        self, owner_field: asg.AsgField, scope: SymbolScope, body: list[ast.StatementNode]
+        self, outside_definition: asg.AsgDefinition, scope: SymbolScope, body: list[ast.StatementNode]
     ) -> None:
         for statement in body:
-            self.initialize_symbols_for_statement(owner_field, scope, statement)
+            self.initialize_symbols_for_statement(outside_definition, scope, statement)
 
-    def add_local_declaration(
+    def add_local_definition(
         self,
         name: str,
         statement: ast.AssignNode,
-    ) -> asg.LocalDeclaration:
+    ) -> asg.LocalDef:
         scope = self.scope_stack[-1]
-        declaration = asg.LocalDeclaration(
+        definition = asg.LocalDef(
             name=name,
             node_id=statement.id,
         )
-        scope.local_declarations[name] = declaration
-        return declaration
+        scope.local_definitions[name] = definition
+        return definition
 
     def initialize_symbols_for_statement(
         self,
-        owner_field: asg.AsgField,
+        outside_definition: asg.AsgDefinition,
         scope: SymbolScope,
         statement: ast.StatementNode,
     ) -> None:
@@ -89,32 +89,32 @@ class SymbolResolver:
                     self.initialize_type_parameters(
                         scope,
                         parameter.annotation,
-                        primary_field=function_def,
-                        secondary_field=owner_field,
+                        primary_definition=function_def,
+                        secondary_definition=outside_definition,
                     )
-                    declaration = asg.LocalDeclaration(
+                    definition = asg.LocalDef(
                         name=parameter.name,
                         node_id=parameter.id,
                     )
                     function_def.parameters[parameter.name] = asg.FunctionParameter(
                         name=parameter.name,
                         type=None,
-                        declaration=declaration,
+                        definition=definition,
                     )
-                    scope.local_declarations[parameter.name] = declaration
+                    scope.local_definitions[parameter.name] = definition
 
                 self.initialize_type_parameters(
                     scope,
                     statement.returns,
-                    primary_field=function_def,
-                    secondary_field=owner_field,
+                    primary_definition=function_def,
+                    secondary_definition=outside_definition,
                 )
                 if statement.body is not None:
                     self.initialize_symbols_for_block(function_def, scope, statement.body)
 
-                self.asg_ctx.fields[statement.id] = function_def
-                if isinstance(owner_field, (asg.ModuleDef, asg.ClassDef, asg.UseDef)):
-                    owner_field.functions[function_def.name] = function_def
+                self.asg_ctx.definitions[statement.id] = function_def
+                if isinstance(outside_definition, (asg.ModuleDef, asg.ClassDef, asg.UseDef)):
+                    outside_definition.functions[function_def.name] = function_def
 
             case ast.ClassDefNode():
                 class_def = asg.ClassDef(name=statement.name)
@@ -124,43 +124,43 @@ class SymbolResolver:
                     self.initialize_type_parameters(
                         scope,
                         parameter,
-                        primary_field=class_def,
-                        secondary_field=owner_field,
+                        primary_definition=class_def,
+                        secondary_definition=outside_definition,
                     )
 
                 self.initialize_symbols_for_block(class_def, scope, statement.body)
 
-                self.asg_ctx.fields[statement.id] = class_def
-                if isinstance(owner_field, asg.ModuleDef):
-                    owner_field.classes[class_def.name] = class_def
+                self.asg_ctx.definitions[statement.id] = class_def
+                if isinstance(outside_definition, asg.ModuleDef):
+                    outside_definition.classes[class_def.name] = class_def
 
-            case ast.TypeDeclarationNode():
+            case ast.TypeDefinitionNode():
                 match statement.type:
                     case ast.StructTypeNode():
-                        declaration = asg.StructDef(name=statement.name, is_declaration=True)
+                        definition = asg.StructDef(name=statement.name, is_definition=True)
                     case ast.TupleTypeNode():
-                        declaration = asg.TupleDef(name=statement.name, is_declaration=True)
+                        definition = asg.TupleDef(name=statement.name, is_definition=True)
                     case _:
                         assert False, "Not Implemented"
-                        declaration = asg.AliasDef(name=statement.name)
+                        definition = asg.AliasDef(name=statement.name)
 
-                scope.type_declarations[statement.name] = declaration
-                scope = self.create_scope(statement.id, ScopeKind.DECLARATION)
+                scope.type_definitions[statement.name] = definition
+                scope = self.create_scope(statement.id, ScopeKind.DEFINITION)
                 self.initialize_type_parameters(
                     scope,
                     statement.type,
-                    primary_field=declaration,
-                    secondary_field=owner_field,
+                    primary_definition=definition,
+                    secondary_definition=outside_definition,
                 )
 
-                self.asg_ctx.fields[statement.id] = declaration
-                if isinstance(owner_field, asg.ModuleDef):
-                    owner_field.types[declaration.name] = declaration
+                self.asg_ctx.definitions[statement.id] = definition
+                if isinstance(outside_definition, asg.ModuleDef):
+                    outside_definition.types[definition.name] = definition
 
             case ast.SumTypeNode():
                 sum_def = asg.SumDef(name=statement.name)
-                scope.type_declarations[statement.name] = sum_def
-                scope = self.create_scope(statement.id, ScopeKind.DECLARATION)
+                scope.type_definitions[statement.name] = sum_def
+                scope = self.create_scope(statement.id, ScopeKind.DEFINITION)
 
                 for field in statement.fields:
                     if field.type is not None:
@@ -169,101 +169,101 @@ class SymbolResolver:
                         self.initialize_type_parameters(
                             scope,
                             field.type,
-                            primary_field=sum_def,
-                            secondary_field=owner_field,
+                            primary_definition=sum_def,
+                            secondary_definition=outside_definition,
                         )
 
-                self.asg_ctx.fields[statement.id] = sum_def
-                if isinstance(owner_field, asg.ModuleDef):
-                    owner_field.types[sum_def.name] = sum_def
+                self.asg_ctx.definitions[statement.id] = sum_def
+                if isinstance(outside_definition, asg.ModuleDef):
+                    outside_definition.types[sum_def.name] = sum_def
 
             case ast.UseNode():
                 scope = self.create_scope(statement.id, ScopeKind.USE)
                 use_def = asg.UseDef()
-                self.asg_ctx.fields[statement.id] = use_def
+                self.asg_ctx.definitions[statement.id] = use_def
 
                 self.initialize_type_parameters(
                     scope,
                     statement.type,
-                    primary_field=use_def,
-                    secondary_field=owner_field,
+                    primary_definition=use_def,
+                    secondary_definition=outside_definition,
                 )
                 self.initialize_symbols_for_block(use_def, scope, statement.body)
 
             case ast.UseForNode():
                 scope = self.create_scope(statement.id, ScopeKind.USE)
                 use_def = asg.UseDef()
-                self.asg_ctx.fields[statement.id] = use_def
+                self.asg_ctx.definitions[statement.id] = use_def
 
                 self.initialize_type_parameters(
                     scope,
                     statement.type,
-                    primary_field=use_def,
-                    secondary_field=owner_field,
+                    primary_definition=use_def,
+                    secondary_definition=outside_definition,
                 )
                 self.initialize_type_parameters(
                     scope,
                     statement.type_class,
-                    primary_field=use_def,
-                    secondary_field=owner_field,
+                    primary_definition=use_def,
+                    secondary_definition=outside_definition,
                 )
                 self.initialize_symbols_for_block(use_def, scope, statement.body)
 
             case ast.ForNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_symbols_for_block(owner_field, scope, statement.body)
-                self.initialize_lambdas(owner_field, statement.iterator)
+                self.initialize_symbols_for_block(outside_definition, scope, statement.body)
+                self.initialize_lambdas(outside_definition, statement.iterator)
 
             case ast.WhileNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_symbols_for_block(owner_field, scope, statement.body)
-                self.initialize_lambdas(owner_field, statement.condition)
+                self.initialize_symbols_for_block(outside_definition, scope, statement.body)
+                self.initialize_lambdas(outside_definition, statement.condition)
 
             case ast.IfNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_symbols_for_block(owner_field, scope, statement.body)
-                self.initialize_lambdas(owner_field, statement.condition)
+                self.initialize_symbols_for_block(outside_definition, scope, statement.body)
+                self.initialize_lambdas(outside_definition, statement.condition)
 
                 if statement.else_statement is not None:
                     self.create_scope(statement.else_statement.id, ScopeKind.BLOCK)
                     self.initialize_symbols_for_block(
-                        owner_field, scope, statement.else_statement.body
+                        outside_definition, scope, statement.else_statement.body
                     )
 
             case ast.AssignNode() | ast.AugAssignNode():
-                self.initialize_lambdas(owner_field, statement.target)
+                self.initialize_lambdas(outside_definition, statement.target)
                 if statement.value is not None:
-                    self.initialize_lambdas(owner_field, statement.value)
+                    self.initialize_lambdas(outside_definition, statement.value)
 
             case ast.ReturnNode():
                 if statement.value is not None:
-                    self.initialize_lambdas(owner_field, statement.value)
+                    self.initialize_lambdas(outside_definition, statement.value)
 
             case ast.ExprNode():
-                self.initialize_lambdas(owner_field, statement.expr)
+                self.initialize_lambdas(outside_definition, statement.expr)
 
     def initialize_lambdas(
         self,
-        owner_field: asg.AsgField,
+        outside_definition: asg.AsgDefinition,
         expression: ast.ExpressionNode,
     ) -> None:
         for subexpression in ast.walk_expressions(expression):
             if isinstance(subexpression, ast.LambdaNode):
                 function_def = asg.FunctionDef(name="lambda")
-                self.asg_ctx.fields[subexpression.id] = function_def
+                self.asg_ctx.definitions[subexpression.id] = function_def
 
                 scope = self.create_scope(subexpression.id, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
-                    declaration = asg.LocalDeclaration(
+                    definition = asg.LocalDef(
                         name=parameter.name,
                         node_id=parameter.id,
                     )
                     function_def.parameters[parameter.name] = asg.FunctionParameter(
                         name=parameter.name,
                         type=None,
-                        declaration=declaration,
+                        definition=definition,
                     )
-                    scope.local_declarations[parameter.name] = declaration
+                    scope.local_definitions[parameter.name] = definition
 
                 self.initialize_symbols_for_block(function_def, scope, subexpression.body)
 
@@ -272,10 +272,10 @@ class SymbolResolver:
         scope: SymbolScope,
         type_expression: ast.TypeExpressionNode,
         *,
-        primary_field: asg.AsgField,
-        secondary_field: asg.AsgField,
+        primary_definition: asg.AsgDefinition,
+        secondary_definition: asg.AsgDefinition,
     ) -> None:
-        primary_generics = self.asg_ctx.generics.get(primary_field.id)
+        primary_generics = self.asg_ctx.generics.get(primary_definition.id)
 
         # I have made the questionable syntactic decision of allowing type paramters
         # to be referred to without being explicitly defined first.
@@ -283,8 +283,8 @@ class SymbolResolver:
         # Rather than def f<T>(x: T), it is simply def f(x: 't).
         # This complicates matters for the compiler because there are instances
         # where we might want to refer to a type paramter defined in the context
-        # of the outside field, and there are other instances where a type parameter
-        # of the same name should define a new one in the contex of the current field.
+        # of the outside definition, and there are other instances where a type parameter
+        # of the same name should define a new one in the contex of the current definition.
         # Here are two examples of both cases respectively:
         # class A('t):
         #   def f(x: 't) -> 't
@@ -297,9 +297,9 @@ class SymbolResolver:
         # recursively for any parameter of the same name. If that is not found, it simply
         # creates a new one, and inserts it into the Generic's parameters. As a result,
         # the compiler only ascribes a Generics.owner value in contexts where the outside
-        # field's type parameters can be utilized.
-        if isinstance(secondary_field, (asg.UseDef, asg.ClassDef)):
-            secondary_generics = self.asg_ctx.generics.get(secondary_field.id)
+        # definition's type parameters can be utilized.
+        if isinstance(secondary_definition, (asg.UseDef, asg.ClassDef)):
+            secondary_generics = self.asg_ctx.generics.get(secondary_definition.id)
         else:
             secondary_generics = None
 
@@ -307,7 +307,7 @@ class SymbolResolver:
             if isinstance(subexpression, ast.TypeParameterNode):
                 if primary_generics is None:
                     primary_generics = asg.Generics(owner=secondary_generics)
-                    self.asg_ctx.generics[primary_field.id] = primary_generics
+                    self.asg_ctx.generics[primary_definition.id] = primary_generics
 
                 if not primary_generics.has_parameter_named(subexpression.name):
                     type_parameter = asg.TypeParameter(
@@ -335,20 +335,20 @@ class SymbolResolver:
         self,
         name: str,
         *,
-        include_local_declarations: bool = True,
+        include_local_definitions: bool = True,
         include_functions: bool = True,
         include_type_parameters: bool = True,
-        include_type_declarations: bool = True,
+        include_type_definitions: bool = True,
         include_classes: bool = True,
     ) -> ResolvedSymbol | None:
         first_iteration = True
         can_access_type_parameters = include_type_parameters
         can_access_class_parameters = True
-        can_access_declarations = include_local_declarations
+        can_access_definitions = include_local_definitions
 
         for scope in reversed(self.scope_stack):
-            if can_access_declarations and name in scope.local_declarations:
-                    return scope.local_declarations[name]
+            if can_access_definitions and name in scope.local_definitions:
+                    return scope.local_definitions[name]
 
             if can_access_type_parameters and name in scope.type_parameters:
                     return scope.type_parameters[name]
@@ -362,14 +362,14 @@ class SymbolResolver:
             if include_functions and name in scope.function_defs:
                 return scope.function_defs[name]
 
-            if include_type_declarations and name in scope.type_declarations:
-                return scope.type_declarations[name]
+            if include_type_definitions and name in scope.type_definitions:
+                return scope.type_definitions[name]
 
             if include_classes and name in scope.class_defs:
                 return scope.class_defs[name]
 
             if scope.kind is not ScopeKind.BLOCK and scope.kind is not ScopeKind.LAMBDA:
-                can_access_declarations = False
+                can_access_definitions = False
                 can_access_type_parameters = False
 
                 if not first_iteration:

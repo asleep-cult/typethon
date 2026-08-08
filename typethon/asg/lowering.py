@@ -33,9 +33,9 @@ class AsgLowering:
             case ast.TypeAttributeNode():
                 match type_expression.type:
                     case ast.TypeAttributeNode() | ast.TypeCallNode() | ast.NameNode():
-                        field = self.create_type_path_recursive(path, type_expression.type)
+                        result = self.create_type_path_recursive(path, type_expression.type)
                     case _:
-                        field = self.lower_type_expression(type_expression.type)
+                        result = self.lower_type_expression(type_expression.type)
                         # If it could've been a path, it must've been matched by the previous case.
                         # If we are here, the node is one of the following:
                         # | SelfTypeNode            Self.foo
@@ -47,11 +47,11 @@ class AsgLowering:
                         # Additionally, if we are here, the path cannot have any segments yet
                         # because it is syntactically impossible (i.e foo.(x,) is a syntax error)
 
-                        assert not isinstance(field, asg.Path)
-                        segment = asg.PathSegment(name="type-expr", result=field)
+                        assert not isinstance(result, asg.Path)
+                        segment = asg.PathSegment(name="type-expr", result=result)
                         path.segments.append(segment)
 
-                result = self.resolver.resolve_attribute(field, type_expression.attr)
+                result = self.resolver.resolve_attribute(result, type_expression.attr)
                 if result is None:
                     # Unresolved attribute
                     result = asg.AsgError(node=type_expression)
@@ -63,12 +63,12 @@ class AsgLowering:
             case ast.TypeCallNode():
                 match type_expression.type:
                     case ast.TypeAttributeNode() | ast.TypeCallNode() | ast.NameNode():
-                        field = self.create_type_path_recursive(path, type_expression.type)
+                        result = self.create_type_path_recursive(path, type_expression.type)
                     case _:
-                        field = self.lower_type_expression(type_expression.type)
-                        assert not isinstance(field, asg.Path)
+                        result = self.lower_type_expression(type_expression.type)
+                        assert not isinstance(result, asg.Path)
 
-                        segment = asg.PathSegment(name="type-expr", result=field)
+                        segment = asg.PathSegment(name="type-expr", result=result)
                         path.segments.append(segment)
 
                 segment = path.segments[-1]
@@ -76,12 +76,12 @@ class AsgLowering:
                     type = self.lower_type_expression(argument)
                     segment.arguments.append(type)
 
-                return field
+                return result
 
             case ast.NameNode():
                 result = self.resolver.resolve_symbol(
                     type_expression.value,
-                    include_local_declarations=False,
+                    include_local_definitions=False,
                     include_functions=False,
                     include_type_parameters=False,
                 )
@@ -90,7 +90,7 @@ class AsgLowering:
                     result = asg.AsgError(node=type_expression)
 
                 assert not isinstance(
-                    result, (asg.FunctionDef, asg.LocalDeclaration, asg.TypeParameter)
+                    result, (asg.FunctionDef, asg.LocalDef, asg.TypeParameter)
                 )
                 segment = asg.PathSegment(name=type_expression.value, result=result)
                 path.segments.append(segment)
@@ -104,7 +104,7 @@ class AsgLowering:
             case ast.TypeParameterNode():
                 symbol = self.resolver.resolve_symbol(
                     type_expression.name,
-                    include_local_declarations=False,
+                    include_local_definitions=False,
                     include_functions=False,
                 )
                 # XXX: Will this ever fail?
@@ -125,14 +125,14 @@ class AsgLowering:
                 assert False, "TODO!"
 
             case ast.StructTypeNode():
-                struct_def = asg.StructDef(name="inline-struct", is_declaration=False)
+                struct_def = asg.StructDef(name="inline-struct", is_definition=False)
                 for field in type_expression.fields:
                     struct_def.fields[field.name] = self.lower_type_expression(field.type)
 
                 return struct_def
 
             case ast.TupleTypeNode():
-                tuple_def = asg.TupleDef(name="inline-tuple", is_declaration=False)
+                tuple_def = asg.TupleDef(name="inline-tuple", is_definition=False)
                 for elt in type_expression.elts:
                     tuple_def.elts.append(self.lower_type_expression(elt))
 
@@ -152,8 +152,8 @@ class AsgLowering:
         asg_body: asg.AsgBody,
     ) -> None:
         match statement:
-            case ast.TypeDeclarationNode():
-                type_def = self.asg_ctx.fields[statement.id]
+            case ast.TypeDefinitionNode():
+                type_def = self.asg_ctx.definitions[statement.id]
                 self.resolver.enter_node(statement)
 
                 match statement.type:
@@ -173,7 +173,7 @@ class AsgLowering:
                 self.resolver.exit_node(statement)
 
             case ast.SumTypeNode():
-                sum_def = self.asg_ctx.fields[statement.id]
+                sum_def = self.asg_ctx.definitions[statement.id]
                 assert isinstance(sum_def, asg.SumDef)
 
                 self.resolver.enter_node(statement)
@@ -187,7 +187,7 @@ class AsgLowering:
                 self.resolver.exit_node(statement)
 
             case ast.FunctionDefNode():
-                function_def = self.asg_ctx.fields[statement.id]
+                function_def = self.asg_ctx.definitions[statement.id]
                 assert isinstance(function_def, asg.FunctionDef)
                 self.resolver.enter_node(statement)
 
@@ -204,14 +204,14 @@ class AsgLowering:
                 self.resolver.exit_node(statement)
 
             case ast.ClassDefNode():
-                class_def = self.asg_ctx.fields[statement.id]
+                class_def = self.asg_ctx.definitions[statement.id]
                 assert isinstance(class_def, asg.ClassDef)
                 self.resolver.enter_node(statement)
 
                 for substatement in statement.body:
                     if isinstance(substatement, ast.FunctionDefNode):
                         self.lower_statement(substatement, asg_body)
-                        function_def = self.asg_ctx.fields[substatement.id]
+                        function_def = self.asg_ctx.definitions[substatement.id]
                         assert isinstance(function_def, asg.FunctionDef)
 
                         class_def.functions[substatement.name] = function_def
@@ -221,7 +221,7 @@ class AsgLowering:
                 self.resolver.exit_node(statement)
 
             case ast.UseNode() | ast.UseForNode():
-                use_def = self.asg_ctx.fields[statement.id]
+                use_def = self.asg_ctx.definitions[statement.id]
                 assert isinstance(use_def, asg.UseDef)
 
                 self.resolver.enter_node(statement)
@@ -233,7 +233,7 @@ class AsgLowering:
                 for substatement in statement.body:
                     if isinstance(substatement, ast.FunctionDefNode):
                         self.lower_statement(substatement, asg_body)
-                        function_def = self.asg_ctx.fields[substatement.id]
+                        function_def = self.asg_ctx.definitions[substatement.id]
                         assert isinstance(function_def, asg.FunctionDef)
 
                         use_def.functions[substatement.name] = function_def
@@ -300,26 +300,26 @@ class AsgLowering:
 
                 match target_node:
                     case ast.NameNode():
-                        declaration = self.resolver.resolve_symbol(
+                        definition = self.resolver.resolve_symbol(
                             target_node.value,
                             include_functions=False,
                             include_type_parameters=False,
-                            include_type_declarations=False,
+                            include_local_definitions=False,
                             include_classes=False,
                         )
-                        if declaration is None:
-                            declaration = self.resolver.add_local_declaration(target_node.value, statement)
+                        if definition is None:
+                            definition = self.resolver.add_local_definition(target_node.value, statement)
 
-                            asg_code = asg.Declaration(
+                            asg_code = asg.Local(
                                 node_id=statement.id,
-                                local_declaration=declaration,
+                                local_definition=definition,
                                 type=type,
                                 value=value,
                             )
                         else:
-                            assert isinstance(declaration, asg.LocalDeclaration)
+                            assert isinstance(definition, asg.LocalDef)
                             path = asg.Path()
-                            segment = asg.PathSegment(name=target_node.value, result=declaration)
+                            segment = asg.PathSegment(name=target_node.value, result=definition)
                             path.segments.append(segment)
                             co_path = asg.CoPath(node_id=target_node.id, path=path)
 
@@ -412,36 +412,36 @@ class AsgLowering:
             case ast.AttributeNode():
                 match expression.value:
                     case ast.AttributeNode() | ast.CallNode() | ast.NameNode():
-                        field = self.create_path_recursive(path, expression.value)
+                        path_result = self.create_path_recursive(path, expression.value)
                     case _:
-                        field = self.lower_expression(expression.value)
+                        lowered_expression = self.lower_expression(expression.value)
                         assert not path.segments
-                        return asg.Attribute(node_id=expression.id, attr=expression.attr, value=field)
+                        return asg.Attribute(node_id=expression.id, attr=expression.attr, value=lowered_expression)
 
-                assert not isinstance(field, asg.Path)
-                if isinstance(field, asg.AsgCode):
-                    return asg.Attribute(node_id=expression.id, attr=expression.attr, value=field)
+                assert not isinstance(path_result, asg.Path)
+                if isinstance(path_result, asg.AsgCode):
+                    return asg.Attribute(node_id=expression.id, attr=expression.attr, value=path_result)
 
-                result = self.resolver.resolve_attribute(field, expression.attr)
-                if result is None:
-                    result = asg.AsgError(node=expression)
+                attribute = self.resolver.resolve_attribute(path_result, expression.attr)
+                if attribute is None:
+                    attribute = asg.AsgError(node=expression)
 
-                segment = asg.PathSegment(name=expression.attr, result=result)
+                segment = asg.PathSegment(name=expression.attr, result=attribute)
                 path.segments.append(segment)
-                if isinstance(result, asg.FunctionDef):
+                if isinstance(attribute, asg.FunctionDef):
                     return asg.CoPath(node_id=expression.id, path=path)
 
-                return result
+                return attribute
 
             case ast.CallNode():
                 match expression.callable:
                     case ast.AttributeNode() | ast.CallNode() | ast.NameNode():
-                        field = self.create_path_recursive(path, expression.callable)
+                        result = self.create_path_recursive(path, expression.callable)
                     case _:
-                        field = self.lower_expression(expression.callable)
+                        result = self.lower_expression(expression.callable)
 
-                assert not isinstance(field, asg.Path)
-                if not isinstance(field, asg.AsgCode):
+                assert not isinstance(result, asg.Path)
+                if not isinstance(result, asg.AsgCode):
                     segment = path.segments[-1]
 
                     for argument in expression.args:
@@ -451,13 +451,13 @@ class AsgLowering:
 
                         segment.arguments.append(argument.path)
 
-                    return field
+                    return result
 
                 arguments: list[asg.Expression] = []
                 for argument in expression.args:
                     arguments.append(self.lower_expression(argument))
 
-                return asg.Call(node_id=expression.id, callable=field, args=arguments)
+                return asg.Call(node_id=expression.id, callable=result, args=arguments)
 
             case ast.NameNode():
                 result = self.resolver.resolve_symbol(expression.value)
@@ -467,7 +467,7 @@ class AsgLowering:
 
                 segment = asg.PathSegment(name=expression.value, result=result)
                 path.segments.append(segment)
-                if isinstance(result, (asg.FunctionDef, asg.LocalDeclaration)):
+                if isinstance(result, (asg.FunctionDef, asg.LocalDef)):
                     return asg.CoPath(node_id=expression.id, path=path)
 
                 return result
@@ -483,7 +483,7 @@ class AsgLowering:
                 return asg.CoPath(node_id=expression.id, path=path)
 
             case ast.LambdaNode():
-                function_def = self.asg_ctx.fields[expression.id]
+                function_def = self.asg_ctx.definitions[expression.id]
                 assert isinstance(function_def, asg.FunctionDef)
                 self.resolver.enter_node(expression)
 
