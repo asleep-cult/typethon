@@ -127,15 +127,25 @@ class AsgLowering:
             case ast.StructTypeNode():
                 struct_def = asg.StructDef(name="inline-struct", is_definition=False)
                 for field in type_expression.fields:
-                    struct_def.fields[field.name] = self.lower_type_expression(field.type)
+                    type = self.lower_type_expression(field.type)
+                    struct_field = asg.StructField(name=field.name, type=type)
 
+                    self.asg_ctx.definitions[struct_field.def_id] = struct_field
+                    struct_def.fields[field.name] = struct_field
+
+                self.asg_ctx.definitions[struct_def.def_id] = struct_def
                 return struct_def
 
             case ast.TupleTypeNode():
                 tuple_def = asg.TupleDef(name="inline-tuple", is_definition=False)
-                for elt in type_expression.elts:
-                    tuple_def.elts.append(self.lower_type_expression(elt))
+                for i, elt in enumerate(type_expression.elts):
+                    type = self.lower_type_expression(elt)
+                    tuple_elt = asg.TupleElt(index=i, type=type)
 
+                    self.asg_ctx.definitions[tuple_elt.def_id] = tuple_elt
+                    tuple_def.elts.append(tuple_elt)
+
+                self.asg_ctx.definitions[tuple_def.def_id] = tuple_def
                 return tuple_def
 
     def lower_block(
@@ -160,12 +170,20 @@ class AsgLowering:
                     case ast.StructTypeNode():
                         assert isinstance(type_def, asg.StructDef)
                         for field in statement.type.fields:
-                            type_def.fields[field.name] = self.lower_type_expression(field.type)
+                            type = self.lower_type_expression(field.type)
+                            struct_field = asg.StructField(name=field.name, type=type)
+
+                            self.asg_ctx.definitions[struct_field.def_id] = struct_field
+                            type_def.fields[field.name] = struct_field
 
                     case ast.TupleTypeNode():
                         assert isinstance(type_def, asg.TupleDef)
-                        for elt in statement.type.elts:
-                            type_def.elts.append(self.lower_type_expression(elt))
+                        for i, elt in enumerate(statement.type.elts):
+                            type = self.lower_type_expression(elt)
+                            tuple_elt = asg.TupleElt(index=i, type=type)
+
+                            self.asg_ctx.definitions[tuple_elt.def_id] = tuple_elt
+                            type_def.elts.append(tuple_elt)
 
                     case _:
                         assert False, 'TODO!'
@@ -182,6 +200,8 @@ class AsgLowering:
                     if field.type is not None:
                         type = self.lower_type_expression(field.type)
 
+                    type = asg.AliasDef(name=field.name, type=type)
+                    self.asg_ctx.definitions[type.def_id] = type
                     sum_def.types[field.name] = type
 
                 self.resolver.exit_node(statement)

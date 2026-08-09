@@ -29,7 +29,7 @@ INFERRED = Singleton.INFERRED
 
 @attr.s(kw_only=True, slots=True)
 class Definition:
-    id: DefinitionId = attr.ib(factory=lambda: next(ASG_ID_COUNT))
+    def_id: DefinitionId = attr.ib(factory=lambda: next(ASG_ID_COUNT))
 
 
 @attr.s(kw_only=True, slots=True)
@@ -59,36 +59,49 @@ class ModuleDef(Definition):
 @attr.s(kw_only=True, slots=True)
 class Generics:
     # Similar to a scope that keeps track of type paramters by name.
-    owner: Generics | None = attr.ib(default=None)
+    def_id: DefinitionId = attr.ib()
+    parent: Generics | None = attr.ib(default=None)
     parameters: dict[str, TypeParameter] = attr.ib(factory=dict)
 
     def has_parameter_named(self, name: str) -> bool:
         if name in self.parameters:
             return True
 
-        if self.owner is not None:
-            return self.owner.has_parameter_named(name)
+        if self.parent is not None:
+            return self.parent.has_parameter_named(name)
 
         return False
 
     def walk_type_parameters(self) -> typing.Iterator[TypeParameter]:
         yield from self.parameters.values()
-        if self.owner is not None:
-            yield from self.owner.walk_type_parameters()
+        if self.parent is not None:
+            yield from self.parent.walk_type_parameters()
+
+
+@attr.s(kw_only=True, slots=True)
+class StructField(Definition):
+    name: str = attr.ib()
+    type: AsgType = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class StructDef(Definition):
     name: str = attr.ib()
     is_definition: bool = attr.ib()
-    fields: dict[str, AsgType] = attr.ib(factory=dict)
+    fields: dict[str, StructField] = attr.ib(factory=dict)
+
+
+@attr.s(kw_only=True, slots=True)
+class TupleElt(Definition):
+    index: int = attr.ib()
+    type: AsgType = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleDef(Definition):
     name: str = attr.ib()
     is_definition: bool = attr.ib()
-    elts: list[AsgType] = attr.ib(factory=list)
+    elts: list[TupleElt] = attr.ib(factory=list)
 
 
 UNIT = TupleDef(name="unit", is_definition=False, elts=[])
@@ -98,12 +111,13 @@ INVALID = TupleDef(name="invalid", is_definition=True, elts=[])
 @attr.s(kw_only=True, slots=True)
 class SumDef(Definition):
     name: str = attr.ib()
-    types: dict[str, AsgType] = attr.ib(factory=dict)
+    types: dict[str, StructDef | TupleDef | AliasDef] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
 class AliasDef(Definition):
     name: str = attr.ib()
+    type: AsgType = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -147,7 +161,9 @@ class LocalDef(Definition):
 
 type AsgDefinition = (
     ModuleDef
+    | StructField
     | StructDef
+    | TupleElt
     | TupleDef
     | SumDef
     | AliasDef
@@ -199,7 +215,7 @@ class AsgError:
     node: ast.Node = attr.ib()
 
 
-type AsgType = Path | ClassDef | TypeParameter | ListType | TypeDefinition | AsgError
+type AsgType = Path | TypeParameter | ListType | StructDef | TupleDef | AsgError
 
 type AsgPathResult = (
     LocalDef | FunctionDef | ClassDef | TypeParameter | ListType | TypeDefinition | AsgError

@@ -275,7 +275,7 @@ class SymbolResolver:
         primary_definition: asg.AsgDefinition,
         secondary_definition: asg.AsgDefinition,
     ) -> None:
-        primary_generics = self.asg_ctx.generics.get(primary_definition.id)
+        primary_generics = self.asg_ctx.generics.get(primary_definition.def_id)
 
         # I have made the questionable syntactic decision of allowing type paramters
         # to be referred to without being explicitly defined first.
@@ -299,15 +299,15 @@ class SymbolResolver:
         # the compiler only ascribes a Generics.owner value in contexts where the outside
         # definition's type parameters can be utilized.
         if isinstance(secondary_definition, (asg.UseDef, asg.ClassDef)):
-            secondary_generics = self.asg_ctx.generics.get(secondary_definition.id)
+            secondary_generics = self.asg_ctx.generics.get(secondary_definition.def_id)
         else:
             secondary_generics = None
 
         for subexpression in ast.walk_type_expressions(type_expression):
             if isinstance(subexpression, ast.TypeParameterNode):
                 if primary_generics is None:
-                    primary_generics = asg.Generics(owner=secondary_generics)
-                    self.asg_ctx.generics[primary_definition.id] = primary_generics
+                    primary_generics = asg.Generics(def_id=primary_definition.def_id, parent=secondary_generics)
+                    self.asg_ctx.generics[primary_definition.def_id] = primary_generics
 
                 if not primary_generics.has_parameter_named(subexpression.name):
                     type_parameter = asg.TypeParameter(
