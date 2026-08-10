@@ -26,11 +26,18 @@ class VariantField:
 
 
 @attr.s(kw_only=True, slots=True)
+class ParameterInfo:
+    def_id: int = attr.ib()
+    name: str = attr.ib()
+    index: int = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class GenericsInfo:
     def_id: asg.DefinitionId = attr.ib()
     parent_id: asg.DefinitionId | None = attr.ib()
     parent_count: int = attr.ib()
-    parameters: list[types.Parameter] = attr.ib()
+    parameters: list[ParameterInfo] = attr.ib()
     index_map: dict[asg.DefinitionId, int] = attr.ib()
 
     def get_count(self) -> int:

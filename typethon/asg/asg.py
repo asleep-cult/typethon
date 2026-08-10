@@ -42,10 +42,21 @@ class AsgContext:
     #   def xx(...) -> ...: FunctionDef
     #   use XX [for YY]: UseDef
     diagnostics: DiagnosticReporter = attr.ib()
-    definitions: dict[int, AsgDefinition] = attr.ib(factory=dict)
+    definitions: dict[DefinitionId, AsgDefinition] = attr.ib(factory=dict)
     # A mapping of field id to Generics instances. Types, functions,
     # and use blocks can all have one.
-    generics: dict[int, Generics] = attr.ib(factory=dict)
+    generics: dict[DefinitionId, Generics] = attr.ib(factory=dict)
+    definition_parents: dict[DefinitionId, DefinitionId] = attr.ib(factory=dict)
+
+    def add_definition(self, parent_id: DefinitionId, definition: AsgDefinition) -> None:
+        self.definitions[definition.def_id] = definition
+        self.definition_parents[definition.def_id] = parent_id
+
+    def parent(self, def_id: DefinitionId) -> DefinitionId:
+        return self.definition_parents[def_id]
+
+    def record_parent(self, def_id: DefinitionId, parent_id: DefinitionId) -> None:
+        self.definition_parents[def_id] = parent_id
 
 
 @attr.s(kw_only=True, slots=True)

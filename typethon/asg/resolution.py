@@ -112,7 +112,7 @@ class SymbolResolver:
                 if statement.body is not None:
                     self.initialize_symbols_for_block(function_def, scope, statement.body)
 
-                self.asg_ctx.definitions[statement.id] = function_def
+                self.asg_ctx.add_definition(outside_definition.def_id, function_def)
                 if isinstance(outside_definition, (asg.ModuleDef, asg.ClassDef, asg.UseDef)):
                     outside_definition.functions[function_def.name] = function_def
 
@@ -130,7 +130,7 @@ class SymbolResolver:
 
                 self.initialize_symbols_for_block(class_def, scope, statement.body)
 
-                self.asg_ctx.definitions[statement.id] = class_def
+                self.asg_ctx.add_definition(outside_definition.def_id, class_def)
                 if isinstance(outside_definition, asg.ModuleDef):
                     outside_definition.classes[class_def.name] = class_def
 
@@ -153,7 +153,7 @@ class SymbolResolver:
                     secondary_definition=outside_definition,
                 )
 
-                self.asg_ctx.definitions[statement.id] = definition
+                self.asg_ctx.add_definition(outside_definition.def_id, definition)
                 if isinstance(outside_definition, asg.ModuleDef):
                     outside_definition.types[definition.name] = definition
 
@@ -173,14 +173,14 @@ class SymbolResolver:
                             secondary_definition=outside_definition,
                         )
 
-                self.asg_ctx.definitions[statement.id] = sum_def
+                self.asg_ctx.add_definition(outside_definition.def_id, sum_def)
                 if isinstance(outside_definition, asg.ModuleDef):
                     outside_definition.types[sum_def.name] = sum_def
 
             case ast.UseNode():
                 scope = self.create_scope(statement.id, ScopeKind.USE)
                 use_def = asg.UseDef()
-                self.asg_ctx.definitions[statement.id] = use_def
+                self.asg_ctx.add_definition(outside_definition.def_id, use_def)
 
                 self.initialize_type_parameters(
                     scope,
@@ -193,7 +193,7 @@ class SymbolResolver:
             case ast.UseForNode():
                 scope = self.create_scope(statement.id, ScopeKind.USE)
                 use_def = asg.UseDef()
-                self.asg_ctx.definitions[statement.id] = use_def
+                self.asg_ctx.add_definition(outside_definition.def_id, use_def)
 
                 self.initialize_type_parameters(
                     scope,
@@ -250,7 +250,7 @@ class SymbolResolver:
         for subexpression in ast.walk_expressions(expression):
             if isinstance(subexpression, ast.LambdaNode):
                 function_def = asg.FunctionDef(name="lambda")
-                self.asg_ctx.definitions[subexpression.id] = function_def
+                self.asg_ctx.add_definition(outside_definition.def_id, function_def)
 
                 scope = self.create_scope(subexpression.id, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
@@ -313,6 +313,7 @@ class SymbolResolver:
                     type_parameter = asg.TypeParameter(
                         name=subexpression.name,
                     )
+                    self.asg_ctx.record_parent(type_parameter.def_id, primary_definition.def_id)
                     scope.type_parameters[subexpression.name] = type_parameter
                     primary_generics.parameters[subexpression.name] = type_parameter
 

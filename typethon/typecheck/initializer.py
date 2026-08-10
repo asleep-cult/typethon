@@ -16,14 +16,41 @@ class TypeInitializer:
     asg_ctx: asg.AsgContext = attr.ib()
     store: InitializationStore = attr.ib()
 
-    def lower_type(self, type: asg.AsgType) -> types.Type:
-        ...
+    def lower_path(self, def_id: asg.DefinitionId, path: asg.Path) -> types.Type:
+        # There's a problem: Some paths will be impossible to determine without the type system
+        # so the result will be unknown in the asg representation. It's reasonable to have an
+        # unresolved segment in the path, but this would be incongruent with the asg code
+        # representation, which begins creating nested attribute nodes for unknown
+        # results. This is the result of a unified attribute and path syntax.
+        result = path.get_result()
+        reveal_type(result)
+
+    def lower_type(self, def_id: asg.DefinitionId, type: asg.AsgType) -> types.Type:
+        assert not isinstance(type, asg.AsgError)
+        match type:
+            case asg.Path():
+                return self.lower_path(def_id, type)
+            case asg.TypeParameter():
+                generics = self.generics_of(def_id)
+                index = generics.index_map[type.def_id]
+                return types.Parameter(name=type.name, index=index)
+            case asg.ListType():
+                return types.List(elt=self.lower_type(def_id, type.elt))
+            case asg.StructDef() | asg.TupleDef():
+                assert not type.is_definition
+                adt = self.store.adts[type.def_id]
+                return types.Adt(info=adt, structural=True, args=[])
 
     def get_identity_parameters(self, def_id: asg.DefinitionId) -> list[types.Parameter]:
-        if def_id not in self.store.generics:
-            return []
+        generics = self.generics_of(def_id)
+        if generics.parent_id is None:
+            return [types.Parameter(name=parameter.name, index=parameter.index) for parameter in generics.parameters]
 
-        return self.store.generics[def_id].parameters
+        parameters = self.get_identity_parameters(generics.parent_id)
+        for parameter in generics.parameters:
+            parameters.append(types.Parameter(name=parameter.name, index=parameter.index))
+
+        return parameters
 
     def type_of(self, def_id: asg.DefinitionId) -> types.Constructor:
         definition = self.asg_ctx.definitions[def_id]
@@ -31,11 +58,11 @@ class TypeInitializer:
         match definition:
             case asg.StructDef() | asg.TupleDef() | asg.SumDef():
                 adt = self.store.adts[def_id]
-                type = types.Adt(info=adt, args=self.get_identity_parameters(def_id))
+                type = types.Adt(structural=False, info=adt, args=self.get_identity_parameters(def_id))
             case asg.StructField() | asg.TupleElt():
-                type = self.lower_type(definition.type)
+                type = self.lower_type(def_id, definition.type)
             case asg.AliasDef():
-                type = self.lower_type(definition.type)
+                type = self.lower_type(def_id, definition.type)
             case asg.FunctionDef():
                 assert False, 'Not implemented'
             case _:
@@ -43,35 +70,41 @@ class TypeInitializer:
 
         return types.Constructor(type=type)
 
-    def initialize_generics(self, generics: asg.Generics) -> typeinfo.GenericsInfo:
-        if generics.def_id in self.asg_ctx.generics:
-            return self.asg_ctx.generics[generics.def_id]
+    def generics_of(self, def_id: asg.DefinitionId) -> typeinfo.GenericsInfo:
+        if def_id in self.store.generics:
+            return self.store.generics[def_id]
 
         parent_id = None
         parent_count = 0
-        if generics.parent is not None:
-            parent_generics = self.initialize_generics(generics.parent)
-            parent_id = parent_generics.def_id
-            parent_count = parent_generics.get_count()
-
-        parameters: list[types.Parameter] = []
         index_map: dict[asg.DefinitionId, int] = {}
-        for i, parameter in enumerate(generics.parameters.values()):
-            parameter_type = types.Parameter(
-                name=parameter.name,
-                index=parent_count + i,
-            )
-            parameters.append(parameter_type)
-            index_map[parameter.def_id] = i
+
+        parent = self.asg_ctx.definitions.get(self.asg_ctx.parent(def_id))
+        if isinstance(parent, (asg.StructDef, asg.TupleDef, asg.SumDef, asg.ClassDef, asg.UseDef)):
+            parent_id = parent.def_id
+            parent_generics = self.generics_of(parent_id)
+            parent_count = parent_generics.get_count()
+            index_map |= parent_generics.index_map
+
+        parameters: list[typeinfo.ParameterInfo] = []
+        own_generics = self.asg_ctx.generics.get(def_id)
+        if own_generics is not None:
+            for i, parameter in enumerate(own_generics.parameters.values()):
+                parameter_type = typeinfo.ParameterInfo(
+                    def_id=parameter.def_id,
+                    name=parameter.name,
+                    index=parent_count + i,
+                )
+                parameters.append(parameter_type)
+                index_map[parameter.def_id] = i
 
         generics_info = typeinfo.GenericsInfo(
-            def_id=generics.def_id,
+            def_id=def_id,
             parent_id=parent_id,
             parent_count=parent_count,
             parameters=parameters,
             index_map=index_map,
         )
-        self.store.generics[generics.def_id] = generics_info
+        self.store.generics[def_id] = generics_info
         return generics_info
 
     def initialize_struct_variant(self, struct_def: asg.StructDef) -> typeinfo.AdtVariant:
@@ -118,9 +151,6 @@ class TypeInitializer:
         return adt
 
     def initialize_types(self) -> None:
-        for generics in self.asg_ctx.generics.values():
-            self.initialize_generics(generics)
-
         for definition in self.asg_ctx.definitions.values():
             match definition:
                 case asg.StructDef():

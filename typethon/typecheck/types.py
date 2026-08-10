@@ -16,6 +16,7 @@ class PrimitiveType(enum.Enum):
 @attr.s(kw_only=True, slots=True)
 class Adt:
     info: typeinfo.AdtInfo = attr.ib()
+    structural: bool = attr.ib()
     args: Sequence[Type] = attr.ib()
 
 
@@ -32,6 +33,11 @@ class Parameter:
 
 
 @attr.s(kw_only=True, slots=True)
+class List:
+    elt: Type = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class Constructor:
     type: Type = attr.ib()
 
@@ -44,4 +50,5 @@ type Type = (
     | Adt
     | Function
     | Parameter
+    | List
 )

@@ -173,7 +173,7 @@ class AsgLowering:
                             type = self.lower_type_expression(field.type)
                             struct_field = asg.StructField(name=field.name, type=type)
 
-                            self.asg_ctx.definitions[struct_field.def_id] = struct_field
+                            self.asg_ctx.add_definition(type_def.def_id, struct_field)
                             type_def.fields[field.name] = struct_field
 
                     case ast.TupleTypeNode():
@@ -182,7 +182,7 @@ class AsgLowering:
                             type = self.lower_type_expression(elt)
                             tuple_elt = asg.TupleElt(index=i, type=type)
 
-                            self.asg_ctx.definitions[tuple_elt.def_id] = tuple_elt
+                            self.asg_ctx.add_definition(type_def.def_id, tuple_elt)
                             type_def.elts.append(tuple_elt)
 
                     case _:
@@ -201,7 +201,7 @@ class AsgLowering:
                         type = self.lower_type_expression(field.type)
 
                     type = asg.AliasDef(name=field.name, type=type)
-                    self.asg_ctx.definitions[type.def_id] = type
+                    self.asg_ctx.add_definition(sum_def.def_id, type)
                     sum_def.types[field.name] = type
 
                 self.resolver.exit_node(statement)
