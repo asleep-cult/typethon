@@ -63,8 +63,7 @@ f(|a, b|:
 
 Block lambdas are only valid in the following contexts:
 1) Anywhere as a prarenthesized expression
-2) As the last/only argument to a function call
-3) As the last/only element in a tuple, (lists don't exist yet)
+2) As the only argument to a function call
 
 Expression lambdas are valid anywhere an expression is
 """
@@ -253,14 +252,14 @@ class ASTParser:
             body=body.items,
         )
 
-    def create_use_for_statement(
+    def create_use_as_statement(
         self,
         span: tuple[int, int],
-        type_class: ast.TypeExpressionNode,
         type: ast.TypeExpressionNode,
+        type_class: ast.TypeExpressionNode,
         body: SequenceNode[ast.StatementNode],
-    ) -> ast.UseForNode:
-        return ast.UseForNode(
+    ) -> ast.UseAsNode:
+        return ast.UseAsNode(
             start=span[0],
             end=span[1],
             type_class=type_class,
@@ -705,14 +704,6 @@ class ASTParser:
             value=value,
         )
 
-    def exit_lambda_block(
-        self,
-        span: tuple[int, int],
-        body: SequenceNode[ast.StatementNode],
-    ) -> SequenceNode[ast.StatementNode]:
-        self.scanner.stop_nested_indentation()
-        return self.parser.transform_flatten(span, body)
-
     def create_tuple(
         self,
         span: tuple[int, int],
@@ -788,14 +779,41 @@ class ASTParser:
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        type: ast.TypeExpressionNode,
-    ) -> ast.TypeDefinitionNode:
-        return ast.TypeDefinitionNode(
-            start=span[0],
-            end=span[1],
-            name=name.content,
-            type=type,
-        )
+        types: SequenceNode[ast.TypeExpressionNode | ast.SumTypeFieldNode],
+    ) -> ast.TypeDefinitionNode | ast.SumTypeNode:
+        if len(types.items) > 1:
+            fields: list[ast.SumTypeFieldNode] = []
+            for type in types.items:
+                match type:
+                    case ast.SumTypeFieldNode():
+                        fields.append(type)
+                    case ast.NameNode():
+                        field = ast.SumTypeFieldNode(
+                            id=type.id,
+                            start=type.start,
+                            end=type.end,
+                            name=type.value,
+                            type=None,
+                        )
+                        fields.append(field)
+                    case _:
+                        assert False, f"{type} cannot appear in sum type field"
+
+            return ast.SumTypeNode(
+                start=span[0],
+                end=span[1],
+                name=name.content,
+                fields=fields,
+            )
+        else:
+            type = types.items[0]
+            assert not isinstance(type, ast.SumTypeFieldNode)
+            return ast.TypeDefinitionNode(
+                start=span[0],
+                end=span[1],
+                name=name.content,
+                type=type,
+            )
 
     def create_struct_type(
         self,
@@ -832,30 +850,17 @@ class ASTParser:
             elts=elts.sequence().items,
         )
 
-    def create_sum_type(
-        self,
-        span: tuple[int, int],
-        name: IdentifierToken,
-        fields: SequenceNode[ast.SumTypeFieldNode],
-    ) -> ast.SumTypeNode:
-        return ast.SumTypeNode(
-            start=span[0],
-            end=span[1],
-            name=name.content,
-            fields=fields.items,
-        )
-
     def create_sum_field(
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        type: OptionNode[ast.TypeExpressionNode],
+        type: ast.TypeExpressionNode,
     ) -> ast.SumTypeFieldNode:
         return ast.SumTypeFieldNode(
             start=span[0],
             end=span[1],
             name=name.content,
-            type=type.item,
+            type=type,
         )
 
     def create_type_parameter(

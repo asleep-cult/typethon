@@ -16,20 +16,54 @@ class TypeInitializer:
     asg_ctx: asg.AsgContext = attr.ib()
     store: InitializationStore = attr.ib()
 
-    def lower_path(self, def_id: asg.DefinitionId, path: asg.Path) -> types.Type:
-        # There's a problem: Some paths will be impossible to determine without the type system
-        # so the result will be unknown in the asg representation. It's reasonable to have an
-        # unresolved segment in the path, but this would be incongruent with the asg code
-        # representation, which begins creating nested attribute nodes for unknown
-        # results. This is the result of a unified attribute and path syntax.
-        result = path.get_result()
-        reveal_type(result)
+    def lower_type_path_segment(
+        self,
+        def_id: asg.DefinitionId,
+        segment: asg.PathSegment,
+    ) -> types.Type:
+        # Asg lowering only creates paths for type annotations.
+        # The paths are still structured to allow them to represent segments
+        # in code (i.e local definitions and functions can be a segment result.)
+        # Asg lowering cannot lower paths in code because there is ambiguity
+        # in something like Type1.AssociatedType(Type2).function()
+        # where it would be impossible to determine if AssociatedType is a function
+        # without the type checker.
+        # I can consider adding a path promotion phase before type checking to
+        # make things easier. In which case the flow would be:
+        #   ast -> asg lowering -> type initialization -> path promotion -> type checking
+        arguments: list[types.Type] = []
+        for argument in segment.arguments:
+            arguments.append(self.lower_type(def_id, argument))
+
+        match segment.result:
+            case asg.LocalDef() | asg.FunctionDef():
+                assert False, "Invalid type segment"
+            case asg.ClassDef():
+                assert False, "Not implemented"
+            case asg.SumDef() | asg.AliasDef():
+                info = self.store.adts[segment.result.def_id]
+                return types.Adt(info=info, structural=False, args=arguments)
+            case _:
+                if arguments:
+                    assert False, "Cannot parameterize this type"
+
+                return self.lower_type(def_id, segment.result)
+
+    def lower_type_path(self, def_id: asg.DefinitionId, path: asg.Path) -> types.Type:
+        for segment in path.segments:
+            if isinstance(segment, asg.DynamicPathSegment):
+                assert False, "You must implement path promotion :("
+
+            # TODO: When can/can't args leak into the next segment?
+            result = self.lower_type_path_segment(def_id, segment)
+
+        return result
 
     def lower_type(self, def_id: asg.DefinitionId, type: asg.AsgType) -> types.Type:
         assert not isinstance(type, asg.AsgError)
         match type:
             case asg.Path():
-                return self.lower_path(def_id, type)
+                return self.lower_type_path(def_id, type)
             case asg.TypeParameter():
                 generics = self.generics_of(def_id)
                 index = generics.index_map[type.def_id]
@@ -53,7 +87,7 @@ class TypeInitializer:
         return parameters
 
     def type_of(self, def_id: asg.DefinitionId) -> types.Constructor:
-        definition = self.asg_ctx.definitions[def_id]
+        definition = self.asg_ctx.definition(def_id)
 
         match definition:
             case asg.StructDef() | asg.TupleDef() | asg.SumDef():
@@ -62,6 +96,7 @@ class TypeInitializer:
             case asg.StructField() | asg.TupleElt():
                 type = self.lower_type(def_id, definition.type)
             case asg.AliasDef():
+                assert definition.type is not None
                 type = self.lower_type(def_id, definition.type)
             case asg.FunctionDef():
                 assert False, 'Not implemented'
@@ -78,7 +113,8 @@ class TypeInitializer:
         parent_count = 0
         index_map: dict[asg.DefinitionId, int] = {}
 
-        parent = self.asg_ctx.definitions.get(self.asg_ctx.parent(def_id))
+        parent_id = self.asg_ctx.parent(def_id)
+        parent = self.asg_ctx.definition(parent_id) if parent_id is not None else None
         if isinstance(parent, (asg.StructDef, asg.TupleDef, asg.SumDef, asg.ClassDef, asg.UseDef)):
             parent_id = parent.def_id
             parent_generics = self.generics_of(parent_id)
@@ -152,10 +188,17 @@ class TypeInitializer:
 
     def initialize_types(self) -> None:
         for definition in self.asg_ctx.definitions.values():
-            match definition:
-                case asg.StructDef():
-                    self.initialize_struct(definition)
-                case asg.TupleDef():
-                    self.initialize_tuple(definition)
-                case asg.SumDef():
-                    self.initialize_sum_type(definition)
+            parent_id = self.asg_ctx.parent(definition.def_id)
+            if parent_id is None:
+                continue
+
+            parent_def = self.asg_ctx.definition(parent_id)
+            if not isinstance(parent_def, asg.SumDef):
+                # Children of a sum def become variants of the adt, skip them
+                match definition:
+                    case asg.StructDef():
+                        self.initialize_struct(definition)
+                    case asg.TupleDef():
+                        self.initialize_tuple(definition)
+                    case asg.SumDef():
+                        self.initialize_sum_type(definition)

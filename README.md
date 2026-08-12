@@ -210,7 +210,7 @@ x = x.f()
 
 type Map = { mapping: dict('k, 'v) }
 
-use Index('k, 'v) for Map('k, 'v):
+use Map('k, 'v) as Index('k, 'v):
     def new(mapping: dict('k, 'v)) -> Self:
         return { mapping = mapping }
 

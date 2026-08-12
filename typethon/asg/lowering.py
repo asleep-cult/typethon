@@ -26,16 +26,17 @@ class AsgLowering:
 
     def create_type_path_recursive(
         self,
+        parent_id: asg.DefinitionId,
         path: asg.Path,
         type_expression: ast.TypeAttributeNode | ast.TypeCallNode | ast.NameNode,
-    ) -> asg.AsgPathResult:
+    ) -> asg.AsgPathResult | None:
         match type_expression:
             case ast.TypeAttributeNode():
                 match type_expression.type:
                     case ast.TypeAttributeNode() | ast.TypeCallNode() | ast.NameNode():
-                        result = self.create_type_path_recursive(path, type_expression.type)
+                        result = self.create_type_path_recursive(parent_id, path, type_expression.type)
                     case _:
-                        result = self.lower_type_expression(type_expression.type)
+                        result = self.lower_type_expression(parent_id, type_expression.type)
                         # If it could've been a path, it must've been matched by the previous case.
                         # If we are here, the node is one of the following:
                         # | SelfTypeNode            Self.foo
@@ -51,21 +52,24 @@ class AsgLowering:
                         segment = asg.PathSegment(name="type-expr", result=result)
                         path.segments.append(segment)
 
-                result = self.resolver.resolve_attribute(result, type_expression.attr)
-                if result is None:
-                    # Unresolved attribute
-                    result = asg.AsgError(node=type_expression)
+                if result is not None:
+                    result = self.resolver.resolve_attribute(result, type_expression.attr)
 
-                segment = asg.PathSegment(name=type_expression.attr, result=result)
+                if result is not None:
+                    # Unresolved attribute
+                    segment = asg.PathSegment(name=type_expression.attr, result=result)
+                else:
+                    segment = asg.DynamicPathSegment(name=type_expression.attr)
+
                 path.segments.append(segment)
                 return result
 
             case ast.TypeCallNode():
                 match type_expression.type:
                     case ast.TypeAttributeNode() | ast.TypeCallNode() | ast.NameNode():
-                        result = self.create_type_path_recursive(path, type_expression.type)
+                        result = self.create_type_path_recursive(parent_id, path, type_expression.type)
                     case _:
-                        result = self.lower_type_expression(type_expression.type)
+                        result = self.lower_type_expression(parent_id, type_expression.type)
                         assert not isinstance(result, asg.Path)
 
                         segment = asg.PathSegment(name="type-expr", result=result)
@@ -73,7 +77,7 @@ class AsgLowering:
 
                 segment = path.segments[-1]
                 for argument in type_expression.args:
-                    type = self.lower_type_expression(argument)
+                    type = self.lower_type_expression(parent_id, argument)
                     segment.arguments.append(type)
 
                 return result
@@ -98,6 +102,7 @@ class AsgLowering:
 
     def lower_type_expression(
         self,
+        parent_id: asg.DefinitionId,
         type_expression: ast.TypeExpressionNode,
     ) -> asg.AsgType:
         match type_expression:
@@ -114,11 +119,11 @@ class AsgLowering:
 
             case ast.TypeCallNode() | ast.TypeAttributeNode() | ast.NameNode():
                 path = asg.Path()
-                self.create_type_path_recursive(path, type_expression)
+                self.create_type_path_recursive(parent_id, path, type_expression)
                 return path
 
             case ast.ListTypeNode():
-                elt = self.lower_type_expression(type_expression.elt)
+                elt = self.lower_type_expression(parent_id, type_expression.elt)
                 return asg.ListType(elt=elt)
 
             case ast.SelfTypeNode():
@@ -127,37 +132,39 @@ class AsgLowering:
             case ast.StructTypeNode():
                 struct_def = asg.StructDef(name="inline-struct", is_definition=False)
                 for field in type_expression.fields:
-                    type = self.lower_type_expression(field.type)
+                    type = self.lower_type_expression(struct_def.def_id, field.type)
                     struct_field = asg.StructField(name=field.name, type=type)
 
-                    self.asg_ctx.definitions[struct_field.def_id] = struct_field
+                    self.asg_ctx.add_definition(struct_def.def_id, field.id, struct_field)
                     struct_def.fields[field.name] = struct_field
 
-                self.asg_ctx.definitions[struct_def.def_id] = struct_def
+                self.asg_ctx.add_definition(parent_id, type_expression.id, struct_def)
                 return struct_def
 
             case ast.TupleTypeNode():
                 tuple_def = asg.TupleDef(name="inline-tuple", is_definition=False)
                 for i, elt in enumerate(type_expression.elts):
-                    type = self.lower_type_expression(elt)
+                    type = self.lower_type_expression(tuple_def.def_id, elt)
                     tuple_elt = asg.TupleElt(index=i, type=type)
 
-                    self.asg_ctx.definitions[tuple_elt.def_id] = tuple_elt
+                    self.asg_ctx.add_definition(tuple_def.def_id, elt.id, tuple_elt)
                     tuple_def.elts.append(tuple_elt)
 
-                self.asg_ctx.definitions[tuple_def.def_id] = tuple_def
+                self.asg_ctx.add_definition(parent_id, type_expression.id, tuple_def)
                 return tuple_def
 
     def lower_block(
         self,
+        parent_id: asg.DefinitionId,
         block: list[ast.StatementNode],
         asg_body: asg.AsgBody,
     ) -> None:
         for statement in block:
-            self.lower_statement(statement, asg_body)
+            self.lower_statement(parent_id, statement, asg_body)
 
     def lower_statement(
         self,
+        parent_id: asg.DefinitionId,
         statement: ast.StatementNode,
         asg_body: asg.AsgBody,
     ) -> None:
@@ -170,23 +177,24 @@ class AsgLowering:
                     case ast.StructTypeNode():
                         assert isinstance(type_def, asg.StructDef)
                         for field in statement.type.fields:
-                            type = self.lower_type_expression(field.type)
+                            type = self.lower_type_expression(type_def.def_id, field.type)
                             struct_field = asg.StructField(name=field.name, type=type)
 
-                            self.asg_ctx.add_definition(type_def.def_id, struct_field)
+                            self.asg_ctx.add_definition(type_def.def_id, field.id, struct_field)
                             type_def.fields[field.name] = struct_field
 
                     case ast.TupleTypeNode():
                         assert isinstance(type_def, asg.TupleDef)
                         for i, elt in enumerate(statement.type.elts):
-                            type = self.lower_type_expression(elt)
+                            type = self.lower_type_expression(type_def.def_id, elt)
                             tuple_elt = asg.TupleElt(index=i, type=type)
 
-                            self.asg_ctx.add_definition(type_def.def_id, tuple_elt)
+                            self.asg_ctx.add_definition(type_def.def_id, elt.id, tuple_elt)
                             type_def.elts.append(tuple_elt)
 
                     case _:
-                        assert False, 'TODO!'
+                        assert isinstance(type_def, asg.AliasDef)
+                        type_def.type = self.lower_type_expression(type_def.def_id, statement.type)
 
                 self.resolver.exit_node(statement)
 
@@ -196,12 +204,19 @@ class AsgLowering:
 
                 self.resolver.enter_node(statement)
                 for field in statement.fields:
-                    type = asg.UNIT
                     if field.type is not None:
-                        type = self.lower_type_expression(field.type)
+                        type = self.lower_type_expression(sum_def.def_id, field.type)
 
-                    type = asg.AliasDef(name=field.name, type=type)
-                    self.asg_ctx.add_definition(sum_def.def_id, type)
+                        if not isinstance(type, (asg.StructDef, asg.TupleDef)):
+                            type = asg.AliasDef(name=field.name, type=type)
+                            self.asg_ctx.add_definition(sum_def.def_id, field.type.id, type)
+                        else:
+                            type.name = field.name
+                            type.is_definition = True
+                    else:
+                        type = asg.TupleDef(name=field.name, is_definition=True, elts=[])
+                        self.asg_ctx.add_definition(sum_def.def_id, field.id, type)
+
                     sum_def.types[field.name] = type
 
                 self.resolver.exit_node(statement)
@@ -213,13 +228,13 @@ class AsgLowering:
 
                 for parameter in statement.parameters:
                     asg_parameter = function_def.parameters[parameter.name]
-                    asg_parameter.type = self.lower_type_expression(parameter.annotation)
+                    asg_parameter.type = self.lower_type_expression(function_def.def_id, parameter.annotation)
 
-                function_def.returns = self.lower_type_expression(statement.returns)
+                function_def.returns = self.lower_type_expression(function_def.def_id, statement.returns)
 
                 if statement.body is not None:
                     function_def.body = asg.AsgBody()
-                    self.lower_block(statement.body, function_def.body)
+                    self.lower_block(parent_id, statement.body, function_def.body)
 
                 self.resolver.exit_node(statement)
 
@@ -230,7 +245,7 @@ class AsgLowering:
 
                 for substatement in statement.body:
                     if isinstance(substatement, ast.FunctionDefNode):
-                        self.lower_statement(substatement, asg_body)
+                        self.lower_statement(class_def.def_id, substatement, asg_body)
                         function_def = self.asg_ctx.definitions[substatement.id]
                         assert isinstance(function_def, asg.FunctionDef)
 
@@ -240,19 +255,19 @@ class AsgLowering:
 
                 self.resolver.exit_node(statement)
 
-            case ast.UseNode() | ast.UseForNode():
+            case ast.UseNode() | ast.UseAsNode():
                 use_def = self.asg_ctx.definitions[statement.id]
                 assert isinstance(use_def, asg.UseDef)
 
                 self.resolver.enter_node(statement)
-                use_def.type = self.lower_type_expression(statement.type)
+                use_def.type = self.lower_type_expression(use_def.def_id, statement.type)
 
-                if isinstance(statement, ast.UseForNode):
-                    use_def.type_class = self.lower_type_expression(statement.type_class)
+                if isinstance(statement, ast.UseAsNode):
+                    use_def.type_class = self.lower_type_expression(use_def.def_id, statement.type_class)
 
                 for substatement in statement.body:
                     if isinstance(substatement, ast.FunctionDefNode):
-                        self.lower_statement(substatement, asg_body)
+                        self.lower_statement(use_def.def_id, substatement, asg_body)
                         function_def = self.asg_ctx.definitions[substatement.id]
                         assert isinstance(function_def, asg.FunctionDef)
 
@@ -265,41 +280,41 @@ class AsgLowering:
             case ast.ForNode():
                 asg_code = asg.For(
                     node_id=statement.id,
-                    target=self.lower_expression(statement.target),
-                    iterator=self.lower_expression(statement.iterator),
+                    target=self.lower_expression(parent_id, statement.target),
+                    iterator=self.lower_expression(parent_id, statement.iterator),
                     body=asg.AsgBody(),
                 )
                 self.resolver.enter_node(statement)
-                self.lower_block(statement.body, asg_code.body)
+                self.lower_block(parent_id, statement.body, asg_code.body)
                 self.resolver.exit_node(statement)
                 asg_body.statements.append(asg_code)
 
             case ast.WhileNode():
                 asg_code = asg.While(
                     node_id=statement.id,
-                    condition=self.lower_expression(statement.condition),
+                    condition=self.lower_expression(parent_id, statement.condition),
                     body=asg.AsgBody(),
                 )
                 self.resolver.enter_node(statement)
-                self.lower_block(statement.body, asg_code.body)
+                self.lower_block(parent_id, statement.body, asg_code.body)
                 self.resolver.exit_node(statement)
                 asg_body.statements.append(asg_code)
 
             case ast.IfNode():
                 asg_code = asg.If(
                     node_id=statement.id,
-                    condition=self.lower_expression(statement.condition),
+                    condition=self.lower_expression(parent_id, statement.condition),
                     body=asg.AsgBody(),
                     else_body=asg.AsgBody(),
                 )
 
                 self.resolver.enter_node(statement)
-                self.lower_block(statement.body, asg_code.body)
+                self.lower_block(parent_id, statement.body, asg_code.body)
                 self.resolver.exit_node(statement)
 
                 if statement.else_statement is not None:
                     self.resolver.enter_node(statement.else_statement)
-                    self.lower_block(statement.else_statement.body, asg_code.else_body)
+                    self.lower_block(parent_id, statement.else_statement.body, asg_code.else_body)
                     self.resolver.exit_node(statement.else_statement)
 
                 asg_body.statements.append(asg_code)
@@ -308,7 +323,7 @@ class AsgLowering:
                 target_node = statement.target
                 type = None
                 if isinstance(target_node, ast.AnnotatedNode):
-                    type = self.lower_type_expression(target_node.type)
+                    type = self.lower_type_expression(parent_id, target_node.type)
                     target_node = target_node.value
 
                 if not isinstance(target_node, (ast.NameNode, ast.AttributeNode)):
@@ -316,7 +331,7 @@ class AsgLowering:
 
                 value = None
                 if statement.value is not None:
-                    value = self.lower_expression(statement.value)
+                    value = self.lower_expression(parent_id, statement.value)
 
                 match target_node:
                     case ast.NameNode():
@@ -338,27 +353,24 @@ class AsgLowering:
                             )
                         else:
                             assert isinstance(definition, asg.LocalDef)
-                            path = asg.Path()
-                            segment = asg.PathSegment(name=target_node.value, result=definition)
-                            path.segments.append(segment)
-                            co_path = asg.CoPath(node_id=target_node.id, path=path)
+                            resolved = asg.Resolved(name=target_node.value, result=definition)
 
                             if value is None:
                                 assert type is not None
-                                asg_code = asg.Annotated(node_id=statement.id, value=co_path, type=type)
+                                asg_code = asg.Annotated(node_id=statement.id, value=resolved, type=type)
                                 asg_code = asg.Expr(node_id=statement.id, expr=asg_code)
                             else:
                                 asg_code = asg.Assignment(
                                     node_id=statement.id,
-                                    target=co_path,
+                                    target=resolved,
                                     type=type,
                                     value=value,
                                 )
-                        
+
                         asg_body.statements.append(asg_code)
 
                     case ast.AttributeNode():
-                        target = self.lower_expression(target_node)
+                        target = self.lower_expression(parent_id, target_node)
                         if value is None:
                             assert type is not None  # Type and value cannot be None
 
@@ -379,14 +391,14 @@ class AsgLowering:
                         asg_body.statements.append(asg_code)
 
             case ast.AugAssignNode():
-                target = self.lower_expression(statement.target)
-                value = self.lower_expression(statement.value)
+                target = self.lower_expression(parent_id, statement.target)
+                value = self.lower_expression(parent_id, statement.value)
                 asg_code = asg.AugAssignment(node_id=statement.id, target=target, op=statement.op, value=value)
                 asg_body.statements.append(asg_code)
 
             case ast.ReturnNode():
                 value = (
-                    self.lower_expression(statement.value) if statement.value is not None else None
+                    self.lower_expression(parent_id, statement.value) if statement.value is not None else None
                 )
                 asg_code = asg.Return(
                     node_id=statement.id,
@@ -405,102 +417,33 @@ class AsgLowering:
             case ast.ExprNode():
                 asg_code = asg.Expr(
                     node_id=statement.id,
-                    expr=self.lower_expression(statement.expr),
+                    expr=self.lower_expression(parent_id, statement.expr),
                 )
                 asg_body.statements.append(asg_code)
 
-    def create_path_recursive(
-        self,
-        path: asg.Path,
-        expression: ast.AttributeNode | ast.CallNode | ast.NameNode,
-    ) -> asg.AsgPathResult | asg.Expression:
-        # This is pretty confusing, but this function transforms attribute/call/name exprs
-        # into a path as much as possible, then begins creating asg.Call/asg.Attribute
-        # nodes if the node is not part of the path. This means that in some cases,
-        # the function might return asg code that already contains the path, and in other
-        # cases the return value is a junk value used to recursively resolve the tree.
-        # In that case, the only relevant part is the provided path which will
-        # have been mutated to contain the proper segments.
-        # Also, when we encounter a call node, we must be able to tell whether we are still
-        # in a path. If so, the arguments themselves must be a path too because paths are
-        # the only way to refer to a type from the context of an expression. That is to say,
-        # there is no expression that can resolve to a type except a name, which is not the
-        # case for type expressions where obviously everything is a type. The ambiguity between
-        # paths and calls would be unresolvable if the call syntax were used for type
-        # instantiation, so there is currently no syntax for it.
+    def lower_expression(self, parent_id: asg.DefinitionId, expression: ast.ExpressionNode) -> asg.Expression:
         match expression:
-            case ast.AttributeNode():
-                match expression.value:
-                    case ast.AttributeNode() | ast.CallNode() | ast.NameNode():
-                        path_result = self.create_path_recursive(path, expression.value)
-                    case _:
-                        lowered_expression = self.lower_expression(expression.value)
-                        assert not path.segments
-                        return asg.Attribute(node_id=expression.id, attr=expression.attr, value=lowered_expression)
-
-                assert not isinstance(path_result, asg.Path)
-                if isinstance(path_result, asg.AsgCode):
-                    return asg.Attribute(node_id=expression.id, attr=expression.attr, value=path_result)
-
-                attribute = self.resolver.resolve_attribute(path_result, expression.attr)
-                if attribute is None:
-                    attribute = asg.AsgError(node=expression)
-
-                segment = asg.PathSegment(name=expression.attr, result=attribute)
-                path.segments.append(segment)
-                if isinstance(attribute, asg.FunctionDef):
-                    return asg.CoPath(node_id=expression.id, path=path)
-
-                return attribute
-
-            case ast.CallNode():
-                match expression.callable:
-                    case ast.AttributeNode() | ast.CallNode() | ast.NameNode():
-                        result = self.create_path_recursive(path, expression.callable)
-                    case _:
-                        result = self.lower_expression(expression.callable)
-
-                assert not isinstance(result, asg.Path)
-                if not isinstance(result, asg.AsgCode):
-                    segment = path.segments[-1]
-
-                    for argument in expression.args:
-                        argument = self.lower_expression(argument)
-                        if not isinstance(argument, asg.CoPath):
-                            assert False, 'Calling type requires path argument'
-
-                        segment.arguments.append(argument.path)
-
-                    return result
-
-                arguments: list[asg.Expression] = []
-                for argument in expression.args:
-                    arguments.append(self.lower_expression(argument))
-
-                return asg.Call(node_id=expression.id, callable=result, args=arguments)
-
             case ast.NameNode():
                 result = self.resolver.resolve_symbol(expression.value)
                 if result is None:
                     # Unresolved symbol
                     result = asg.AsgError(node=expression)
 
-                segment = asg.PathSegment(name=expression.value, result=result)
-                path.segments.append(segment)
-                if isinstance(result, (asg.FunctionDef, asg.LocalDef)):
-                    return asg.CoPath(node_id=expression.id, path=path)
+                return asg.Resolved(name=expression.value, result=result)
 
-                return result
+            case ast.AttributeNode():
+                return asg.Attribute(
+                    node_id=expression.id,
+                    value=self.lower_expression(parent_id, expression.value),
+                    attr=expression.attr,
+                )
 
-    def lower_expression(self, expression: ast.ExpressionNode) -> asg.Expression:
-        match expression:
-            case ast.NameNode() | ast.AttributeNode() | ast.CallNode():
-                path = asg.Path()
-                result = self.create_path_recursive(path, expression)
-                if isinstance(result, asg.AsgCode):
-                    return result
-
-                return asg.CoPath(node_id=expression.id, path=path)
+            case ast.CallNode():
+                return asg.Call(
+                    node_id=expression.id,
+                    callable=self.lower_expression(parent_id, expression.callable),
+                    args=[self.lower_expression(parent_id, arg) for arg in expression.args]
+                )
 
             case ast.LambdaNode():
                 function_def = self.asg_ctx.definitions[expression.id]
@@ -510,17 +453,17 @@ class AsgLowering:
                 for parameter in expression.parameters:
                     asg_parameter = function_def.parameters[parameter.name]
                     if parameter.type is not None:
-                        asg_parameter.type = self.lower_type_expression(parameter.type)
+                        asg_parameter.type = self.lower_type_expression(function_def.def_id, parameter.type)
                     else:
                         asg_parameter.type = asg.INFERRED
 
                 if expression.returns is not None:
-                    function_def.returns = self.lower_type_expression(expression.returns)
+                    function_def.returns = self.lower_type_expression(function_def.def_id, expression.returns)
                 else:
                     function_def.returns = asg.INFERRED
 
                 function_def.body = asg.AsgBody()
-                self.lower_block(expression.body, function_def.body)
+                self.lower_block(function_def.def_id, expression.body, function_def.body)
                 # TODO: Automatic reutrn insertion
 
                 self.resolver.exit_node(expression)
@@ -529,14 +472,14 @@ class AsgLowering:
             case ast.AnnotatedNode():
                 return asg.Annotated(
                     node_id=expression.id,
-                    value=self.lower_expression(expression.value),
-                    type=self.lower_type_expression(expression.type),
+                    value=self.lower_expression(parent_id, expression.value),
+                    type=self.lower_type_expression(parent_id, expression.type),
                 )
 
             case ast.BoolOpNode():
                 values: list[asg.Expression] = []
                 for value in expression.values:
-                    values.append(self.lower_expression(value))
+                    values.append(self.lower_expression(parent_id, value))
 
                 return asg.BoolOp(
                     node_id=expression.id,
@@ -545,15 +488,15 @@ class AsgLowering:
                 )
 
             case ast.BinaryOpNode():
-                left = self.lower_expression(expression.left)
-                right = self.lower_expression(expression.right)
+                left = self.lower_expression(parent_id, expression.left)
+                right = self.lower_expression(parent_id, expression.right)
                 return asg.BinaryOp(node_id=expression.id, left=left, op=expression.op, right=right)
 
             case ast.UnaryOpNode():
                 return asg.UnaryOp(
                     node_id=expression.id,
                     op=expression.op,
-                    operand=self.lower_expression(expression.operand),
+                    operand=self.lower_expression(parent_id, expression.operand),
                 )
 
             case ast.CompareNode():
@@ -562,60 +505,60 @@ class AsgLowering:
                     comparator = asg.Comparator(
                         node_id=comparator.id,
                         op=comparator.op,
-                        value=self.lower_expression(comparator.value),
+                        value=self.lower_expression(parent_id, comparator.value),
                     )
                     comparators.append(comparator)
 
                 return asg.Compare(
                     node_id=expression.id,
-                    left=self.lower_expression(expression.left),
+                    left=self.lower_expression(parent_id, expression.left),
                     comparators=comparators,
                 )
 
             case ast.SubscriptNode():
                 slices: list[asg.Expression] = []
                 for slice in expression.slices:
-                    slices.append(self.lower_expression(slice))
+                    slices.append(self.lower_expression(parent_id, slice))
 
                 return asg.Subscript(
                     node_id=expression.id,
-                    value=self.lower_expression(expression.value),
+                    value=self.lower_expression(parent_id, expression.value),
                     slices=slices,
                 )
 
             case ast.StructNode():
                 fields: dict[str, asg.Expression] = {}
                 for field in expression.fields:
-                    fields[field.name] = self.lower_expression(field.value)
+                    fields[field.name] = self.lower_expression(parent_id, field.value)
 
                 return asg.Struct(node_id=expression.id, fields=fields)
 
             case ast.ListNode():
                 elts: list[asg.Expression] = []
                 for elt in expression.elts:
-                    elts.append(self.lower_expression(elt))
+                    elts.append(self.lower_expression(parent_id, elt))
 
                 return asg.List(node_id=expression.id, elts=elts)
 
             case ast.TupleNode():
                 elts: list[asg.Expression] = []
                 for elt in expression.elts:
-                    elts.append(self.lower_expression(elt))
+                    elts.append(self.lower_expression(parent_id, elt))
 
                 return asg.Tuple(node_id=expression.id, elts=elts)
 
             case ast.SliceNode():
                 start = None
                 if expression.start_index is not None:
-                    start = self.lower_expression(expression.start_index)
+                    start = self.lower_expression(parent_id, expression.start_index)
 
                 stop = None
                 if expression.stop_index is not None:
-                    stop = self.lower_expression(expression.stop_index)
+                    stop = self.lower_expression(parent_id, expression.stop_index)
 
                 step = None
                 if expression.step_index is not None:
-                    step = self.lower_expression(expression.step_index)
+                    step = self.lower_expression(parent_id, expression.step_index)
 
                 return asg.Slice(node_id=expression.id, start=start, stop=stop, step=step)
 
@@ -636,12 +579,13 @@ class AsgLowering:
 
     def lower_module(self) -> asg.ModuleDef:
         module = asg.ModuleDef()
+        self.asg_ctx.add_definition(None, self.module.id, module)
         scope = self.resolver.create_scope(self.module.id, ScopeKind.MODULE)
         self.resolver.initialize_symbols_for_block(module, scope, self.module.body)
 
         module.body = asg.AsgBody()
         self.resolver.enter_node(self.module)
-        self.lower_block(self.module.body, module.body)
+        self.lower_block(module.def_id, self.module.body, module.body)
         self.resolver.exit_node(self.module)
 
         return module

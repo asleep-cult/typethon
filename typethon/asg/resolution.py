@@ -112,7 +112,7 @@ class SymbolResolver:
                 if statement.body is not None:
                     self.initialize_symbols_for_block(function_def, scope, statement.body)
 
-                self.asg_ctx.add_definition(outside_definition.def_id, function_def)
+                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, function_def)
                 if isinstance(outside_definition, (asg.ModuleDef, asg.ClassDef, asg.UseDef)):
                     outside_definition.functions[function_def.name] = function_def
 
@@ -130,7 +130,7 @@ class SymbolResolver:
 
                 self.initialize_symbols_for_block(class_def, scope, statement.body)
 
-                self.asg_ctx.add_definition(outside_definition.def_id, class_def)
+                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, class_def)
                 if isinstance(outside_definition, asg.ModuleDef):
                     outside_definition.classes[class_def.name] = class_def
 
@@ -141,7 +141,6 @@ class SymbolResolver:
                     case ast.TupleTypeNode():
                         definition = asg.TupleDef(name=statement.name, is_definition=True)
                     case _:
-                        assert False, "Not Implemented"
                         definition = asg.AliasDef(name=statement.name)
 
                 scope.type_definitions[statement.name] = definition
@@ -153,7 +152,7 @@ class SymbolResolver:
                     secondary_definition=outside_definition,
                 )
 
-                self.asg_ctx.add_definition(outside_definition.def_id, definition)
+                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, definition)
                 if isinstance(outside_definition, asg.ModuleDef):
                     outside_definition.types[definition.name] = definition
 
@@ -173,14 +172,14 @@ class SymbolResolver:
                             secondary_definition=outside_definition,
                         )
 
-                self.asg_ctx.add_definition(outside_definition.def_id, sum_def)
+                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, sum_def)
                 if isinstance(outside_definition, asg.ModuleDef):
                     outside_definition.types[sum_def.name] = sum_def
 
             case ast.UseNode():
                 scope = self.create_scope(statement.id, ScopeKind.USE)
                 use_def = asg.UseDef()
-                self.asg_ctx.add_definition(outside_definition.def_id, use_def)
+                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, use_def)
 
                 self.initialize_type_parameters(
                     scope,
@@ -190,10 +189,10 @@ class SymbolResolver:
                 )
                 self.initialize_symbols_for_block(use_def, scope, statement.body)
 
-            case ast.UseForNode():
+            case ast.UseAsNode():
                 scope = self.create_scope(statement.id, ScopeKind.USE)
                 use_def = asg.UseDef()
-                self.asg_ctx.add_definition(outside_definition.def_id, use_def)
+                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, use_def)
 
                 self.initialize_type_parameters(
                     scope,
@@ -250,7 +249,7 @@ class SymbolResolver:
         for subexpression in ast.walk_expressions(expression):
             if isinstance(subexpression, ast.LambdaNode):
                 function_def = asg.FunctionDef(name="lambda")
-                self.asg_ctx.add_definition(outside_definition.def_id, function_def)
+                self.asg_ctx.add_definition(outside_definition.def_id, expression.id, function_def)
 
                 scope = self.create_scope(subexpression.id, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
@@ -298,7 +297,7 @@ class SymbolResolver:
         # creates a new one, and inserts it into the Generic's parameters. As a result,
         # the compiler only ascribes a Generics.owner value in contexts where the outside
         # definition's type parameters can be utilized.
-        if isinstance(secondary_definition, (asg.UseDef, asg.ClassDef)):
+        if isinstance(secondary_definition, (asg.StructDef, asg.TupleDef, asg.SumDef, asg.UseDef, asg.ClassDef)):
             secondary_generics = self.asg_ctx.generics.get(secondary_definition.def_id)
         else:
             secondary_generics = None

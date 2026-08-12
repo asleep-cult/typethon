@@ -7,9 +7,6 @@ from itertools import count
 
 NODE_ID_COUND = count()
 
-# TODO: Seperate LHS expression,
-# Rename *Type enums to *Kind
-
 
 class BoolOperatorKind(enum.IntEnum):
     AND = enum.auto()
@@ -106,9 +103,9 @@ class UseNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class UseForNode(Node):
-    type_class: TypeExpressionNode = attr.ib()
+class UseAsNode(Node):
     type: TypeExpressionNode = attr.ib()
+    type_class: TypeExpressionNode = attr.ib()
     body: list[StatementNode] = attr.ib()
 
 
@@ -403,7 +400,7 @@ type StatementNode = (
     | TypeDefinitionNode
     | SumTypeNode
     | UseNode
-    | UseForNode
+    | UseAsNode
 )
 
 type ExpressionNode = (

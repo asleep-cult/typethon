@@ -27,7 +27,7 @@ class VariantField:
 
 @attr.s(kw_only=True, slots=True)
 class ParameterInfo:
-    def_id: int = attr.ib()
+    def_id: asg.DefinitionId = attr.ib()
     name: str = attr.ib()
     index: int = attr.ib()
 
@@ -46,6 +46,6 @@ class GenericsInfo:
 
 @attr.s(kw_only=True, slots=True)
 class FunctionInfo:
-    def_id: int = attr.ib()
+    def_id: asg.DefinitionId = attr.ib()
     parameters: dict[str, types.Type] = attr.ib()
     returns: types.Type = attr.ib()

@@ -8,6 +8,9 @@ from itertools import count
 from ..diagnostics import DiagnosticReporter
 from ..syntax.typethon import ast
 
+if typing.TYPE_CHECKING:
+    from .resolution import ResolvedSymbol
+
 ASG_ID_COUNT = count()
 
 
@@ -47,16 +50,24 @@ class AsgContext:
     # and use blocks can all have one.
     generics: dict[DefinitionId, Generics] = attr.ib(factory=dict)
     definition_parents: dict[DefinitionId, DefinitionId] = attr.ib(factory=dict)
+    definition_nodes: dict[DefinitionId, int] = attr.ib(factory=dict)
 
-    def add_definition(self, parent_id: DefinitionId, definition: AsgDefinition) -> None:
-        self.definitions[definition.def_id] = definition
-        self.definition_parents[definition.def_id] = parent_id
+    def add_definition(self, parent_id: DefinitionId | None, node_id: int, definition: AsgDefinition) -> None:
+        self.definitions[node_id] = definition
+        self.definition_nodes[definition.def_id] = node_id
+        if parent_id is not None:
+            self.definition_parents[definition.def_id] = parent_id
 
-    def parent(self, def_id: DefinitionId) -> DefinitionId:
-        return self.definition_parents[def_id]
+    def parent(self, def_id: DefinitionId) -> DefinitionId | None:
+        if def_id in self.definition_parents:
+            return self.definition_parents[def_id]
 
     def record_parent(self, def_id: DefinitionId, parent_id: DefinitionId) -> None:
         self.definition_parents[def_id] = parent_id
+
+    def definition(self, def_id: int) -> AsgDefinition:
+        node_id = self.definition_nodes[def_id]
+        return self.definitions[node_id]
 
 
 @attr.s(kw_only=True, slots=True)
@@ -128,7 +139,7 @@ class SumDef(Definition):
 @attr.s(kw_only=True, slots=True)
 class AliasDef(Definition):
     name: str = attr.ib()
-    type: AsgType = attr.ib()
+    type: AsgType | None = attr.ib(default=None)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -196,6 +207,12 @@ class PathSegment:
 
 
 @attr.s(kw_only=True, slots=True)
+class DynamicPathSegment:
+    name: str = attr.ib()
+    arguments: list[AsgType] = attr.ib(factory=list)
+
+
+@attr.s(kw_only=True, slots=True)
 class Path:
     # Xyz.Abc('t).foo might be represented as
     # Path(segments=[
@@ -210,10 +227,7 @@ class Path:
     #   and it is resolved to Attribute (or whetever I decide to call it)
     # When there are arguments after non-local definition `y`, the result of the arguments
     # are resolved and added to the segment's arguments.
-    segments: list[PathSegment] = attr.ib(factory=list)
-
-    def get_result(self) -> AsgPathResult:
-        return self.segments[-1].result
+    segments: list[PathSegment | DynamicPathSegment] = attr.ib(factory=list)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -241,6 +255,12 @@ class AsgCode:
 @attr.s(kw_only=True, slots=True)
 class AsgBody:
     statements: list[Statement] = attr.ib(factory=list)
+
+
+@attr.s(kw_only=True, slots=True)
+class Resolved:
+    name: str = attr.ib()
+    result: ResolvedSymbol | AsgError = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -300,11 +320,6 @@ class Continue(AsgCode): ...
 @attr.s(kw_only=True, slots=True)
 class Expr(AsgCode):
     expr: Expression = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class CoPath(AsgCode):
-    path: Path = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -415,7 +430,7 @@ class Slice(AsgCode):
 
 
 type Expression = (
-    CoPath
+    Resolved
     | Lambda
     | Annotated
     | BoolOp
