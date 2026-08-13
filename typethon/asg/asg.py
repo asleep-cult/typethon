@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import enum
 import typing
 from itertools import count
 
@@ -8,15 +7,8 @@ import attr
 
 from ..diagnostics import DiagnosticReporter
 from ..syntax.typethon import ast
-from .indexing import DefIndexing
-from .resolution import (
-    DefKind,
-    DefResult,
-    LocalResult,
-    ResolvedSymbol,
-    SymbolResolver
-)
-
+from .indexing import DefIndex, DefIndexing
+from .resolution import DefKind, DefResult, LocalResult, ResolvedSymbol, SymbolResolver
 
 # This is the abstract semantic graph.
 # It is inspired by the Rust compiler.
@@ -26,13 +18,6 @@ from .resolution import (
 # gets resolved as well.
 
 DefinitionId = typing.NewType("DefinitionId", int)
-
-
-class Singleton(enum.Enum):
-    INFERRED = enum.auto()
-
-
-INFERRED = Singleton.INFERRED
 
 
 @attr.s(kw_only=True, slots=True)
@@ -53,9 +38,11 @@ class AsgContext:
     diagnostics: DiagnosticReporter = attr.ib()
     def_id_counter: count[int] = attr.ib(factory=count)
     def_index: DefIndexing = attr.ib(init=False)
+    root_index: DefIndex = attr.ib(init=False)
     defs: dict[DefinitionId, AsgDefinition] = attr.ib(factory=dict)
     def_parents: dict[DefinitionId, DefinitionId] = attr.ib(factory=dict)
     def_nodes: dict[ast.NodeId, DefinitionId] = attr.ib(factory=dict)
+    node_defs: dict[DefinitionId, ast.Node] = attr.ib(factory=dict, repr=False)
     sym_resolver: SymbolResolver = attr.ib(init=False)
     syms_resolved: dict[ast.NodeId, ResolvedSymbol] = attr.ib(factory=dict)
 
@@ -64,22 +51,28 @@ class AsgContext:
         self.sym_resolver = SymbolResolver(asg_ctx=self)
 
     def initialize(self, module: ast.ModuleNode) -> None:
-        def_id = self.def_id(module.id)
+        def_id = self.def_id(module)
+
+        self.root_index = DefIndex(parent=None, def_id=def_id, node_id=module.id)
         self.def_index.def_kinds[def_id] = DefKind.MODULE
-        self.def_index.index_block(def_id, module.body)
+        self.def_index.index_block(self.root_index, module.body)
 
         self.sym_resolver.resolve_symbols_for_module(module)
 
-    def def_id(self, node_id: ast.NodeId) -> DefinitionId:
-        if node_id in self.def_nodes:
-            return self.def_nodes[node_id]
+    def def_id(self, node: ast.Node) -> DefinitionId:
+        if node.id in self.def_nodes:
+            return self.def_nodes[node.id]
 
         def_id = DefinitionId(next(self.def_id_counter))
-        self.def_nodes[node_id] = def_id
+        self.def_nodes[node.id] = def_id
+        self.node_defs[def_id] = node
         return def_id
 
-    def def_id_for_node(self, node_id: ast.NodeId) -> DefinitionId:
+    def def_id_for_node_id(self, node_id: ast.NodeId) -> DefinitionId:
         return self.def_nodes[node_id]
+
+    def node_for_def_id(self, def_id: DefinitionId) -> ast.Node:
+        return self.node_defs[def_id]
 
     def definition_for_node(self, node_id: ast.NodeId) -> AsgDefinition:
         def_id = self.def_nodes[node_id]
@@ -139,9 +132,15 @@ class TupleDef(Definition):
 
 
 @attr.s(kw_only=True, slots=True)
+class SumVariant(Definition):
+    name: str = attr.ib()
+    type: StructDef | TupleDef | AliasDef | None = attr.ib(factory=dict)
+
+
+@attr.s(kw_only=True, slots=True)
 class SumDef(Definition):
     name: str = attr.ib()
-    types: dict[str, StructDef | TupleDef | AliasDef] = attr.ib(factory=dict)
+    variants: dict[str, SumVariant] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -153,14 +152,14 @@ class AliasDef(Definition):
 @attr.s(kw_only=True, slots=True)
 class FunctionParameter:
     name: str = attr.ib()
-    type: AsgType | Singleton | None = attr.ib()
+    type: AsgType | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FunctionDef(Definition):
     name: str = attr.ib()
     parameters: dict[str, FunctionParameter] = attr.ib(factory=dict)
-    returns: AsgType | Singleton = attr.ib()
+    returns: AsgType | None = attr.ib()
     body: AsgBody | None = attr.ib(default=None)
 
 
@@ -189,6 +188,8 @@ type AsgDefinition = (
     | TupleElt
     | TupleDef
     | SumDef
+    | SumVariant
+    | TypeParameterDef
     | AliasDef
     | FunctionDef
     | ClassDef
@@ -247,7 +248,7 @@ class AsgError:
     node: ast.Node = attr.ib()
 
 
-type AsgType = Path | ListType | StructDef | TupleDef | AsgError
+type AsgType = Path | ListType | StructDef | TupleDef | TypeParameterDef
 
 
 @attr.s(kw_only=True, slots=True)

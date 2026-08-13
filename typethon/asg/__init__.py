@@ -1,5 +1,4 @@
 from .asg import (
-    INFERRED,
     AliasDef,
     Annotated,
     AsgBody,

@@ -840,16 +840,16 @@ class ASTParser:
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        types: SequenceNode[ast.TypeExpressionNode | ast.SumTypeFieldNode],
+        types: SequenceNode[ast.TypeExpressionNode | ast.SumTypeVariantNode],
     ) -> ast.TypeDefinitionNode | ast.SumTypeNode:
         if len(types.items) > 1:
-            variants: list[ast.SumTypeFieldNode] = []
+            variants: list[ast.SumTypeVariantNode] = []
             for type in types.items:
                 match type:
-                    case ast.SumTypeFieldNode():
+                    case ast.SumTypeVariantNode():
                         variants.append(type)
                     case ast.NameNode():
-                        variant = ast.SumTypeFieldNode(
+                        variant = ast.SumTypeVariantNode(
                             id=type.id,
                             start=type.start,
                             end=type.end,
@@ -869,7 +869,7 @@ class ASTParser:
             )
         else:
             type = types.items[0]
-            assert not isinstance(type, ast.SumTypeFieldNode)
+            assert not isinstance(type, ast.SumTypeVariantNode)
             return ast.TypeDefinitionNode(
                 id=self.node_id(),
                 start=span[0],
@@ -909,11 +909,22 @@ class ASTParser:
         span: tuple[int, int],
         elts: OptionNode[SequenceNode[ast.TypeExpressionNode]],
     ) -> ast.TupleTypeNode:
+        elt_nodes: list[ast.TupleTypeEltNode] = []
+        for i, elt in enumerate(elts.sequence().items):
+            elt_node = ast.TupleTypeEltNode(
+                id=self.node_id(),
+                start=elt.start,
+                end=elt.end,
+                index=i,
+                type=elt
+            )
+            elt_nodes.append(elt_node)
+
         return ast.TupleTypeNode(
             id=self.node_id(),
             start=span[0],
             end=span[1],
-            elts=elts.sequence().items,
+            elts=elt_nodes,
         )
 
     def create_sum_field(
@@ -921,8 +932,8 @@ class ASTParser:
         span: tuple[int, int],
         name: IdentifierToken,
         type: ast.TypeExpressionNode,
-    ) -> ast.SumTypeFieldNode:
-        return ast.SumTypeFieldNode(
+    ) -> ast.SumTypeVariantNode:
+        return ast.SumTypeVariantNode(
             id=self.node_id(),
             start=span[0],
             end=span[1],

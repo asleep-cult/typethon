@@ -366,11 +366,11 @@ class TypeDefinitionNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SumTypeNode(Node):
     name: str = attr.ib()
-    variants: list[SumTypeFieldNode] = attr.ib()
+    variants: list[SumTypeVariantNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class SumTypeFieldNode(Node):
+class SumTypeVariantNode(Node):
     name: str = attr.ib()
     type: TypeExpressionNode | None = attr.ib()
 
@@ -387,8 +387,14 @@ class StructTypeNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
+class TupleTypeEltNode(Node):
+    index: int = attr.ib()
+    type: TypeExpressionNode = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
 class TupleTypeNode(Node):
-    elts: list[TypeExpressionNode] = attr.ib()
+    elts: list[TupleTypeEltNode] = attr.ib()
 
 
 type StatementNode = (
@@ -506,4 +512,4 @@ def walk_type_expressions(
                 yield from walk_type_expressions(field.type)
         case TupleTypeNode():
             for elt in type_expression.elts:
-                yield from walk_type_expressions(elt)
+                yield from walk_type_expressions(elt.type)

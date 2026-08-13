@@ -8,7 +8,7 @@ import attr
 from ..syntax.typethon import ast
 
 if typing.TYPE_CHECKING:
-    from . import asg
+    from . import asg, indexing
 
 
 @attr.s(kw_only=True, slots=True)
@@ -29,6 +29,8 @@ class ScopeKind(enum.Enum):
 
 @attr.s(kw_only=True, slots=True)
 class SymbolScope:
+    # TODO: DefIndex needs to hold different maps for types & values.
+    # Shadowing must be forbidden. Symbol scope should be simplified to types and values
     node_id: ast.NodeId = attr.ib()
     kind: ScopeKind = attr.ib()
     type_definitions: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
@@ -83,146 +85,172 @@ class SymbolResolver:
 
     def create_scope(
         self,
-        node_id: ast.NodeId,
+        index: indexing.DefIndex,
         kind: ScopeKind,
     ) -> SymbolScope:
-        scope = SymbolScope(node_id=node_id, kind=kind)
-        self.scopes[node_id] = scope
+        scope = SymbolScope(node_id=index.node_id, kind=kind)
+        self.scopes[index.node_id] = scope
 
-        def_id = self.asg_ctx.def_nodes.get(node_id)
+        def_id = self.asg_ctx.def_nodes.get(index.node_id)
         param_index = self.asg_ctx.def_index.def_params.get(def_id)
         if param_index is not None:
             scope.type_parameters.update(param_index.paremeters)
+
+        for name, entry in index.entries.items():
+            match entry.result.kind:
+                case DefKind.STRUCT | DefKind.TUPLE | DefKind.SUM | DefKind.NEW_TYPE:
+                    scope.type_definitions[name] = entry.result.def_id
+                case DefKind.FUNCTION:
+                    scope.function_defs[name] = entry.result.def_id
+                case DefKind.CLASS:
+                    scope.class_defs[name] = entry.result.def_id
 
         return scope
 
     def initialize_symbols_for_block(
         self,
-        parent_id: asg.DefinitionId,
+        index: indexing.DefIndex,
         scope: SymbolScope,
         body: list[ast.StatementNode],
     ) -> None:
         for statement in body:
-            self.initialize_symbols_for_statement(parent_id, scope, statement)
+            self.initialize_symbols_for_statement(index, scope, statement)
 
     def add_local_definition(
         self,
         name: str,
-        parent_id: asg.DefinitionId,
         node_id: ast.NodeId,
+        *,
+        scope: SymbolScope | None = None,
     ) -> None:
-        scope = self.scope_stack[-1]
+        if scope is None:
+            assert self.scope_stack
+            scope = self.scope_stack[-1]
+
         definition = LocalDef(
             name=name,
             node_id=node_id,
         )
         scope.local_definitions[name] = definition
 
+    def initialize_symbols_for_function(
+        self,
+        own_index: indexing.DefIndex,
+        scope: SymbolScope,
+        statement: ast.FunctionDefNode,
+    ) -> None:
+        scope = self.create_scope(own_index, ScopeKind.FUNCTION)
+        for parameter in statement.parameters:
+            self.add_local_definition(parameter.name, parameter.id, scope=scope)
+
+        if statement.body is not None:
+            self.initialize_symbols_for_block(own_index, scope, statement.body)
+
     def initialize_symbols_for_statement(
         self,
-        parent_id: asg.DefinitionId,
+        index: indexing.DefIndex,
         scope: SymbolScope,
         statement: ast.StatementNode,
     ) -> None:
         match statement:
             case ast.FunctionDefNode():
-                def_id = self.asg_ctx.def_id_for_node(statement.id)
-                scope.function_defs[statement.name] = def_id
-                scope = self.create_scope(statement.id, ScopeKind.FUNCTION)
-
-                for parameter in statement.parameters:
-                    self.add_local_definition(parameter.name, def_id, parameter.id)
-
+                def_id = self.asg_ctx.def_id_for_node_id(statement.id)
+                subindex = self.asg_ctx.def_index.def_indexes[def_id]
                 if statement.body is not None:
-                    self.initialize_symbols_for_block(def_id, scope, statement.body)
+                    scope = self.create_scope(subindex, ScopeKind.FUNCTION)
+                    self.initialize_symbols_for_function(subindex, scope, statement)
 
             case ast.ClassDefNode():
-                def_id = self.asg_ctx.def_id_for_node(statement.id)
-                scope.class_defs[statement.name] = def_id
+                def_id = self.asg_ctx.def_id_for_node_id(statement.id)
+                subindex = self.asg_ctx.def_index.def_indexes[def_id]
 
-                scope = self.create_scope(statement.id, ScopeKind.CLASS)
-                self.initialize_symbols_for_block(def_id, scope, statement.body)
+                scope = self.create_scope(subindex, ScopeKind.CLASS)
+                self.initialize_symbols_for_block(subindex, scope, statement.body)
 
-            case ast.TypeDefinitionNode():
-                def_id = self.asg_ctx.def_id_for_node(statement.id)
-                scope.type_definitions[statement.name] = def_id
+            case ast.UseNode() | ast.UseAsNode():
+                for statement in statement.body:
+                    assert isinstance(statement, ast.FunctionDefNode)
 
-            case ast.SumTypeNode():
-                def_id = self.asg_ctx.def_id_for_node(statement.id)
-                scope.type_definitions[statement.name] = def_id
-
-            case ast.UseNode():
-                def_id = self.asg_ctx.def_id_for_node(statement.id)
-                scope = self.create_scope(statement.id, ScopeKind.USE)
-                self.initialize_symbols_for_block(def_id, scope, statement.body)
-
-            case ast.UseAsNode():
-                def_id = self.asg_ctx.def_id_for_node(statement.id)
-                scope = self.create_scope(statement.id, ScopeKind.USE)
-                self.initialize_symbols_for_block(def_id, scope, statement.body)
+                    # TODO: FIND THE FUNCTION'S OWN INDEX ELSEWHERE...
+                    # DOES THE USE STATEMENT NEED ITS OWN SCOPE??????
+                    own_index = ...
+                    scope = self.create_scope(own_index, ScopeKind.FUNCTION)
+                    self.initialize_symbols_for_function(own_index, scope, statement)
 
             case ast.ForNode():
-                self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_lambdas(parent_id, statement.target)
-                self.initialize_lambdas(parent_id, statement.iterator)
-                self.initialize_symbols_for_block(parent_id, scope, statement.body)
+                subindex = self.asg_ctx.def_index.block_indexes[statement.id]
+                self.create_scope(subindex, ScopeKind.BLOCK)
+                self.initialize_lambdas(index, statement.target)
+                self.initialize_lambdas(index, statement.iterator)
+                self.initialize_symbols_for_block(subindex, scope, statement.body)
 
             case ast.WhileNode():
-                self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_lambdas(parent_id, statement.condition)
-                self.initialize_symbols_for_block(parent_id, scope, statement.body)
+                subindex = self.asg_ctx.def_index.block_indexes[statement.id]
+                self.create_scope(subindex, ScopeKind.BLOCK)
+                self.initialize_lambdas(index, statement.condition)
+                self.initialize_symbols_for_block(subindex, scope, statement.body)
 
             case ast.IfNode():
-                self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_lambdas(parent_id, statement.condition)
-                self.initialize_symbols_for_block(parent_id, scope, statement.body)
+                subindex = self.asg_ctx.def_index.block_indexes[statement.id]
+                self.create_scope(subindex, ScopeKind.BLOCK)
+                self.initialize_lambdas(subindex, statement.condition)
+                self.initialize_symbols_for_block(subindex, scope, statement.body)
 
                 if statement.else_statement is not None:
-                    self.create_scope(statement.else_statement.id, ScopeKind.BLOCK)
+                    subindex = self.asg_ctx.def_index.block_indexes[
+                        statement.else_statement.id
+                    ]
+                    self.create_scope(subindex, ScopeKind.BLOCK)
                     self.initialize_symbols_for_block(
-                        parent_id, scope, statement.else_statement.body
+                        subindex, scope, statement.else_statement.body
                     )
 
             case ast.AssignNode() | ast.AugAssignNode():
-                self.initialize_lambdas(parent_id, statement.target)
+                self.initialize_lambdas(index, statement.target)
                 if statement.value is not None:
-                    self.initialize_lambdas(parent_id, statement.value)
+                    self.initialize_lambdas(index, statement.value)
 
             case ast.ReturnNode() if statement.value is not None:
-                self.initialize_lambdas(parent_id, statement.value)
+                self.initialize_lambdas(index, statement.value)
 
             case ast.ExprNode():
-                self.initialize_lambdas(parent_id, statement.expr)
+                self.initialize_lambdas(index, statement.expr)
 
     def initialize_lambdas(
         self,
-        parent_id: asg.DefinitionId,
+        index: indexing.DefIndex,
         expression: ast.ExpressionNode,
     ) -> None:
+        parent_id = index.get_def_id()
         for subexpression in ast.walk_expressions(expression):
             if isinstance(subexpression, ast.LambdaNode):
                 def_id = self.asg_ctx.def_index.def_id(
-                    DefKind.FUNCTION, subexpression.id
+                    DefKind.FUNCTION, subexpression
                 )
                 self.asg_ctx.record_parent(def_id, parent_id)
-                self.asg_ctx.def_index.index_block(def_id, subexpression.body)
+
+                subindex = indexing.DefIndex(
+                    parent=index, def_id=def_id, node_id=subexpression.id
+                )
+                self.asg_ctx.def_index.block_indexes[subexpression.id] = subindex
+                self.asg_ctx.def_index.index_block(subindex, subexpression.body)
 
                 for parameter in subexpression.parameters:
                     if parameter.type is not None:
-                        self.asg_ctx.def_index.index_type_parameters(
+                        self.asg_ctx.def_index.index_type_expression(
                             parent_id, def_id, parameter.type
                         )
 
                 if subexpression.returns is not None:
-                    self.asg_ctx.def_index.index_type_parameters(
+                    self.asg_ctx.def_index.index_type_expression(
                         parent_id, def_id, subexpression.returns
                     )
 
-                scope = self.create_scope(subexpression.id, ScopeKind.LAMBDA)
+                scope = self.create_scope(subindex, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
-                    self.add_local_definition(parameter.name, def_id, parameter.id)
+                    self.add_local_definition(parameter.name, parameter.id, scope=scope)
 
-                self.initialize_symbols_for_block(def_id, scope, subexpression.body)
+                self.initialize_symbols_for_block(subindex, scope, subexpression.body)
 
     def enter_node(self, node: ast.Node) -> SymbolScope:
         if node.id not in self.scopes:
@@ -301,6 +329,15 @@ class SymbolResolver:
         value: ResolvedSymbol,
         name: str,
     ) -> ResolvedSymbol:
+        if isinstance(value, DefResult):
+            index = self.asg_ctx.def_index.def_indexes.get(value.def_id)
+            if index is None:
+                return ResultKind.ERROR
+
+            entry = index.entries.get(name)
+            if entry is not None:
+                return entry.result
+
         return ResultKind.ERROR
 
     def resolve_symbols_for_type_expression(
@@ -333,7 +370,7 @@ class SymbolResolver:
 
             case ast.TupleTypeNode():
                 for elt in type_expression.elts:
-                    self.resolve_symbols_for_type_expression(elt)
+                    self.resolve_symbols_for_type_expression(elt.type)
 
     def resolve_symbols_for_block(self, statements: list[ast.StatementNode]) -> None:
         for statement in statements:
@@ -492,9 +529,8 @@ class SymbolResolver:
                 self.asg_ctx.syms_resolved[expression.id] = result
 
     def resolve_symbols_for_module(self, module: ast.ModuleNode) -> None:
-        def_id = self.asg_ctx.def_id_for_node(module.id)
-        scope = self.create_scope(module.id, ScopeKind.MODULE)
-        self.initialize_symbols_for_block(def_id, scope, module.body)
+        scope = self.create_scope(self.asg_ctx.root_index, ScopeKind.MODULE)
+        self.initialize_symbols_for_block(self.asg_ctx.root_index, scope, module.body)
 
         self.enter_node(module)
         self.resolve_symbols_for_block(module.body)
