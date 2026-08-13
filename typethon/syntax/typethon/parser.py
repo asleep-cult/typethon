@@ -1,38 +1,40 @@
-import typing
-import time
+import inspect
 import io
 import logging
-import inspect
 import pickle
-from types import FunctionType
+import time
+import typing
+from itertools import count
 from pathlib import Path
+from types import FunctionType
 
-from .tokens import (
-    TokenKind,
-    KeywordKind,
-    Token,
-    TOKENS,
-    KEYWORDS,
-    create_scanner,
+from ...grammar import (
+    FrozenParserTable,
+    OptionNode,
+    ParserAutomaton,
+    ParserTableGenerator,
+    SequenceNode,
+    Transformer,
 )
-from . import ast
+from ...grammar import (
+    NodeItem as NodeItemT,
+)
 from ..tokens import (
     IdentifierToken,
     NumberToken,
     NumberTokenFlags,
+    StdTokenKind,
     StringToken,
     StringTokenFlags,
-    StdTokenKind,
 )
-
-from ...grammar import (
-    FrozenParserTable,
-    Transformer,
-    ParserAutomaton,
-    ParserTableGenerator,
-    NodeItem as NodeItemT,
-    OptionNode,
-    SequenceNode,
+from . import ast
+from .tokens import (
+    KEYWORDS,
+    TOKENS,
+    KeywordKind,
+    Token,
+    TokenKind,
+    create_scanner,
 )
 
 type NodeItem = NodeItemT[TokenKind, KeywordKind]
@@ -82,6 +84,7 @@ class ASTParser:
         transformer_wrapper: typing.Callable[[TransformCallbackT], TransformCallbackT]
         | None = None,
     ) -> None:
+        self.node_id_counter = count()
         self.scanner = create_scanner(source)
 
         transformers: list[Transformer[TokenKind, KeywordKind]] = []
@@ -102,7 +105,9 @@ class ASTParser:
             if transformer_wrapper is not None:
                 function = transformer_wrapper(function).__get__(self)
 
-            transformers.append(Transformer[TokenKind, KeywordKind].from_function(function))
+            transformers.append(
+                Transformer[TokenKind, KeywordKind].from_function(function)
+            )
 
         if self.tables is None:
             raise ValueError("Call ASTParser.load_parser_tables()")
@@ -143,6 +148,9 @@ class ASTParser:
         difference = end - start
         logger.info(f"Generated tables after {difference:.2f} seconds")
 
+    def node_id(self) -> ast.NodeId:
+        return ast.NodeId(next(self.node_id_counter))
+
     def create_module(
         self,
         span: tuple[int, int],
@@ -150,31 +158,41 @@ class ASTParser:
     ) -> typing.Any:
         body = self.parser.transform_flatten(span, body)
         return ast.ModuleNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             body=body.items,
         )
 
     def create_break_statement(self, span: tuple[int, int]) -> ast.BreakNode:
-        return ast.BreakNode(start=span[0], end=span[1])
+        return ast.BreakNode(id=self.node_id(), start=span[0], end=span[1])
 
     def create_continue_statement(self, span: tuple[int, int]) -> ast.ContinueNode:
-        return ast.ContinueNode(start=span[0], end=span[1])
+        return ast.ContinueNode(id=self.node_id(), start=span[0], end=span[1])
 
     def create_return_statement(
         self,
         span: tuple[int, int],
         value: OptionNode[ast.ExpressionNode],
     ) -> ast.ReturnNode:
-        return ast.ReturnNode(start=span[0], end=span[1], value=value.item)
+        return ast.ReturnNode(
+            id=self.node_id(), start=span[0], end=span[1], value=value.item
+        )
 
     def create_expr_statement(
         self, span: tuple[int, int], expression: ast.ExpressionNode
     ) -> ast.ExprNode | ast.AssignNode:
         if isinstance(expression, ast.AnnotatedNode):
-            return ast.AssignNode(start=span[0], end=span[1], target=expression, value=None)
+            return ast.AssignNode(
+                id=self.node_id(),
+                start=span[0],
+                end=span[1],
+                target=expression,
+                value=None,
+            )
 
         return ast.ExprNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             expr=expression,
@@ -188,6 +206,7 @@ class ASTParser:
         default: OptionNode[ast.ExpressionNode],
     ) -> NodeItem:
         return ast.FunctionParameterNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             name=name.content,
@@ -204,6 +223,7 @@ class ASTParser:
         returns: ast.TypeExpressionNode,
     ) -> ast.FunctionDefNode:
         return ast.FunctionDefNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             name=name.content,
@@ -231,6 +251,7 @@ class ASTParser:
         body: SequenceNode[ast.StatementNode],
     ) -> ast.ClassDefNode:
         return ast.ClassDefNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             name=name.content,
@@ -246,6 +267,7 @@ class ASTParser:
         body: SequenceNode[ast.StatementNode],
     ) -> ast.UseNode:
         return ast.UseNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             type=type,
@@ -260,6 +282,7 @@ class ASTParser:
         body: SequenceNode[ast.StatementNode],
     ) -> ast.UseAsNode:
         return ast.UseAsNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             type_class=type_class,
@@ -275,6 +298,7 @@ class ASTParser:
         else_statement: OptionNode[ast.ElseNode],
     ) -> ast.IfNode:
         return ast.IfNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             condition=condition,
@@ -290,13 +314,14 @@ class ASTParser:
         else_statement: OptionNode[ast.ElseNode],
     ) -> ast.ElseNode:
         node = ast.IfNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             condition=condition,
             body=body.items,
             else_statement=else_statement.item,
         )
-        return ast.ElseNode(start=span[0], end=span[1], body=[node])
+        return ast.ElseNode(id=self.node_id(), start=span[0], end=span[1], body=[node])
 
     def create_else_statement(
         self,
@@ -304,6 +329,7 @@ class ASTParser:
         body: SequenceNode[ast.StatementNode],
     ) -> ast.ElseNode:
         return ast.ElseNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             body=body.items,
@@ -316,6 +342,7 @@ class ASTParser:
         body: SequenceNode[ast.StatementNode],
     ) -> ast.WhileNode:
         return ast.WhileNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             condition=condition,
@@ -329,6 +356,7 @@ class ASTParser:
         type: ast.TypeExpressionNode,
     ) -> ast.AnnotatedNode:
         return ast.AnnotatedNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             value=value,
@@ -343,6 +371,7 @@ class ASTParser:
     ) -> ast.BoolOpNode:
         sequence = self.parser.transform_prepend(span, expression, operands)
         return ast.BoolOpNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             op=ast.BoolOperatorKind.OR,
@@ -356,6 +385,7 @@ class ASTParser:
         value: ast.ExpressionNode,
     ) -> ast.AssignNode:
         return ast.AssignNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             target=target,
@@ -370,6 +400,7 @@ class ASTParser:
     ) -> ast.BoolOpNode:
         sequence = self.parser.transform_prepend(span, expression, operands)
         return ast.BoolOpNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             op=ast.BoolOperatorKind.AND,
@@ -382,6 +413,7 @@ class ASTParser:
         operand: ast.ExpressionNode,
     ) -> ast.UnaryOpNode:
         return ast.UnaryOpNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             op=ast.UnaryOperatorKind.NOT,
@@ -395,6 +427,7 @@ class ASTParser:
         comparators: SequenceNode[ast.ComparatorNode],
     ) -> ast.CompareNode:
         return ast.CompareNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             left=left,
@@ -428,6 +461,7 @@ class ASTParser:
                 assert False, "Unreachable"
 
         return ast.ComparatorNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             op=op,
@@ -455,6 +489,7 @@ class ASTParser:
             assert False, "Unreachable"
 
         return ast.ComparatorNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             op=op,
@@ -499,6 +534,7 @@ class ASTParser:
                 assert False, "Unreachable"
 
         return ast.BinaryOpNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             left=left,
@@ -523,6 +559,7 @@ class ASTParser:
                 assert False, "Unreachable"
 
         return ast.UnaryOpNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             op=op,
@@ -536,6 +573,7 @@ class ASTParser:
         args: OptionNode[SequenceNode[ast.ExpressionNode]],
     ) -> ast.CallNode:
         return ast.CallNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             callable=callee,
@@ -550,6 +588,7 @@ class ASTParser:
         step: OptionNode[ast.ExpressionNode],
     ) -> ast.SliceNode:
         return ast.SliceNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             start_index=start,
@@ -564,6 +603,7 @@ class ASTParser:
         attribute: IdentifierToken,
     ) -> ast.AttributeNode:
         return ast.AttributeNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             value=value,
@@ -577,6 +617,7 @@ class ASTParser:
         slices: SequenceNode[ast.ExpressionNode],
     ) -> ast.SubscriptNode:
         return ast.SubscriptNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             value=value,
@@ -590,9 +631,15 @@ class ASTParser:
     ) -> ast.ConstantNode:
         match token.kind:
             case KeywordKind.TRUE:
-                return ast.ConstantNode(start=span[0], end=span[1], kind=ast.ConstantKind.TRUE)
+                return ast.ConstantNode(
+                    id=self.node_id(),
+                    start=span[0],
+                    end=span[1],
+                    kind=ast.ConstantKind.TRUE,
+                )
             case KeywordKind.FALSE:
                 return ast.ConstantNode(
+                    id=self.node_id(),
                     start=span[0],
                     end=span[1],
                     kind=ast.ConstantKind.FALSE,
@@ -614,6 +661,7 @@ class ASTParser:
 
         if radix != -1:
             return ast.IntegerNode(
+                id=self.node_id(),
                 start=span[0],
                 end=span[1],
                 value=int(token.content, radix),
@@ -621,6 +669,7 @@ class ASTParser:
 
         if token.flags & NumberTokenFlags.IMAGINARY:
             return ast.ComplexNode(
+                id=self.node_id(),
                 start=span[0],
                 end=span[1],
                 value=complex(token.content),
@@ -628,12 +677,14 @@ class ASTParser:
 
         if token.flags & NumberTokenFlags.FLOAT:
             return ast.FloatNode(
+                id=self.node_id(),
                 start=span[0],
                 end=span[1],
                 value=float(token.content),
             )
 
         return ast.IntegerNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             value=int(token.content),
@@ -663,6 +714,7 @@ class ASTParser:
                 flags |= ast.StringFlags.FORMAT
 
         return ast.StringNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             value=writer.getvalue(),
@@ -675,6 +727,7 @@ class ASTParser:
         identifier: IdentifierToken,
     ) -> ast.NameNode:
         return ast.NameNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             value=identifier.content,
@@ -686,6 +739,7 @@ class ASTParser:
         fields: OptionNode[SequenceNode[ast.StructFieldNode]],
     ) -> ast.StructNode:
         return ast.StructNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             fields=fields.sequence().items,
@@ -698,6 +752,7 @@ class ASTParser:
         value: ast.ExpressionNode,
     ) -> ast.StructFieldNode:
         return ast.StructFieldNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             name=name.content,
@@ -710,6 +765,7 @@ class ASTParser:
         elts: OptionNode[SequenceNode[ast.ExpressionNode]],
     ) -> ast.TupleNode:
         return ast.TupleNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             elts=elts.sequence().items,
@@ -722,6 +778,7 @@ class ASTParser:
         type: OptionNode[ast.TypeExpressionNode],
     ) -> ast.LambdaParameterNode:
         return ast.LambdaParameterNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             name=name.content,
@@ -736,6 +793,7 @@ class ASTParser:
     ) -> ast.LambdaNode:
         self.scanner.start_nested_indentation()
         return ast.LambdaNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             parameters=parameters.sequence().items,
@@ -743,7 +801,9 @@ class ASTParser:
             body=[],
         )
 
-    def stop_nested_indentation(self, span: tuple[int, int], expression: ast.LambdaNode) -> ast.LambdaNode:
+    def stop_nested_indentation(
+        self, span: tuple[int, int], expression: ast.LambdaNode
+    ) -> ast.LambdaNode:
         self.scanner.stop_nested_indentation()
         return expression
 
@@ -771,6 +831,7 @@ class ASTParser:
         span: tuple[int, int],
     ) -> ast.SelfTypeNode:
         return ast.SelfTypeNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
         )
@@ -782,33 +843,35 @@ class ASTParser:
         types: SequenceNode[ast.TypeExpressionNode | ast.SumTypeFieldNode],
     ) -> ast.TypeDefinitionNode | ast.SumTypeNode:
         if len(types.items) > 1:
-            fields: list[ast.SumTypeFieldNode] = []
+            variants: list[ast.SumTypeFieldNode] = []
             for type in types.items:
                 match type:
                     case ast.SumTypeFieldNode():
-                        fields.append(type)
+                        variants.append(type)
                     case ast.NameNode():
-                        field = ast.SumTypeFieldNode(
+                        variant = ast.SumTypeFieldNode(
                             id=type.id,
                             start=type.start,
                             end=type.end,
                             name=type.value,
                             type=None,
                         )
-                        fields.append(field)
+                        variants.append(variant)
                     case _:
                         assert False, f"{type} cannot appear in sum type field"
 
             return ast.SumTypeNode(
+                id=self.node_id(),
                 start=span[0],
                 end=span[1],
                 name=name.content,
-                fields=fields,
+                variants=variants,
             )
         else:
             type = types.items[0]
             assert not isinstance(type, ast.SumTypeFieldNode)
             return ast.TypeDefinitionNode(
+                id=self.node_id(),
                 start=span[0],
                 end=span[1],
                 name=name.content,
@@ -821,6 +884,7 @@ class ASTParser:
         fields: SequenceNode[ast.StructTypeFieldNode],
     ) -> ast.StructTypeNode:
         return ast.StructTypeNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             fields=fields.items,
@@ -833,6 +897,7 @@ class ASTParser:
         type: ast.TypeExpressionNode,
     ) -> ast.StructTypeFieldNode:
         return ast.StructTypeFieldNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             name=name.content,
@@ -845,6 +910,7 @@ class ASTParser:
         elts: OptionNode[SequenceNode[ast.TypeExpressionNode]],
     ) -> ast.TupleTypeNode:
         return ast.TupleTypeNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             elts=elts.sequence().items,
@@ -857,6 +923,7 @@ class ASTParser:
         type: ast.TypeExpressionNode,
     ) -> ast.SumTypeFieldNode:
         return ast.SumTypeFieldNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             name=name.content,
@@ -869,6 +936,7 @@ class ASTParser:
         name: IdentifierToken,
     ) -> ast.TypeParameterNode:
         return ast.TypeParameterNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             name=name.content,
@@ -882,6 +950,7 @@ class ASTParser:
         args: OptionNode[SequenceNode[ast.TypeExpressionNode]],
     ) -> ast.TypeCallNode:
         return ast.TypeCallNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             type=type,
@@ -895,6 +964,7 @@ class ASTParser:
         attr: IdentifierToken,
     ) -> ast.TypeAttributeNode:
         return ast.TypeAttributeNode(
+            id=self.node_id(),
             start=span[0],
             end=span[1],
             type=type,

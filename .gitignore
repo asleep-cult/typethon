@@ -5,3 +5,4 @@ out.txt
 encoding.py
 notes.txt
 test*
+.ruff_cache

@@ -1,25 +1,26 @@
 from __future__ import annotations
 
-import attr
-import typing
 import enum
+import typing
 from types import FunctionType
 
-from .frozen import (
-    FrozenSymbol,
-    ActionKind,
-    FrozenParserTable,
-    UNSET_ACTION,
-    UNSET_GOTO,
-)
-from .exceptions import (
-    ParserAutomatonError,
-    UnexpectedTokenError,
-    StackUnderflowError,
-    DeadlockError,
-)
+import attr
+
 from ..syntax.scanner import Scanner
 from ..syntax.tokens import Token
+from .exceptions import (
+    DeadlockError,
+    ParserAutomatonError,
+    StackUnderflowError,
+    UnexpectedTokenError,
+)
+from .frozen import (
+    UNSET_ACTION,
+    UNSET_GOTO,
+    ActionKind,
+    FrozenParserTable,
+    FrozenSymbol,
+)
 
 
 class NodeLike(typing.Protocol):
@@ -70,6 +71,7 @@ type NodeItem[TokenKindT: enum.Enum, KeywordKindT: enum.Enum] = (
     | Token[TokenKindT, KeywordKindT]
 )
 
+
 @attr.s(kw_only=True, slots=True)
 class Transformer[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     name: str = attr.ib()
@@ -84,8 +86,7 @@ class Transformer[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
     @classmethod
     def from_function(
-        cls,
-        function: FunctionType[..., NodeItem[TokenKindT, KeywordKindT]]
+        cls, function: FunctionType[..., NodeItem[TokenKindT, KeywordKindT]]
     ) -> Transformer[TokenKindT, KeywordKindT]:
         return cls(name=function.__name__, callback=function)
 
@@ -102,26 +103,31 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     ) -> None:
         self.scanner = scanner
         self.table = table
-        self.transformers = {transformer.name: transformer for transformer in transformers}
+        self.transformers = {
+            transformer.name: transformer for transformer in transformers
+        }
         self.deadlock_threshold = deadlock_threshold
 
         self.tokens: list[Token[TokenKindT, KeywordKindT]] = []
-        self.stack: list[
-            tuple[
-                NodeItem[TokenKindT, KeywordKindT] | None,
-                int
-            ]
-        ] = [(None, 0)]
+        self.stack: list[tuple[NodeItem[TokenKindT, KeywordKindT] | None, int]] = [
+            (None, 0)
+        ]
 
-        self.transformers['@prepend'] = Transformer.from_function(self.transform_prepend)
-        self.transformers['@flatten'] = Transformer.from_function(self.transform_flatten)
-        self.transformers['@sequence'] = Transformer.from_function(self.transform_sequence)
-        self.transformers['@option'] = Transformer.from_function(self.transform_option)
+        self.transformers["@prepend"] = Transformer.from_function(
+            self.transform_prepend
+        )
+        self.transformers["@flatten"] = Transformer.from_function(
+            self.transform_flatten
+        )
+        self.transformers["@sequence"] = Transformer.from_function(
+            self.transform_sequence
+        )
+        self.transformers["@option"] = Transformer.from_function(self.transform_option)
 
     def current_state(self) -> int:
         if not self.stack:
             raise StackUnderflowError(
-                'Automaton attempted to access current state with an empty stack'
+                "Automaton attempted to access current state with an empty stack"
             )
 
         return self.stack[-1][1]
@@ -144,7 +150,9 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
     def advance(self) -> Token[TokenKindT, KeywordKindT]:
         if not self.tokens:
-            raise ParserAutomatonError('Automaton called advance with no items on stack')
+            raise ParserAutomatonError(
+                "Automaton called advance with no items on stack"
+            )
 
         return self.tokens.pop(0)
 
@@ -171,12 +179,11 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     ) -> tuple[int, int]:
         if not items:
             return (0, 0)
-        
+
         return (items[0].start, items[-1].end)
 
     def create_default_node(
-        self,
-        items: list[NodeItem[TokenKindT, KeywordKindT]]
+        self, items: list[NodeItem[TokenKindT, KeywordKindT]]
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if len(items) == 1:
             return items[0]
@@ -231,11 +238,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         if not isinstance(first_item, SequenceNode):
             assert len(items) == 1
 
-            first_item = SequenceNode(
-                start=span[0],
-                end=span[1],
-                items=[first_item]
-            )
+            first_item = SequenceNode(start=span[0], end=span[1], items=[first_item])
 
         first_item.items.extend(items[1:])
         first_item.start, first_item.end = span
@@ -251,16 +254,16 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         list_items = list(items)
         return OptionNode(
-            start=span[0],
-            end=span[1],
-            item=self.create_default_node(list_items)
+            start=span[0], end=span[1], item=self.create_default_node(list_items)
         )
 
     def next_action(self) -> NodeItem[TokenKindT, KeywordKindT] | None:
         current_state = self.current_state()
         terminal_symbol = self.current_symbol()
 
-        interned_symbol = self.table.frozen_symbols.get_interned_terminal(terminal_symbol)
+        interned_symbol = self.table.frozen_symbols.get_interned_terminal(
+            terminal_symbol
+        )
         entry = self.table.get_action(current_state, interned_symbol)
         if entry == UNSET_ACTION:
             symbols = [
@@ -268,11 +271,13 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 for i, entry in enumerate(self.table.actions[current_state])
                 if entry != UNSET_ACTION
             ]
-            string = ', '.join(symbols)
-            source = self.scanner.source[self.scanner.position - 20:self.scanner.position + 20]
+            string = ", ".join(symbols)
+            source = self.scanner.source[
+                self.scanner.position - 20 : self.scanner.position + 20
+            ]
             raise UnexpectedTokenError(
-                f'Automaton encountered an unexpected token {terminal_symbol!r} in state #{current_state}. '
-                f'The next token should have been one of the following: {string}. ({source!r})'
+                f"Automaton encountered an unexpected token {terminal_symbol!r} in state #{current_state}. "
+                f"The next token should have been one of the following: {string}. ({source!r})"
             )
 
         action = entry[0]
@@ -284,11 +289,17 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             case ActionKind.REDUCE:
                 production_id = entry[1]
-                frozen_production = self.table.frozen_symbols.get_frozen_production(production_id)
+                frozen_production = self.table.frozen_symbols.get_frozen_production(
+                    production_id
+                )
 
-                items = self.pop_stack(frozen_production.rhs_length, frozen_production.captured)
+                items = self.pop_stack(
+                    frozen_production.rhs_length, frozen_production.captured
+                )
 
-                action = self.table.frozen_symbols.get_frozen_action(frozen_production.id)
+                action = self.table.frozen_symbols.get_frozen_action(
+                    frozen_production.id
+                )
                 if action is not None:
                     transformer = self.transformers[action]
                     node = transformer.transform(self.get_item_span(items), items)
@@ -299,9 +310,11 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
                 next_state = self.table.get_goto(current_state, frozen_production.lhs)
                 if next_state == UNSET_GOTO:
-                    nonterminal = self.table.frozen_symbols.get_frozen_symbol(frozen_production.lhs)
+                    nonterminal = self.table.frozen_symbols.get_frozen_symbol(
+                        frozen_production.lhs
+                    )
                     raise ParserAutomatonError(
-                        f'Automaton found no GOTO for {nonterminal} in {current_state}'
+                        f"Automaton found no GOTO for {nonterminal} in {current_state}"
                     )
 
                 self.stack.append((node, next_state))
@@ -334,5 +347,5 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             if stagnant_iterations > self.deadlock_threshold:
                 raise DeadlockError(
-                    f'Automaton has been stagnant for {stagnant_iterations} iterations'
+                    f"Automaton has been stagnant for {stagnant_iterations} iterations"
                 )

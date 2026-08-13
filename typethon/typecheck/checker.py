@@ -1,6 +1,7 @@
 import attr
-from .initializer import TypeInitializer
+
 from .. import asg
+from .initializer import TypeInitializer
 
 
 @attr.s(kw_only=True, slots=True)
@@ -29,6 +30,8 @@ class TypeChecker:
 
                 defn = self.init.store.adts[expression.value.result.def_id]
                 field = next(
-                    field for field in defn.variants[0].fields if field.name == expression.attr
+                    field
+                    for field in defn.variants[0].fields
+                    if field.name == expression.attr
                 )
                 print(self.init.type_of(field.def_id))

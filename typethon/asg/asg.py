@@ -1,17 +1,21 @@
 from __future__ import annotations
 
-import attr
 import enum
 import typing
 from itertools import count
 
+import attr
+
 from ..diagnostics import DiagnosticReporter
 from ..syntax.typethon import ast
-
-if typing.TYPE_CHECKING:
-    from .resolution import ResolvedSymbol
-
-ASG_ID_COUNT = count()
+from .indexing import DefIndexing
+from .resolution import (
+    DefKind,
+    DefResult,
+    LocalResult,
+    ResolvedSymbol,
+    SymbolResolver
+)
 
 
 # This is the abstract semantic graph.
@@ -21,21 +25,22 @@ ASG_ID_COUNT = count()
 # and resolved. Every attribute access that isn't on a local definition
 # gets resolved as well.
 
-type DefinitionId = int
+DefinitionId = typing.NewType("DefinitionId", int)
 
 
 class Singleton(enum.Enum):
     INFERRED = enum.auto()
+
 
 INFERRED = Singleton.INFERRED
 
 
 @attr.s(kw_only=True, slots=True)
 class Definition:
-    def_id: DefinitionId = attr.ib(factory=lambda: next(ASG_ID_COUNT))
+    def_id: DefinitionId = attr.ib()
 
 
-@attr.s(kw_only=True, slots=True)
+@attr.s()
 class AsgContext:
     # A container that primarily keeps tracks of all definitions lowered
     # regardless of where they are located in the code.
@@ -44,30 +49,59 @@ class AsgContext:
     #   type XX = ...: StructDef/TupleDef/AliasDef/SumDef
     #   def xx(...) -> ...: FunctionDef
     #   use XX [for YY]: UseDef
+
     diagnostics: DiagnosticReporter = attr.ib()
-    definitions: dict[DefinitionId, AsgDefinition] = attr.ib(factory=dict)
-    # A mapping of field id to Generics instances. Types, functions,
-    # and use blocks can all have one.
-    generics: dict[DefinitionId, Generics] = attr.ib(factory=dict)
-    definition_parents: dict[DefinitionId, DefinitionId] = attr.ib(factory=dict)
-    definition_nodes: dict[DefinitionId, int] = attr.ib(factory=dict)
+    def_id_counter: count[int] = attr.ib(factory=count)
+    def_index: DefIndexing = attr.ib(init=False)
+    defs: dict[DefinitionId, AsgDefinition] = attr.ib(factory=dict)
+    def_parents: dict[DefinitionId, DefinitionId] = attr.ib(factory=dict)
+    def_nodes: dict[ast.NodeId, DefinitionId] = attr.ib(factory=dict)
+    sym_resolver: SymbolResolver = attr.ib(init=False)
+    syms_resolved: dict[ast.NodeId, ResolvedSymbol] = attr.ib(factory=dict)
 
-    def add_definition(self, parent_id: DefinitionId | None, node_id: int, definition: AsgDefinition) -> None:
-        self.definitions[node_id] = definition
-        self.definition_nodes[definition.def_id] = node_id
+    def __attrs_post_init__(self) -> None:
+        self.def_index = DefIndexing(asg_ctx=self)
+        self.sym_resolver = SymbolResolver(asg_ctx=self)
+
+    def initialize(self, module: ast.ModuleNode) -> None:
+        def_id = self.def_id(module.id)
+        self.def_index.def_kinds[def_id] = DefKind.MODULE
+        self.def_index.index_block(def_id, module.body)
+
+        self.sym_resolver.resolve_symbols_for_module(module)
+
+    def def_id(self, node_id: ast.NodeId) -> DefinitionId:
+        if node_id in self.def_nodes:
+            return self.def_nodes[node_id]
+
+        def_id = DefinitionId(next(self.def_id_counter))
+        self.def_nodes[node_id] = def_id
+        return def_id
+
+    def def_id_for_node(self, node_id: ast.NodeId) -> DefinitionId:
+        return self.def_nodes[node_id]
+
+    def definition_for_node(self, node_id: ast.NodeId) -> AsgDefinition:
+        def_id = self.def_nodes[node_id]
+        return self.defs[def_id]
+
+    def parent_id(self, def_id: DefinitionId) -> DefinitionId | None:
+        if def_id in self.def_parents:
+            return self.def_parents[def_id]
+
+    def parent_definition(self, def_id: DefinitionId) -> AsgDefinition | None:
+        parent_id = self.parent_id(def_id)
         if parent_id is not None:
-            self.definition_parents[definition.def_id] = parent_id
-
-    def parent(self, def_id: DefinitionId) -> DefinitionId | None:
-        if def_id in self.definition_parents:
-            return self.definition_parents[def_id]
+            return self.definition(parent_id)
 
     def record_parent(self, def_id: DefinitionId, parent_id: DefinitionId) -> None:
-        self.definition_parents[def_id] = parent_id
+        self.def_parents[def_id] = parent_id
 
-    def definition(self, def_id: int) -> AsgDefinition:
-        node_id = self.definition_nodes[def_id]
-        return self.definitions[node_id]
+    def record_node(self, def_id: DefinitionId, node_id: ast.NodeId) -> None:
+        self.def_nodes[node_id] = def_id
+
+    def definition(self, def_id: DefinitionId) -> AsgDefinition:
+        return self.defs[def_id]
 
 
 @attr.s(kw_only=True, slots=True)
@@ -76,28 +110,6 @@ class ModuleDef(Definition):
     classes: dict[str, ClassDef] = attr.ib(factory=dict)
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
     body: AsgBody | None = attr.ib(default=None)
-
-
-@attr.s(kw_only=True, slots=True)
-class Generics:
-    # Similar to a scope that keeps track of type paramters by name.
-    def_id: DefinitionId = attr.ib()
-    parent: Generics | None = attr.ib(default=None)
-    parameters: dict[str, TypeParameter] = attr.ib(factory=dict)
-
-    def has_parameter_named(self, name: str) -> bool:
-        if name in self.parameters:
-            return True
-
-        if self.parent is not None:
-            return self.parent.has_parameter_named(name)
-
-        return False
-
-    def walk_type_parameters(self) -> typing.Iterator[TypeParameter]:
-        yield from self.parameters.values()
-        if self.parent is not None:
-            yield from self.parent.walk_type_parameters()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -126,10 +138,6 @@ class TupleDef(Definition):
     elts: list[TupleElt] = attr.ib(factory=list)
 
 
-UNIT = TupleDef(name="unit", is_definition=False, elts=[])
-INVALID = TupleDef(name="invalid", is_definition=True, elts=[])
-
-
 @attr.s(kw_only=True, slots=True)
 class SumDef(Definition):
     name: str = attr.ib()
@@ -146,14 +154,13 @@ class AliasDef(Definition):
 class FunctionParameter:
     name: str = attr.ib()
     type: AsgType | Singleton | None = attr.ib()
-    definition: LocalDef = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FunctionDef(Definition):
     name: str = attr.ib()
     parameters: dict[str, FunctionParameter] = attr.ib(factory=dict)
-    returns: AsgType | Singleton = attr.ib(default=UNIT)
+    returns: AsgType | Singleton = attr.ib()
     body: AsgBody | None = attr.ib(default=None)
 
 
@@ -165,20 +172,14 @@ class ClassDef(Definition):
 
 @attr.s(kw_only=True, slots=True)
 class UseDef(Definition):
-    type: AsgType = attr.ib(default=UNIT)
-    type_class: AsgType = attr.ib(default=UNIT)
+    type: AsgType = attr.ib()
+    type_class: AsgType | None = attr.ib()
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeParameter(Definition):
+class TypeParameterDef(Definition):
     name: str = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class LocalDef(Definition):
-    name: str = attr.ib()
-    node_id: int = attr.ib()
 
 
 type AsgDefinition = (
@@ -194,21 +195,25 @@ type AsgDefinition = (
     | UseDef
 )
 
-type TypeDefinition = (
-    StructDef | TupleDef | SumDef | AliasDef
-)
+type TypeDefinition = StructDef | TupleDef | SumDef | AliasDef
 
 
 @attr.s(kw_only=True, slots=True)
 class PathSegment:
     name: str = attr.ib()
-    result: AsgPathResult = attr.ib()
+    result: DefResult = attr.ib()
     arguments: list[AsgType] = attr.ib(factory=list)
 
 
 @attr.s(kw_only=True, slots=True)
 class DynamicPathSegment:
     name: str = attr.ib()
+    arguments: list[AsgType] = attr.ib(factory=list)
+
+
+@attr.s(kw_only=True, slots=True)
+class ExprPathSegment:
+    expression: TypeParameterDef | ListType | StructDef | TupleDef = attr.ib()
     arguments: list[AsgType] = attr.ib(factory=list)
 
 
@@ -227,7 +232,9 @@ class Path:
     #   and it is resolved to Attribute (or whetever I decide to call it)
     # When there are arguments after non-local definition `y`, the result of the arguments
     # are resolved and added to the segment's arguments.
-    segments: list[PathSegment | DynamicPathSegment] = attr.ib(factory=list)
+    segments: list[PathSegment | DynamicPathSegment | ExprPathSegment] = attr.ib(
+        factory=list
+    )
 
 
 @attr.s(kw_only=True, slots=True)
@@ -240,11 +247,7 @@ class AsgError:
     node: ast.Node = attr.ib()
 
 
-type AsgType = Path | TypeParameter | ListType | StructDef | TupleDef | AsgError
-
-type AsgPathResult = (
-    LocalDef | FunctionDef | ClassDef | TypeParameter | ListType | TypeDefinition | AsgError
-)
+type AsgType = Path | ListType | StructDef | TupleDef | AsgError
 
 
 @attr.s(kw_only=True, slots=True)
@@ -265,7 +268,7 @@ class Resolved:
 
 @attr.s(kw_only=True, slots=True)
 class Local(AsgCode):
-    local_definition: LocalDef = attr.ib()
+    local_definition: LocalResult = attr.ib()
     type: AsgType | None = attr.ib()
     value: Expression | None = attr.ib()
 
@@ -463,4 +466,3 @@ type Statement = (
     | Continue
     | Expr
 )
-

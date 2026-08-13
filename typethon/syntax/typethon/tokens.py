@@ -1,7 +1,8 @@
 import enum
+
+from ..scanner import Scanner
 from ..tokens import Token as TokenT
 from ..tokens import TokenMap
-from ..scanner import Scanner
 
 
 class TokenKind(enum.Enum):

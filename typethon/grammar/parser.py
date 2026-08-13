@@ -1,18 +1,18 @@
 import enum
 
-from . import ast
-from .tokens import (
-    GrammarToken,
-    GrammarScanner,
-    GrammarTokenKind,
-    GRAMMAR_TOKENS,
-)
 from ..syntax.tokens import (
-    StdTokenKind,
     IdentifierToken,
+    KeywordMap,
+    StdTokenKind,
     StringToken,
     TokenMap,
-    KeywordMap,
+)
+from . import ast
+from .tokens import (
+    GRAMMAR_TOKENS,
+    GrammarScanner,
+    GrammarToken,
+    GrammarTokenKind,
 )
 
 
@@ -35,36 +35,40 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         )
         self.buffer: list[GrammarToken] = []
 
-    def parse_identifier(self, token: IdentifierToken) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
-        if token.content == 'IDENTIFIER':
+    def parse_identifier(
+        self, token: IdentifierToken
+    ) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
+        if token.content == "IDENTIFIER":
             kind = StdTokenKind.IDENTIFIER
-        elif token.content == 'NUMBER':
+        elif token.content == "NUMBER":
             kind = StdTokenKind.NUMBER
-        elif token.content == 'STRING':
+        elif token.content == "STRING":
             kind = StdTokenKind.STRING
-        elif token.content == 'INDENT':
+        elif token.content == "INDENT":
             kind = StdTokenKind.INDENT
-        elif token.content == 'DEDENT':
+        elif token.content == "DEDENT":
             kind = StdTokenKind.DEDENT
-        elif token.content == 'NEWLINE':
+        elif token.content == "NEWLINE":
             kind = StdTokenKind.NEWLINE
-        elif token.content == 'DIRECTIVE':
+        elif token.content == "DIRECTIVE":
             kind = StdTokenKind.DIRECTIVE
-        elif token.content == 'EOF':
+        elif token.content == "EOF":
             kind = StdTokenKind.EOF
         else:
             return ast.NameNode(start=token.start, end=token.end, value=token.content)
 
         return ast.TokenNode(start=token.start, end=token.end, kind=kind)
 
-    def parse_string(self, token: StringToken) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
+    def parse_string(
+        self, token: StringToken
+    ) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
         if token.content in self.keywords:
             keyword = self.keywords[token.content]
             return ast.KeywordNode(start=token.start, end=token.end, keyword=keyword)
 
         kind = self.tokens.get(token.content)
         if kind is None:
-            raise ValueError(f'Invalid grammar token {token.content!r}')
+            raise ValueError(f"Invalid grammar token {token.content!r}")
 
         return ast.TokenNode(start=token.start, end=token.end, kind=kind)
 
@@ -110,14 +114,14 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             entrypoint = False
 
         if token.kind is not StdTokenKind.IDENTIFIER:
-            raise ValueError(f'Expected rule name, not {token!r}')
+            raise ValueError(f"Expected rule name, not {token!r}")
 
         start = token.start
         name = token.content
 
         token = self.scan_token()
         if token.kind is not GrammarTokenKind.COLON:
-            raise ValueError(f'Expected colon after rule name, not {token!r}')
+            raise ValueError(f"Expected colon after rule name, not {token!r}")
 
         token = self.peek_token()
         if token.kind is StdTokenKind.NEWLINE:
@@ -138,16 +142,13 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         expression = self.parse_expression()
         item = ast.RuleItemNode(
-            start=token.start,
-            end=expression.end,
-            action=action,
-            expression=expression
+            start=token.start, end=expression.end, action=action, expression=expression
         )
         items.append(item)
 
         token = self.peek_token()
         if token.kind is StdTokenKind.NEWLINE:
-            self.scan_token()   
+            self.scan_token()
 
         while True:
             action = self.parse_rule_action()
@@ -155,7 +156,7 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             token = self.peek_token()
             if token.kind is not GrammarTokenKind.VERTICALBAR:
                 if action is not None:
-                    raise ValueError(f'Invalid grammar: {token!r}')
+                    raise ValueError(f"Invalid grammar: {token!r}")
 
                 return ast.RuleNode(
                     name=name,
@@ -178,7 +179,7 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             token = self.peek_token()
             if token.kind is StdTokenKind.NEWLINE:
-                self.scan_token()               
+                self.scan_token()
 
     def parse_rule_action(self) -> str | None:
         token = self.peek_token()
@@ -219,7 +220,7 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             token = self.peek_token()
 
         if not expressions:
-            raise ValueError(f'Invalid grammar: {token!r}')
+            raise ValueError(f"Invalid grammar: {token!r}")
         elif len(expressions) == 1:
             return expressions[0]
 
@@ -229,7 +230,9 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             expressions=expressions,
         )
 
-    def parse_expression_group_item(self) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
+    def parse_expression_group_item(
+        self,
+    ) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
         token = self.peek_token()
 
         if token.kind is GrammarTokenKind.EXCLAMATION:
@@ -247,7 +250,7 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             token = self.scan_token()
             if token.kind is not GrammarTokenKind.CLOSEPAREN:
-                raise ValueError(f'Expected close parenthesis, got {token!r}')
+                raise ValueError(f"Expected close parenthesis, got {token!r}")
 
             expression = self.parse_expression_suffix(expression)
 
@@ -255,7 +258,7 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             expression = self.parse_atom()
 
         else:
-            raise ValueError(f'Invalid grammar: {token!r}')
+            raise ValueError(f"Invalid grammar: {token!r}")
 
         return self.parse_expression_suffix(expression)
 
@@ -296,7 +299,7 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         elif token.kind is StdTokenKind.STRING:
             return self.parse_string(token)
         else:
-            raise ValueError(f'Invalid grammar: {token!r}')
+            raise ValueError(f"Invalid grammar: {token!r}")
 
     @classmethod
     def parse_from_source(

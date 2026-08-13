@@ -62,40 +62,52 @@ class TokenData[TokenKindT: enum.Enum]:
 
 @attr.s(kw_only=True, slots=True)
 class IdentifierToken(TokenData[typing.Literal[StdTokenKind.IDENTIFIER]]):
-    kind: typing.Literal[StdTokenKind.IDENTIFIER] = attr.ib(init=False, default=StdTokenKind.IDENTIFIER)
+    kind: typing.Literal[StdTokenKind.IDENTIFIER] = attr.ib(
+        init=False, default=StdTokenKind.IDENTIFIER
+    )
     content: str = attr.ib(eq=True)
 
 
 @attr.s(kw_only=True, slots=True)
 class NumberToken(TokenData[typing.Literal[StdTokenKind.NUMBER]]):
-    kind: typing.Literal[StdTokenKind.NUMBER] = attr.ib(init=False, default=StdTokenKind.NUMBER)
+    kind: typing.Literal[StdTokenKind.NUMBER] = attr.ib(
+        init=False, default=StdTokenKind.NUMBER
+    )
     content: str = attr.ib(eq=True)
     flags: NumberTokenFlags = attr.ib(eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class StringToken(TokenData[typing.Literal[StdTokenKind.STRING]]):
-    kind: typing.Literal[StdTokenKind.STRING] = attr.ib(init=False, default=StdTokenKind.STRING)
+    kind: typing.Literal[StdTokenKind.STRING] = attr.ib(
+        init=False, default=StdTokenKind.STRING
+    )
     content: str = attr.ib(eq=True)
     flags: StringTokenFlags = attr.ib(eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class IndentToken(TokenData[typing.Literal[StdTokenKind.INDENT]]):
-    kind: typing.Literal[StdTokenKind.INDENT] = attr.ib(init=False, default=StdTokenKind.INDENT)
+    kind: typing.Literal[StdTokenKind.INDENT] = attr.ib(
+        init=False, default=StdTokenKind.INDENT
+    )
     inconsistent: bool = attr.ib(default=False, eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class DedentToken(TokenData[typing.Literal[StdTokenKind.DEDENT]]):
-    kind: typing.Literal[StdTokenKind.DEDENT] = attr.ib(init=False, default=StdTokenKind.DEDENT)
+    kind: typing.Literal[StdTokenKind.DEDENT] = attr.ib(
+        init=False, default=StdTokenKind.DEDENT
+    )
     inconsistent: bool = attr.ib(default=False, eq=False)
     diverges: bool = attr.ib(default=False, eq=False)
 
 
 @attr.s(kw_only=True, slots=True)
 class DirectiveToken(TokenData[typing.Literal[StdTokenKind.DIRECTIVE]]):
-    kind: typing.Literal[StdTokenKind.DIRECTIVE] = attr.ib(init=False, default=StdTokenKind.DIRECTIVE)
+    kind: typing.Literal[StdTokenKind.DIRECTIVE] = attr.ib(
+        init=False, default=StdTokenKind.DIRECTIVE
+    )
     content: str = attr.ib(eq=False)
 
 
@@ -125,17 +137,14 @@ type KeywordMap[KeywordKindT: enum.Enum] = tuple[tuple[str, KeywordKindT], ...]
 
 
 STD_TOKENS: TokenMap[StdTokenKind] = (
-    ('EOF', StdTokenKind.EOF),
-
-    ('INDENT', StdTokenKind.INDENT),
-    ('DEDENT', StdTokenKind.DEDENT),
-    ('IDENTIFIER', StdTokenKind.IDENTIFIER),
-    ('STRING', StdTokenKind.STRING),
-    ('NUMBER', StdTokenKind.NUMBER),
-    ('DIRECTIVE', StdTokenKind.DIRECTIVE),
-
-    ('NEWLINE', StdTokenKind.NEWLINE),
-
-    ('EUNMATCHED', StdTokenKind.EUNMATCHED),
-    ('EINVALID', StdTokenKind.EINVALID),
+    ("EOF", StdTokenKind.EOF),
+    ("INDENT", StdTokenKind.INDENT),
+    ("DEDENT", StdTokenKind.DEDENT),
+    ("IDENTIFIER", StdTokenKind.IDENTIFIER),
+    ("STRING", StdTokenKind.STRING),
+    ("NUMBER", StdTokenKind.NUMBER),
+    ("DIRECTIVE", StdTokenKind.DIRECTIVE),
+    ("NEWLINE", StdTokenKind.NEWLINE),
+    ("EUNMATCHED", StdTokenKind.EUNMATCHED),
+    ("EINVALID", StdTokenKind.EINVALID),
 )

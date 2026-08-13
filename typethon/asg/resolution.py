@@ -1,8 +1,20 @@
-import attr
-import enum
+from __future__ import annotations
 
-from . import asg
+import enum
+import typing
+
+import attr
+
 from ..syntax.typethon import ast
+
+if typing.TYPE_CHECKING:
+    from . import asg
+
+
+@attr.s(kw_only=True, slots=True)
+class LocalDef:
+    name: str = attr.ib()
+    node_id: ast.NodeId = attr.ib()
 
 
 class ScopeKind(enum.Enum):
@@ -17,304 +29,200 @@ class ScopeKind(enum.Enum):
 
 @attr.s(kw_only=True, slots=True)
 class SymbolScope:
-    node_id: int = attr.ib()
+    node_id: ast.NodeId = attr.ib()
     kind: ScopeKind = attr.ib()
-    type_definitions: dict[str, asg.TypeDefinition] = attr.ib(factory=dict)
-    type_parameters: dict[str, asg.TypeParameter] = attr.ib(factory=dict)
-    class_defs: dict[str, asg.ClassDef] = attr.ib(factory=dict)
-    function_defs: dict[str, asg.FunctionDef] = attr.ib(factory=dict)
-    local_definitions: dict[str, asg.LocalDef] = attr.ib(factory=dict)
+    type_definitions: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
+    type_parameters: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
+    class_defs: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
+    function_defs: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
+    local_definitions: dict[str, LocalDef] = attr.ib(factory=dict)
 
 
-type ResolvedSymbol = (
-    asg.TypeDefinition | asg.TypeParameter | asg.ClassDef | asg.FunctionDef | asg.LocalDef
-)
+class DefKind(enum.Enum):
+    MODULE = enum.auto()
+    STRUCT = enum.auto()
+    TUPLE = enum.auto()
+    SUM = enum.auto()
+    VARIANT = enum.auto()
+    FUNCTION = enum.auto()
+    CLASS = enum.auto()
+    TYPE_PARAMETER = enum.auto()
+    FIELD = enum.auto()
+    USE = enum.auto()
+    NEW_TYPE = enum.auto()
 
-type ResolvedAttribute = asg.TypeDefinition | asg.ClassDef | asg.FunctionDef
+
+class ResultKind(enum.Enum):
+    ERROR = enum.auto()
 
 
+@attr.s(kw_only=True, slots=True)
+class DefResult:
+    kind: DefKind = attr.ib()
+    def_id: asg.DefinitionId = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class LocalResult:
+    node_id: ast.NodeId = attr.ib()
+
+
+type ResolvedSymbol = DefResult | LocalResult | typing.Literal[ResultKind.ERROR]
+
+
+@attr.s(kw_only=True, slots=True)
 class SymbolResolver:
     # Prior to resolving symbols, the resolver must initialize all definitions and type parameters.
     # The resolver is subsequently used by AsgLowering for path and name resolution.
     # AsgLowering is responsible for calling the add_local_definition because it is the only
     # case where a name cannot be used in its scope before it has been defined.
 
-    def __init__(
-        self,
-        asg_ctx: asg.AsgContext,
-        module: ast.ModuleNode,
-    ) -> None:
-        self.asg_ctx = asg_ctx
-        self.module = module
-        self.scopes: dict[int, SymbolScope] = {}
-        self.scope_stack: list[SymbolScope] = []
+    asg_ctx: asg.AsgContext = attr.ib()
+    scopes: dict[ast.NodeId, SymbolScope] = attr.ib(factory=dict)
+    scope_stack: list[SymbolScope] = attr.ib(factory=list)
 
-    def create_scope(self, node_id: int, kind: ScopeKind) -> SymbolScope:
+    def create_scope(
+        self,
+        node_id: ast.NodeId,
+        kind: ScopeKind,
+    ) -> SymbolScope:
         scope = SymbolScope(node_id=node_id, kind=kind)
         self.scopes[node_id] = scope
+
+        def_id = self.asg_ctx.def_nodes.get(node_id)
+        param_index = self.asg_ctx.def_index.def_params.get(def_id)
+        if param_index is not None:
+            scope.type_parameters.update(param_index.paremeters)
+
         return scope
 
     def initialize_symbols_for_block(
-        self, outside_definition: asg.AsgDefinition, scope: SymbolScope, body: list[ast.StatementNode]
+        self,
+        parent_id: asg.DefinitionId,
+        scope: SymbolScope,
+        body: list[ast.StatementNode],
     ) -> None:
         for statement in body:
-            self.initialize_symbols_for_statement(outside_definition, scope, statement)
+            self.initialize_symbols_for_statement(parent_id, scope, statement)
 
     def add_local_definition(
         self,
         name: str,
-        statement: ast.AssignNode,
-    ) -> asg.LocalDef:
+        parent_id: asg.DefinitionId,
+        node_id: ast.NodeId,
+    ) -> None:
         scope = self.scope_stack[-1]
-        definition = asg.LocalDef(
+        definition = LocalDef(
             name=name,
-            node_id=statement.id,
+            node_id=node_id,
         )
         scope.local_definitions[name] = definition
-        return definition
 
     def initialize_symbols_for_statement(
         self,
-        outside_definition: asg.AsgDefinition,
+        parent_id: asg.DefinitionId,
         scope: SymbolScope,
         statement: ast.StatementNode,
     ) -> None:
         match statement:
             case ast.FunctionDefNode():
-                function_def = asg.FunctionDef(name=statement.name)
-                scope.function_defs[statement.name] = function_def
+                def_id = self.asg_ctx.def_id_for_node(statement.id)
+                scope.function_defs[statement.name] = def_id
                 scope = self.create_scope(statement.id, ScopeKind.FUNCTION)
 
                 for parameter in statement.parameters:
-                    self.initialize_type_parameters(
-                        scope,
-                        parameter.annotation,
-                        primary_definition=function_def,
-                        secondary_definition=outside_definition,
-                    )
-                    definition = asg.LocalDef(
-                        name=parameter.name,
-                        node_id=parameter.id,
-                    )
-                    function_def.parameters[parameter.name] = asg.FunctionParameter(
-                        name=parameter.name,
-                        type=None,
-                        definition=definition,
-                    )
-                    scope.local_definitions[parameter.name] = definition
+                    self.add_local_definition(parameter.name, def_id, parameter.id)
 
-                self.initialize_type_parameters(
-                    scope,
-                    statement.returns,
-                    primary_definition=function_def,
-                    secondary_definition=outside_definition,
-                )
                 if statement.body is not None:
-                    self.initialize_symbols_for_block(function_def, scope, statement.body)
-
-                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, function_def)
-                if isinstance(outside_definition, (asg.ModuleDef, asg.ClassDef, asg.UseDef)):
-                    outside_definition.functions[function_def.name] = function_def
+                    self.initialize_symbols_for_block(def_id, scope, statement.body)
 
             case ast.ClassDefNode():
-                class_def = asg.ClassDef(name=statement.name)
-                scope.class_defs[statement.name] = class_def
+                def_id = self.asg_ctx.def_id_for_node(statement.id)
+                scope.class_defs[statement.name] = def_id
+
                 scope = self.create_scope(statement.id, ScopeKind.CLASS)
-                for parameter in statement.parameters:
-                    self.initialize_type_parameters(
-                        scope,
-                        parameter,
-                        primary_definition=class_def,
-                        secondary_definition=outside_definition,
-                    )
-
-                self.initialize_symbols_for_block(class_def, scope, statement.body)
-
-                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, class_def)
-                if isinstance(outside_definition, asg.ModuleDef):
-                    outside_definition.classes[class_def.name] = class_def
+                self.initialize_symbols_for_block(def_id, scope, statement.body)
 
             case ast.TypeDefinitionNode():
-                match statement.type:
-                    case ast.StructTypeNode():
-                        definition = asg.StructDef(name=statement.name, is_definition=True)
-                    case ast.TupleTypeNode():
-                        definition = asg.TupleDef(name=statement.name, is_definition=True)
-                    case _:
-                        definition = asg.AliasDef(name=statement.name)
-
-                scope.type_definitions[statement.name] = definition
-                scope = self.create_scope(statement.id, ScopeKind.DEFINITION)
-                self.initialize_type_parameters(
-                    scope,
-                    statement.type,
-                    primary_definition=definition,
-                    secondary_definition=outside_definition,
-                )
-
-                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, definition)
-                if isinstance(outside_definition, asg.ModuleDef):
-                    outside_definition.types[definition.name] = definition
+                def_id = self.asg_ctx.def_id_for_node(statement.id)
+                scope.type_definitions[statement.name] = def_id
 
             case ast.SumTypeNode():
-                sum_def = asg.SumDef(name=statement.name)
-                scope.type_definitions[statement.name] = sum_def
-                scope = self.create_scope(statement.id, ScopeKind.DEFINITION)
-
-                for field in statement.fields:
-                    if field.type is not None:
-                        # XXX: Is the type parameter syntax going to be
-                        # problematic for unions?
-                        self.initialize_type_parameters(
-                            scope,
-                            field.type,
-                            primary_definition=sum_def,
-                            secondary_definition=outside_definition,
-                        )
-
-                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, sum_def)
-                if isinstance(outside_definition, asg.ModuleDef):
-                    outside_definition.types[sum_def.name] = sum_def
+                def_id = self.asg_ctx.def_id_for_node(statement.id)
+                scope.type_definitions[statement.name] = def_id
 
             case ast.UseNode():
+                def_id = self.asg_ctx.def_id_for_node(statement.id)
                 scope = self.create_scope(statement.id, ScopeKind.USE)
-                use_def = asg.UseDef()
-                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, use_def)
-
-                self.initialize_type_parameters(
-                    scope,
-                    statement.type,
-                    primary_definition=use_def,
-                    secondary_definition=outside_definition,
-                )
-                self.initialize_symbols_for_block(use_def, scope, statement.body)
+                self.initialize_symbols_for_block(def_id, scope, statement.body)
 
             case ast.UseAsNode():
+                def_id = self.asg_ctx.def_id_for_node(statement.id)
                 scope = self.create_scope(statement.id, ScopeKind.USE)
-                use_def = asg.UseDef()
-                self.asg_ctx.add_definition(outside_definition.def_id, statement.id, use_def)
-
-                self.initialize_type_parameters(
-                    scope,
-                    statement.type,
-                    primary_definition=use_def,
-                    secondary_definition=outside_definition,
-                )
-                self.initialize_type_parameters(
-                    scope,
-                    statement.type_class,
-                    primary_definition=use_def,
-                    secondary_definition=outside_definition,
-                )
-                self.initialize_symbols_for_block(use_def, scope, statement.body)
+                self.initialize_symbols_for_block(def_id, scope, statement.body)
 
             case ast.ForNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_symbols_for_block(outside_definition, scope, statement.body)
-                self.initialize_lambdas(outside_definition, statement.iterator)
+                self.initialize_lambdas(parent_id, statement.target)
+                self.initialize_lambdas(parent_id, statement.iterator)
+                self.initialize_symbols_for_block(parent_id, scope, statement.body)
 
             case ast.WhileNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_symbols_for_block(outside_definition, scope, statement.body)
-                self.initialize_lambdas(outside_definition, statement.condition)
+                self.initialize_lambdas(parent_id, statement.condition)
+                self.initialize_symbols_for_block(parent_id, scope, statement.body)
 
             case ast.IfNode():
                 self.create_scope(statement.id, ScopeKind.BLOCK)
-                self.initialize_symbols_for_block(outside_definition, scope, statement.body)
-                self.initialize_lambdas(outside_definition, statement.condition)
+                self.initialize_lambdas(parent_id, statement.condition)
+                self.initialize_symbols_for_block(parent_id, scope, statement.body)
 
                 if statement.else_statement is not None:
                     self.create_scope(statement.else_statement.id, ScopeKind.BLOCK)
                     self.initialize_symbols_for_block(
-                        outside_definition, scope, statement.else_statement.body
+                        parent_id, scope, statement.else_statement.body
                     )
 
             case ast.AssignNode() | ast.AugAssignNode():
-                self.initialize_lambdas(outside_definition, statement.target)
+                self.initialize_lambdas(parent_id, statement.target)
                 if statement.value is not None:
-                    self.initialize_lambdas(outside_definition, statement.value)
+                    self.initialize_lambdas(parent_id, statement.value)
 
-            case ast.ReturnNode():
-                if statement.value is not None:
-                    self.initialize_lambdas(outside_definition, statement.value)
+            case ast.ReturnNode() if statement.value is not None:
+                self.initialize_lambdas(parent_id, statement.value)
 
             case ast.ExprNode():
-                self.initialize_lambdas(outside_definition, statement.expr)
+                self.initialize_lambdas(parent_id, statement.expr)
 
     def initialize_lambdas(
         self,
-        outside_definition: asg.AsgDefinition,
+        parent_id: asg.DefinitionId,
         expression: ast.ExpressionNode,
     ) -> None:
         for subexpression in ast.walk_expressions(expression):
             if isinstance(subexpression, ast.LambdaNode):
-                function_def = asg.FunctionDef(name="lambda")
-                self.asg_ctx.add_definition(outside_definition.def_id, expression.id, function_def)
+                def_id = self.asg_ctx.def_index.def_id(
+                    DefKind.FUNCTION, subexpression.id
+                )
+                self.asg_ctx.record_parent(def_id, parent_id)
+                self.asg_ctx.def_index.index_block(def_id, subexpression.body)
+
+                for parameter in subexpression.parameters:
+                    if parameter.type is not None:
+                        self.asg_ctx.def_index.index_type_parameters(
+                            parent_id, def_id, parameter.type
+                        )
+
+                if subexpression.returns is not None:
+                    self.asg_ctx.def_index.index_type_parameters(
+                        parent_id, def_id, subexpression.returns
+                    )
 
                 scope = self.create_scope(subexpression.id, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
-                    definition = asg.LocalDef(
-                        name=parameter.name,
-                        node_id=parameter.id,
-                    )
-                    function_def.parameters[parameter.name] = asg.FunctionParameter(
-                        name=parameter.name,
-                        type=None,
-                        definition=definition,
-                    )
-                    scope.local_definitions[parameter.name] = definition
+                    self.add_local_definition(parameter.name, def_id, parameter.id)
 
-                self.initialize_symbols_for_block(function_def, scope, subexpression.body)
-
-    def initialize_type_parameters(
-        self,
-        scope: SymbolScope,
-        type_expression: ast.TypeExpressionNode,
-        *,
-        primary_definition: asg.AsgDefinition,
-        secondary_definition: asg.AsgDefinition,
-    ) -> None:
-        primary_generics = self.asg_ctx.generics.get(primary_definition.def_id)
-
-        # I have made the questionable syntactic decision of allowing type paramters
-        # to be referred to without being explicitly defined first.
-        # If a type paramter is referred to, it is subsequently defined.
-        # Rather than def f<T>(x: T), it is simply def f(x: 't).
-        # This complicates matters for the compiler because there are instances
-        # where we might want to refer to a type paramter defined in the context
-        # of the outside definition, and there are other instances where a type parameter
-        # of the same name should define a new one in the contex of the current definition.
-        # Here are two examples of both cases respectively:
-        # class A('t):
-        #   def f(x: 't) -> 't
-        # ...
-        # def f(x: 't) -> 't:
-        #   def g(y: 't) -> 't
-        # In the second example, both `f` and `g` have their own type parameter named `t`.
-        # The composition of the Generics instance is responsible for this behavior.
-        # Anytime the compiler encounters a type paramter `t`, it looks through the structure
-        # recursively for any parameter of the same name. If that is not found, it simply
-        # creates a new one, and inserts it into the Generic's parameters. As a result,
-        # the compiler only ascribes a Generics.owner value in contexts where the outside
-        # definition's type parameters can be utilized.
-        if isinstance(secondary_definition, (asg.StructDef, asg.TupleDef, asg.SumDef, asg.UseDef, asg.ClassDef)):
-            secondary_generics = self.asg_ctx.generics.get(secondary_definition.def_id)
-        else:
-            secondary_generics = None
-
-        for subexpression in ast.walk_type_expressions(type_expression):
-            if isinstance(subexpression, ast.TypeParameterNode):
-                if primary_generics is None:
-                    primary_generics = asg.Generics(def_id=primary_definition.def_id, parent=secondary_generics)
-                    self.asg_ctx.generics[primary_definition.def_id] = primary_generics
-
-                if not primary_generics.has_parameter_named(subexpression.name):
-                    type_parameter = asg.TypeParameter(
-                        name=subexpression.name,
-                    )
-                    self.asg_ctx.record_parent(type_parameter.def_id, primary_definition.def_id)
-                    scope.type_parameters[subexpression.name] = type_parameter
-                    primary_generics.parameters[subexpression.name] = type_parameter
+                self.initialize_symbols_for_block(def_id, scope, subexpression.body)
 
     def enter_node(self, node: ast.Node) -> SymbolScope:
         if node.id not in self.scopes:
@@ -340,7 +248,7 @@ class SymbolResolver:
         include_type_parameters: bool = True,
         include_type_definitions: bool = True,
         include_classes: bool = True,
-    ) -> ResolvedSymbol | None:
+    ) -> ResolvedSymbol:
         first_iteration = True
         can_access_type_parameters = include_type_parameters
         can_access_class_parameters = True
@@ -348,25 +256,33 @@ class SymbolResolver:
 
         for scope in reversed(self.scope_stack):
             if can_access_definitions and name in scope.local_definitions:
-                    return scope.local_definitions[name]
+                return LocalResult(node_id=scope.local_definitions[name].node_id)
 
             if can_access_type_parameters and name in scope.type_parameters:
-                    return scope.type_parameters[name]
+                return DefResult(
+                    kind=DefKind.TYPE_PARAMETER, def_id=scope.type_parameters[name]
+                )
 
             if scope.kind is ScopeKind.CLASS and can_access_class_parameters:
                 if name in scope.type_parameters:
-                    return scope.type_parameters[name]
+                    return DefResult(
+                        kind=DefKind.TYPE_PARAMETER, def_id=scope.type_parameters[name]
+                    )
 
                 can_access_class_parameters = False
 
             if include_functions and name in scope.function_defs:
-                return scope.function_defs[name]
+                return DefResult(
+                    kind=DefKind.FUNCTION, def_id=scope.function_defs[name]
+                )
 
             if include_type_definitions and name in scope.type_definitions:
-                return scope.type_definitions[name]
+                def_id = scope.type_definitions[name]
+                def_kind = self.asg_ctx.def_index.def_kinds[def_id]
+                return DefResult(kind=def_kind, def_id=def_id)
 
             if include_classes and name in scope.class_defs:
-                return scope.class_defs[name]
+                return DefResult(kind=DefKind.CLASS, def_id=scope.class_defs[name])
 
             if scope.kind is not ScopeKind.BLOCK and scope.kind is not ScopeKind.LAMBDA:
                 can_access_definitions = False
@@ -378,16 +294,208 @@ class SymbolResolver:
             if first_iteration:
                 first_iteration = False
 
+        return ResultKind.ERROR
+
     def resolve_attribute(
         self,
-        field: asg.AsgPathResult,
+        value: ResolvedSymbol,
         name: str,
-    ) -> ResolvedAttribute | None:
-        match field:
-            case asg.ModuleDef():
-                return (
-                    field.classes.get(name) or field.functions.get(name) or field.classes.get(name)
-                )
+    ) -> ResolvedSymbol:
+        return ResultKind.ERROR
 
-            case asg.ClassDef():
-                return field.functions.get(name)
+    def resolve_symbols_for_type_expression(
+        self, type_expression: ast.TypeExpressionNode
+    ) -> None:
+        match type_expression:
+            case ast.NameNode():
+                result = self.resolve_symbol(type_expression.value)
+                self.asg_ctx.syms_resolved[type_expression.id] = result
+
+            case ast.TypeCallNode():
+                self.resolve_symbols_for_type_expression(type_expression.type)
+                for argument in type_expression.args:
+                    self.resolve_symbols_for_type_expression(argument)
+
+            case ast.TypeAttributeNode():
+                self.resolve_symbols_for_type_expression(type_expression.type)
+                result = self.asg_ctx.syms_resolved.get(type_expression.type.id)
+                if result is not None:
+                    attribute = self.resolve_attribute(result, type_expression.attr)
+                    if attribute is not ResultKind.ERROR:
+                        self.asg_ctx.syms_resolved[type_expression.id] = attribute
+
+            case ast.ListTypeNode():
+                self.resolve_symbols_for_type_expression(type_expression.elt)
+
+            case ast.StructTypeNode():
+                for field in type_expression.fields:
+                    self.resolve_symbols_for_type_expression(field.type)
+
+            case ast.TupleTypeNode():
+                for elt in type_expression.elts:
+                    self.resolve_symbols_for_type_expression(elt)
+
+    def resolve_symbols_for_block(self, statements: list[ast.StatementNode]) -> None:
+        for statement in statements:
+            self.resolve_symbols_for_statement(statement)
+
+    def resolve_symbols_for_statement(
+        self,
+        statement: ast.StatementNode,
+    ) -> None:
+        match statement:
+            case ast.TypeDefinitionNode():
+                self.resolve_symbols_for_type_expression(statement.type)
+
+            case ast.SumTypeNode():
+                for variant in statement.variants:
+                    if variant.type is not None:
+                        self.resolve_symbols_for_type_expression(variant.type)
+
+            case ast.FunctionDefNode():
+                for parameter in statement.parameters:
+                    self.resolve_symbols_for_type_expression(parameter.annotation)
+
+                self.resolve_symbols_for_type_expression(statement.returns)
+
+                if statement.body is not None:
+                    self.enter_node(statement)
+                    self.resolve_symbols_for_block(statement.body)
+                    self.exit_node(statement)
+
+            case ast.ClassDefNode():
+                self.enter_node(statement)
+                self.resolve_symbols_for_block(statement.body)
+                self.exit_node(statement)
+
+            case ast.UseNode():
+                self.enter_node(statement)
+                self.resolve_symbols_for_type_expression(statement.type)
+                self.resolve_symbols_for_block(statement.body)
+                self.exit_node(statement)
+
+            case ast.UseAsNode():
+                self.enter_node(statement)
+                self.resolve_symbols_for_type_expression(statement.type)
+                self.resolve_symbols_for_type_expression(statement.type_class)
+                self.exit_node(statement)
+
+            case ast.ForNode():
+                self.enter_node(statement)
+                self.resolve_symbols_for_expression(statement.target)
+                self.resolve_symbols_for_expression(statement.iterator)
+                self.resolve_symbols_for_block(statement.body)
+                self.exit_node(statement)
+
+            case ast.WhileNode():
+                self.enter_node(statement)
+                self.resolve_symbols_for_expression(statement.condition)
+                self.resolve_symbols_for_block(statement.body)
+                self.exit_node(statement)
+
+            case ast.IfNode():
+                self.enter_node(statement)
+                self.resolve_symbols_for_expression(statement.condition)
+                self.resolve_symbols_for_block(statement.body)
+                self.exit_node(statement)
+
+                if statement.else_statement is not None:
+                    self.enter_node(statement.else_statement)
+                    self.resolve_symbols_for_block(statement.else_statement.body)
+                    self.exit_node(statement.else_statement)
+
+            case ast.AssignNode() | ast.AugAssignNode():
+                self.resolve_symbols_for_expression(statement.target)
+                if statement.value is not None:
+                    self.resolve_symbols_for_expression(statement.value)
+
+            case ast.ReturnNode() if statement.value is not None:
+                self.resolve_symbols_for_expression(statement.value)
+
+            case ast.ExprNode():
+                self.resolve_symbols_for_expression(statement.expr)
+
+    def resolve_symbols_for_expression(self, expression: ast.ExpressionNode) -> None:
+        match expression:
+            case ast.LambdaNode():
+                self.enter_node(expression)
+                for parameter in expression.parameters:
+                    if parameter.type is not None:
+                        self.resolve_symbols_for_type_expression(parameter.type)
+
+                if expression.returns is not None:
+                    self.resolve_symbols_for_type_expression(expression.returns)
+
+                self.resolve_symbols_for_block(expression.body)
+                self.exit_node(expression)
+
+            case ast.AnnotatedNode():
+                self.resolve_symbols_for_expression(expression.value)
+                self.resolve_symbols_for_type_expression(expression.type)
+
+            case ast.BoolOpNode():
+                for value in expression.values:
+                    self.resolve_symbols_for_expression(value)
+
+            case ast.BinaryOpNode():
+                self.resolve_symbols_for_expression(expression.left)
+                self.resolve_symbols_for_expression(expression.right)
+
+            case ast.UnaryOpNode():
+                self.resolve_symbols_for_expression(expression.operand)
+
+            case ast.CompareNode():
+                self.resolve_symbols_for_expression(expression.left)
+                for comparator in expression.comparators:
+                    self.resolve_symbols_for_expression(comparator.value)
+
+            case ast.CallNode():
+                self.resolve_symbols_for_expression(expression.callable)
+                for argument in expression.args:
+                    self.resolve_symbols_for_expression(argument)
+
+            case ast.AttributeNode():
+                self.resolve_symbols_for_expression(expression.value)
+                result = self.asg_ctx.syms_resolved.get(expression.value.id)
+                if result is not None:
+                    attribute = self.resolve_attribute(result, expression.attr)
+                    if attribute is not ResultKind.ERROR:
+                        self.asg_ctx.syms_resolved[expression.id] = attribute
+
+            case ast.SubscriptNode():
+                self.resolve_symbols_for_expression(expression.value)
+
+            case ast.StructNode():
+                for field in expression.fields:
+                    self.resolve_symbols_for_expression(field.value)
+
+            case ast.TupleNode():
+                for elt in expression.elts:
+                    self.resolve_symbols_for_expression(elt)
+
+            case ast.ListNode():
+                for elt in expression.elts:
+                    self.resolve_symbols_for_expression(elt)
+
+            case ast.SliceNode():
+                if expression.start_index is not None:
+                    self.resolve_symbols_for_expression(expression.start_index)
+
+                if expression.stop_index is not None:
+                    self.resolve_symbols_for_expression(expression.stop_index)
+
+                if expression.step_index is not None:
+                    self.resolve_symbols_for_expression(expression.step_index)
+
+            case ast.NameNode():
+                result = self.resolve_symbol(expression.value)
+                self.asg_ctx.syms_resolved[expression.id] = result
+
+    def resolve_symbols_for_module(self, module: ast.ModuleNode) -> None:
+        def_id = self.asg_ctx.def_id_for_node(module.id)
+        scope = self.create_scope(module.id, ScopeKind.MODULE)
+        self.initialize_symbols_for_block(def_id, scope, module.body)
+
+        self.enter_node(module)
+        self.resolve_symbols_for_block(module.body)
+        self.exit_node(module)

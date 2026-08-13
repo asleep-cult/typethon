@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import attr
-import typing
 import enum
-from itertools import count
+import typing
 
-NODE_ID_COUND = count()
+import attr
+
+NodeId = typing.NewType("NodeId", int)
 
 
 class BoolOperatorKind(enum.IntEnum):
@@ -58,7 +58,7 @@ class StringFlags(enum.IntFlag):
 
 @attr.s(kw_only=True, slots=True)
 class Node:
-    id: int = attr.ib(factory=lambda: next(NODE_ID_COUND))
+    id: NodeId = attr.ib()
     start: int = attr.ib()
     end: int = attr.ib()
 
@@ -240,25 +240,33 @@ class ConstantNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class IntegerNode(ConstantNode):
-    kind: typing.Literal[ConstantKind.INTEGER] = attr.ib(init=False, default=ConstantKind.INTEGER)
+    kind: typing.Literal[ConstantKind.INTEGER] = attr.ib(
+        init=False, default=ConstantKind.INTEGER
+    )
     value: int = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FloatNode(ConstantNode):
-    kind: typing.Literal[ConstantKind.FLOAT] = attr.ib(init=False, default=ConstantKind.FLOAT)
+    kind: typing.Literal[ConstantKind.FLOAT] = attr.ib(
+        init=False, default=ConstantKind.FLOAT
+    )
     value: float = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ComplexNode(ConstantNode):
-    kind: typing.Literal[ConstantKind.COMPLEX] = attr.ib(init=False, default=ConstantKind.COMPLEX)
+    kind: typing.Literal[ConstantKind.COMPLEX] = attr.ib(
+        init=False, default=ConstantKind.COMPLEX
+    )
     value: complex = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class StringNode(ConstantNode):
-    kind: typing.Literal[ConstantKind.STRING] = attr.ib(init=False, default=ConstantKind.STRING)
+    kind: typing.Literal[ConstantKind.STRING] = attr.ib(
+        init=False, default=ConstantKind.STRING
+    )
     value: str = attr.ib()
     flags: StringFlags = attr.ib()
 
@@ -358,7 +366,7 @@ class TypeDefinitionNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SumTypeNode(Node):
     name: str = attr.ib()
-    fields: list[SumTypeFieldNode] = attr.ib()
+    variants: list[SumTypeFieldNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)

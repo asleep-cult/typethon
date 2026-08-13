@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import attr
 
-from . import types
 from .. import asg
+from . import types
 
 
 @attr.s(kw_only=True, slots=True)

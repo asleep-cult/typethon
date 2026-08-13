@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import attr
 import enum
+
+import attr
 
 from ..syntax import tokens
 

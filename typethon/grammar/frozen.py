@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import attr
 import enum
 import io
 
-from .symbols import Symbol, TerminalSymbol
+import attr
 
+from .symbols import Symbol, TerminalSymbol
 
 type FrozenSymbol = str
 type InternedFrozenSymbol = int
@@ -19,9 +19,7 @@ class FrozenSymbolTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         interned_symbols: list[Symbol[TokenKindT, KeywordKindT]],
     ) -> None:
         self.interned_symbols: list[FrozenSymbol] = []
-        self.interned_terminal_lookup: dict[
-            str, InternedFrozenSymbol
-        ] = {}
+        self.interned_terminal_lookup: dict[str, InternedFrozenSymbol] = {}
         self.interned_nonterminal_lookup: dict[str, InternedFrozenSymbol] = {}
         for symbol in interned_symbols:
             if isinstance(symbol, TerminalSymbol):
@@ -48,7 +46,9 @@ class FrozenSymbolTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def get_frozen_symbol(self, interned_symbol: InternedFrozenSymbol) -> FrozenSymbol:
         return self.interned_symbols[interned_symbol]
 
-    def get_frozen_production(self, interned_production: InternedFrozenProduction) -> FrozenProduction:
+    def get_frozen_production(
+        self, interned_production: InternedFrozenProduction
+    ) -> FrozenProduction:
         return self.interned_productions[interned_production]
 
     def create_frozen_production(
@@ -66,7 +66,9 @@ class FrozenSymbolTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         self.interned_productions.append(frozen_production)
         return frozen_production
 
-    def add_production_action(self, production: InternedFrozenProduction, name: str) -> None:
+    def add_production_action(
+        self, production: InternedFrozenProduction, name: str
+    ) -> None:
         self.production_action_lookup[production] = name
 
 
@@ -93,7 +95,7 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def __init__(
         self,
         number_of_states: int,
-        frozen_symbols: FrozenSymbolTable[TokenKindT, KeywordKindT]
+        frozen_symbols: FrozenSymbolTable[TokenKindT, KeywordKindT],
     ) -> None:
         self.frozen_symbols = frozen_symbols
         self.actions: list[
@@ -102,17 +104,23 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         self.gotos: list[list[StateID]] = []
 
         for _ in range(number_of_states):
-            self.actions.append([UNSET_ACTION] * len(frozen_symbols.interned_terminal_lookup))
+            self.actions.append(
+                [UNSET_ACTION] * len(frozen_symbols.interned_terminal_lookup)
+            )
 
         for _ in range(number_of_states):
-            self.gotos.append([UNSET_GOTO] * len(frozen_symbols.interned_nonterminal_lookup))
+            self.gotos.append(
+                [UNSET_GOTO] * len(frozen_symbols.interned_nonterminal_lookup)
+            )
 
-    def get_action(self, state_id: StateID, interned_symbol: InternedFrozenSymbol) -> tuple[
-        ActionKind, StateID | InternedFrozenProduction
-    ]:
+    def get_action(
+        self, state_id: StateID, interned_symbol: InternedFrozenSymbol
+    ) -> tuple[ActionKind, StateID | InternedFrozenProduction]:
         return self.actions[state_id][interned_symbol]
 
-    def get_goto(self, state_id: StateID, interned_symbol: InternedFrozenSymbol) -> StateID:
+    def get_goto(
+        self, state_id: StateID, interned_symbol: InternedFrozenSymbol
+    ) -> StateID:
         index = interned_symbol - len(self.frozen_symbols.interned_terminal_lookup)
         return self.gotos[state_id][index]
 
@@ -120,14 +128,10 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         writer = io.StringIO()
 
         for state_id in range(len(self.actions)):
-            writer.write(f'<state #{state_id}>\n')
+            writer.write(f"<state #{state_id}>\n")
 
             actions: list[
-                tuple[
-                    FrozenSymbol,
-                    ActionKind,
-                    StateID | InternedFrozenProduction
-                ]
+                tuple[FrozenSymbol, ActionKind, StateID | InternedFrozenProduction]
             ] = []
 
             for i, (action, number) in enumerate(self.actions[state_id]):
@@ -137,19 +141,19 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 symbol = self.frozen_symbols.get_frozen_symbol(i)
                 actions.append((symbol, action, number))
 
-            writer.write(f'[ Actions: {len(actions)} ]\n')
+            writer.write(f"[ Actions: {len(actions)} ]\n")
             for symbol, action, number in actions:
-                writer.write(f'  (for symbol {str(symbol)!r}) {action.name} ')
+                writer.write(f"  (for symbol {str(symbol)!r}) {action.name} ")
 
                 match action:
                     case ActionKind.SHIFT:
-                        writer.write(f'-> state #{number}')
+                        writer.write(f"-> state #{number}")
                     case ActionKind.REDUCE:
                         production = self.frozen_symbols.get_frozen_production(number)
                         lhs = self.frozen_symbols.get_frozen_symbol(production.lhs)
-                        writer.write(f'[production: {lhs}]')
+                        writer.write(f"[production: {lhs}]")
 
-                writer.write('\n')
+                writer.write("\n")
 
             gotos: list[tuple[FrozenSymbol, StateID]] = []
 
@@ -158,10 +162,10 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 symbol = self.frozen_symbols.get_frozen_symbol(index)
                 gotos.append((symbol, goto_state))
 
-            writer.write(f'[ GOTOs: {len(gotos)} ]\n')
+            writer.write(f"[ GOTOs: {len(gotos)} ]\n")
             for symbol, destination_id in gotos:
-                writer.write(f'  (for symbol {symbol!r}) -> state #{destination_id}\n')
+                writer.write(f"  (for symbol {symbol!r}) -> state #{destination_id}\n")
 
-        writer.write('\n')
+        writer.write("\n")
 
         return writer.getvalue()

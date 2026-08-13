@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import attr
 import enum
 from collections.abc import Sequence  # Covariant
+
+import attr
+
 from . import typeinfo
 
 
@@ -41,14 +43,7 @@ class List:
 class Constructor:
     type: Type = attr.ib()
 
-    def instantiate(self, args: list[Type]) -> Type:
-        ...
+    def instantiate(self, args: list[Type]) -> Type: ...
 
 
-type Type = (
-    PrimitiveType
-    | Adt
-    | Function
-    | Parameter
-    | List
-)
+type Type = PrimitiveType | Adt | Function | Parameter | List

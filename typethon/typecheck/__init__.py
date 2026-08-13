@@ -3,15 +3,15 @@ from .initializer import InitializationStore, TypeInitializer
 from .typeinfo import (
     AdtInfo,
     AdtVariant,
-    VariantField,
-    GenericsInfo,
     FunctionInfo,
+    GenericsInfo,
+    VariantField,
 )
 from .types import (
-    PrimitiveType,
     Adt,
+    Constructor,
     Function,
     Parameter,
-    Constructor,
+    PrimitiveType,
     Type,
 )

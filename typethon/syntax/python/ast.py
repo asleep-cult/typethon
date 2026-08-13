@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import typing
 import enum
+import typing
 
 import attr
 
@@ -333,25 +333,33 @@ class ConstantNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class IntegerNode(ConstantNode):
-    type: typing.Literal[ConstandKind.INTEGER] = attr.ib(init=False, default=ConstandKind.INTEGER)
+    type: typing.Literal[ConstandKind.INTEGER] = attr.ib(
+        init=False, default=ConstandKind.INTEGER
+    )
     value: int = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FloatNode(ConstantNode):
-    type: typing.Literal[ConstandKind.FLOAT] = attr.ib(init=False, default=ConstandKind.FLOAT)
+    type: typing.Literal[ConstandKind.FLOAT] = attr.ib(
+        init=False, default=ConstandKind.FLOAT
+    )
     value: float = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class ComplexNode(ConstantNode):
-    type: typing.Literal[ConstandKind.COMPLEX] = attr.ib(init=False, default=ConstandKind.COMPLEX)
+    type: typing.Literal[ConstandKind.COMPLEX] = attr.ib(
+        init=False, default=ConstandKind.COMPLEX
+    )
     value: complex = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class StringNode(ConstantNode):
-    type: typing.Literal[ConstandKind.STRING] = attr.ib(init=False, default=ConstandKind.STRING)
+    type: typing.Literal[ConstandKind.STRING] = attr.ib(
+        init=False, default=ConstandKind.STRING
+    )
     value: str = attr.ib()
     flags: StringFlags = attr.ib()
 

@@ -3,8 +3,8 @@ import typing
 
 from ..syntax.scanner import Scanner
 from ..syntax.tokens import (
-    TokenMap,
     Token,
+    TokenMap,
 )
 
 
