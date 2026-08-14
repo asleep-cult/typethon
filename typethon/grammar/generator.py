@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import array
 import enum
 import io
 import logging
@@ -16,6 +17,8 @@ from .frozen import (
     ActionKind,
     FrozenParserTable,
     FrozenSymbolTable,
+    InternedFrozenProduction,
+    StateID,
 )
 from .parser import GrammarParser
 from .symbols import (
@@ -51,10 +54,37 @@ class ParserState:
     lookahead: dict[InternedParserItem, LookaheadSet] = attr.ib(factory=dict)
 
 
+class MutableParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum](
+    FrozenParserTable[TokenKindT, KeywordKindT]
+):
+    actions: memoryview
+    gotos: memoryview
+
+    def __init__(
+        self,
+        number_of_states: int,
+        frozen_symbols: FrozenSymbolTable[TokenKindT, KeywordKindT],
+    ) -> None:
+        # Multiply by four because the numbers are 16 bits (2 bytes)
+        actions = bytearray(
+            len(frozen_symbols.interned_terminal_lookup) * number_of_states * 2
+        )
+        # shape = (number_of_states, len(frozen_symbols.interned_terminal_lookup))
+        actions_view = memoryview(actions).cast("H")
+
+        gotos = bytearray(
+            len(frozen_symbols.interned_nonterminal_lookup) * number_of_states * 2
+        )
+        # shape = (number_of_states, len(frozen_symbols.interned_nonterminal_lookup))
+        gotos_view = memoryview(gotos).cast("H")
+
+        super().__init__(frozen_symbols, number_of_states, actions_view, gotos_view)
+
+
 @attr.s(kw_only=True, slots=True)
 class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
-    genereator: ParserTableGenerator[TokenKindT, KeywordKindT] = attr.ib()
-    table: FrozenParserTable[TokenKindT, KeywordKindT] = attr.ib()
+    generator: ParserTableGenerator[TokenKindT, KeywordKindT] = attr.ib()
+    table: MutableParserTable[TokenKindT, KeywordKindT] = attr.ib()
 
     def get_action_entry_note_message(
         self,
@@ -62,10 +92,10 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         entry: tuple[ActionKind, int],
     ) -> str | None:
         if entry[0] == ActionKind.SHIFT:
-            dumped = self.genereator.dump_canonical_collection(entry[1])
+            dumped = self.generator.dump_canonical_collection(entry[1])
             return f"The next state of the {which} entry is as follows: {dumped}"
         elif entry[0] == ActionKind.REDUCE:
-            production = self.genereator.productions[entry[1]]
+            production = self.generator.productions[entry[1]]
             return (
                 f"The {which} entry reduced by the following procuction: {production}\n"
             )
@@ -77,7 +107,7 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         existing_entry: tuple[ActionKind, int],
         new_entry: tuple[ActionKind, int],
     ) -> str:
-        dumped = self.genereator.dump_canonical_collection(state_id)
+        dumped = self.generator.dump_canonical_collection(state_id)
 
         writer = io.StringIO()
         writer.write(
@@ -99,18 +129,20 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def add_accept(
         self, state_id: int, production: Production[TokenKindT, KeywordKindT]
     ) -> None:
-        new_entry = (ActionKind.ACCEPT, production.id)
-        existing_entry = self.table.actions[state_id][EOF.id]
+        new_entry = self.table.pack_action(ActionKind.ACCEPT, production.id)
+        index = self.table.action_index(state_id, EOF.id)
+        existing_entry = self.table.actions[index]
+
         if existing_entry != UNSET_ACTION and existing_entry != new_entry:
             message = self.get_action_table_conflict_message(
                 EOF,
                 state_id,
-                existing_entry,
-                new_entry,
+                self.table.unpack_action(existing_entry),
+                (ActionKind.ACCEPT, production.id),
             )
-            self.genereator.report_conflict(message)
+            self.generator.report_conflict(message)
 
-        self.table.actions[state_id][EOF.id] = new_entry
+        self.table.actions[index] = new_entry
 
     def add_shift(
         self,
@@ -118,20 +150,23 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
         next_id: int,
     ) -> None:
-        existing_entry = self.table.actions[state_id][symbol.id]
-        new_entry = (ActionKind.SHIFT, next_id)
+        index = self.table.action_index(state_id, symbol.id)
+        existing_entry = self.table.actions[index]
+        new_entry = self.table.pack_action(ActionKind.SHIFT, next_id)
+
         if existing_entry != UNSET_ACTION and existing_entry != new_entry:
-            recoverable = existing_entry[0] is ActionKind.REDUCE
-            if not recoverable or self.genereator.require_log():
+            unpacked_existing = self.table.unpack_action(existing_entry)
+            recoverable = unpacked_existing[0] is ActionKind.REDUCE
+            if not recoverable or self.generator.require_log():
                 message = self.get_action_table_conflict_message(
                     symbol,
                     state_id,
-                    existing_entry,
-                    new_entry,
+                    unpacked_existing,
+                    (ActionKind.SHIFT, next_id),
                 )
-                self.genereator.report_conflict(message, recoverable=recoverable)
+                self.generator.report_conflict(message, recoverable=recoverable)
 
-        self.table.actions[state_id][symbol.id] = new_entry
+        self.table.actions[index] = new_entry
 
     def add_reduce(
         self,
@@ -139,20 +174,26 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         symbol: TerminalSymbol[TokenKindT, KeywordKindT],
         production: Production[TokenKindT, KeywordKindT],
     ) -> None:
-        existing_entry = self.table.actions[state_id][symbol.id]
-        new_entry = (ActionKind.REDUCE, production.id)
+        index = self.table.action_index(state_id, symbol.id)
+        existing_entry = self.table.actions[index]
+        new_entry = self.table.pack_action(ActionKind.REDUCE, production.id)
+
         if existing_entry != UNSET_ACTION and existing_entry != new_entry:
-            recoverable = existing_entry[0] is ActionKind.SHIFT
-            if not recoverable or self.genereator.require_log():
+            unpacked_existing = self.table.unpack_action(existing_entry)
+            recoverable = unpacked_existing[0] is ActionKind.SHIFT
+            if not recoverable or self.generator.require_log():
                 message = self.get_action_table_conflict_message(
-                    symbol, state_id, existing_entry, new_entry
+                    symbol,
+                    state_id,
+                    unpacked_existing,
+                    (ActionKind.REDUCE, production.id),
                 )
-                self.genereator.report_conflict(message, recoverable=recoverable)
+                self.generator.report_conflict(message, recoverable=recoverable)
 
             if recoverable:
                 return
 
-        self.table.actions[state_id][symbol.id] = (ActionKind.REDUCE, production.id)
+        self.table.actions[index] = new_entry
 
     def add_goto(
         self,
@@ -160,12 +201,16 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         symbol: NonterminalSymbol[TokenKindT, KeywordKindT],
         destination_id: int,
     ) -> None:
-        index = symbol.id - len(self.table.frozen_symbols.interned_terminal_lookup)
-        existing_entry = self.table.gotos[state_id][index]
+        symbol_index = symbol.id - len(
+            self.table.frozen_symbols.interned_terminal_lookup
+        )
+        index = self.table.goto_index(state_id, symbol_index)
+        existing_entry = self.table.gotos[index]
+
         if existing_entry != UNSET_GOTO and existing_entry != destination_id:
             message = (
                 "Encountered impossible conflict while trying to add "
-                "an entry to add an entry to the goto table state #{0}, "
+                "an entry to the goto table state #{0}, "
                 "symbol {1}, destination: state #{2}: {3}".format(
                     state_id,
                     symbol,
@@ -173,9 +218,10 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     existing_entry,
                 )
             )
-            self.genereator.report_conflict(message)
+            self.generator.report_conflict(message)
 
-        self.table.gotos[state_id][index] = destination_id
+        # Goto is offset by one because 0 represents an unset goto
+        self.table.gotos[index] = destination_id + 1
 
 
 class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
@@ -270,16 +316,12 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         symbol_table = FrozenSymbolTable(self.interned_symbols)
 
         for production in self.productions:
-            frozen_production = symbol_table.create_frozen_production(
+            symbol_table.create_frozen_production(
                 production.lhs.id,
                 len(production.rhs),
                 tuple(production.captured),
+                action=production.action,
             )
-            if production.action is not None:
-                symbol_table.add_production_action(
-                    frozen_production.id,
-                    production.action,
-                )
 
         return symbol_table
 
@@ -446,9 +488,9 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 production.add_symbol(nonterminal, capture)
 
             case ast.GroupNode():
-                for expression in expression.expressions:
+                for subexpression in expression.expressions:
                     self.add_symbols_for_expression(
-                        production, expression, capture=capture
+                        production, subexpression, capture=capture
                     )
 
             case ast.KeywordNode():
@@ -755,27 +797,30 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
     def compute_tables(
         self,
+        symbol_table: FrozenSymbolTable,
         entrypoint: Production[TokenKindT, KeywordKindT],
     ) -> FrozenParserTable[TokenKindT, KeywordKindT]:
         self.compute_canonical_collection(entrypoint)
 
-        symbol_table = self.generate_frozen_symbols()
-        table = FrozenParserTable(
+        table = MutableParserTable(
             number_of_states=len(self.interned_canonical_collections),
             frozen_symbols=symbol_table,
         )
-        builder = TableBuilder(genereator=self, table=table)
+        builder = TableBuilder(generator=self, table=table)
 
         for (
             interned_items,
             lookaheads,
         ), interned_collection in self.interned_canonical_collections_lookup.items():
+            nonterminal_symbols = set()
+
             for interned_item, lookahead in zip(interned_items, lookaheads):
                 production, position = self.interned_items[interned_item]
 
                 if len(production.rhs) <= position:
                     if production.lhs.entrypoint:
                         builder.add_accept(interned_collection, production)
+                        continue
                     else:
                         for lookahead_symbol in self.iter_bitset(lookahead):
                             builder.add_reduce(
@@ -785,21 +830,20 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     continue
 
                 current_symbol = production.rhs[position]
-                if not isinstance(current_symbol, TerminalSymbol):
+                transition = self.transitions[interned_collection][current_symbol.id]
+                if transition == UNSET_TRANSITION:
                     continue
 
-                transition = self.transitions[interned_collection][current_symbol.id]
-                if transition != UNSET_TRANSITION:
+                if isinstance(current_symbol, TerminalSymbol):
                     builder.add_shift(interned_collection, current_symbol, transition)
-
-            for nonterminal in self.nonterminals.values():
-                transition = self.transitions[interned_collection][nonterminal.id]
-                if transition != UNSET_TRANSITION:
-                    builder.add_goto(interned_collection, nonterminal, transition)
+                elif current_symbol.id not in nonterminal_symbols:
+                    nonterminal_symbols.add(current_symbol.id)
+                    builder.add_goto(interned_collection, current_symbol, transition)
 
         for interned_collection in self.interned_canonical_collections_lookup.values():
             if all(
-                entry == UNSET_ACTION for entry in table.actions[interned_collection]
+                entry == UNSET_ACTION
+                for entry in table.all_actions(interned_collection)
             ):
                 raise ParserGeneratorError(
                     f"State #{interned_collection} has no actions"
@@ -807,11 +851,16 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         return table
 
-    def generate(self) -> dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]:
+    def generate(
+        self,
+    ) -> tuple[
+        FrozenSymbolTable, dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]
+    ]:
         self.generate_symbols()
         self.compute_epsilon_nonterminals()
         self.compute_first_sets()
         self.compute_nonterminal_closures()
+        symbol_table = self.generate_frozen_symbols()
 
         tables: dict[str, FrozenParserTable[TokenKindT, KeywordKindT]] = {}
         for nonterminal in self.nonterminals.values():
@@ -822,13 +871,13 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     )
 
                 production = nonterminal.productions[0]
-                table = self.compute_tables(production)
+                table = self.compute_tables(symbol_table, production)
                 tables[nonterminal.name] = table
 
         if not tables:
             raise ParserGeneratorError("The grammar has no entrypoint")
 
-        return tables
+        return symbol_table, tables
 
     @classmethod
     def generate_from_grammar(
@@ -836,7 +885,9 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         grammar: str,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-    ) -> dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]:
+    ) -> tuple[
+        FrozenSymbolTable, dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]
+    ]:
         rules = GrammarParser[TokenKindT, KeywordKindT].parse_from_source(
             grammar, tokens, keywords
         )

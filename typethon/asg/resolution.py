@@ -224,9 +224,7 @@ class SymbolResolver:
         parent_id = index.get_def_id()
         for subexpression in ast.walk_expressions(expression):
             if isinstance(subexpression, ast.LambdaNode):
-                def_id = self.asg_ctx.def_index.def_id(
-                    DefKind.FUNCTION, subexpression
-                )
+                def_id = self.asg_ctx.def_index.def_id(DefKind.FUNCTION, subexpression)
                 self.asg_ctx.record_parent(def_id, parent_id)
 
                 subindex = indexing.DefIndex(

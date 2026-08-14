@@ -1,9 +1,10 @@
-import attr
 import typing
 
+import attr
+
 from ..syntax.typethon import ast
-from .resolution import DefKind, LocalResult, ResultKind
 from . import asg
+from .resolution import DefKind, LocalResult, ResultKind
 
 
 @attr.s(kw_only=True, slots=True)
@@ -69,11 +70,13 @@ class AsgLowering:
                 assert False, "Invalid field owner"
 
     def lower_struct(self, def_id: asg.DefinitionId) -> asg.StructDef:
-        struct  = self.asg_ctx.node_for_def_id(def_id)
+        struct = self.asg_ctx.node_for_def_id(def_id)
         assert isinstance(struct, ast.StructTypeNode)
 
         parent_id = self.asg_ctx.parent_id(def_id)
-        parent_node = self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+        parent_node = (
+            self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+        )
         if isinstance(parent_node, (ast.TypeDefinitionNode, ast.SumTypeVariantNode)):
             name = parent_node.name
             is_definition = True
@@ -101,7 +104,9 @@ class AsgLowering:
         assert isinstance(tuple, ast.TupleTypeNode)
 
         parent_id = self.asg_ctx.parent_id(def_id)
-        parent_node = self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+        parent_node = (
+            self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+        )
         if isinstance(parent_node, (ast.TypeDefinitionNode, ast.SumTypeVariantNode)):
             name = parent_node.name
             is_definition = True
@@ -238,8 +243,7 @@ class AsgLowering:
         parameters: dict[str, asg.FunctionParameter] = {}
         for parameter in node.parameters:
             parameter_def = asg.FunctionParameter(
-                name=parameter.name,
-                type=self.lower_type(parameter.annotation)
+                name=parameter.name, type=self.lower_type(parameter.annotation)
             )
             parameters[parameter.name] = parameter_def
 

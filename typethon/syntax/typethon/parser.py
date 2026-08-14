@@ -2,6 +2,7 @@ import inspect
 import io
 import logging
 import pickle
+import struct
 import time
 import typing
 from itertools import count
@@ -10,6 +11,7 @@ from types import FunctionType
 
 from ...grammar import (
     FrozenParserTable,
+    FrozenSymbolTable,
     OptionNode,
     ParserAutomaton,
     ParserTableGenerator,
@@ -20,6 +22,7 @@ from ...grammar import (
     NodeItem as NodeItemT,
 )
 from ..tokens import (
+    STD_TOKENS,
     IdentifierToken,
     NumberToken,
     NumberTokenFlags,
@@ -72,7 +75,8 @@ Expression lambdas are valid anywhere an expression is
 
 
 class ASTParser:
-    tables: typing.ClassVar[
+    symbol_table: typing.ClassVar[FrozenSymbolTable | None] = None
+    parse_tables: typing.ClassVar[
         dict[str, FrozenParserTable[TokenKind, KeywordKind]] | None
     ] = None
 
@@ -109,27 +113,33 @@ class ASTParser:
                 Transformer[TokenKind, KeywordKind].from_function(function)
             )
 
-        if self.tables is None:
+        if self.parse_tables is None:
             raise ValueError("Call ASTParser.load_parser_tables()")
 
         self.parser = ParserAutomaton(
             self.scanner,
-            self.tables[entrypoint],
+            self.parse_tables[entrypoint],
             transformers,
         )
 
     @classmethod
-    def load_parser_tables(cls, *, regenrate: bool = False) -> None:
+    def load_parser_tables(cls, *, regenrate: bool = False, test: bool = False) -> None:
         cache_path = Path(__file__).parent / GRAMMAR_CACHE_PATH
 
         if not regenrate:
             with open(cache_path, "rb") as fp:
                 start = time.perf_counter()
-                cls.tables = pickle.load(fp)
+                tokens = []
+                tokens.extend(kind for _, kind in STD_TOKENS)
+                tokens.extend(kind for _, kind in TOKENS)
+                tokens.extend(kind for _, kind in KEYWORDS)
+                cls.symbol_table = FrozenSymbolTable.from_bytes(tokens, fp)
+                table = FrozenParserTable.from_bytes(cls.symbol_table, fp)
+                cls.parse_tables = {"module": table}
                 end = time.perf_counter()
 
                 difference = end - start
-                logger.info(f"Loaded cached tables after {difference:.2f} seconds")
+                logger.info(f"Loaded my tables after {difference * 1000:.2f} ms")
                 return
 
         grammar_path = Path(__file__).parent / GRAMMAR_PATH
@@ -137,13 +147,14 @@ class ASTParser:
             grammar = fp.read()
 
         start = time.perf_counter()
-        cls.tables = ParserTableGenerator[TokenKind, KeywordKind].generate_from_grammar(
+        cls.symbol_table, cls.parse_tables = ParserTableGenerator.generate_from_grammar(
             grammar, TOKENS, KEYWORDS
         )
         end = time.perf_counter()
 
         with open(cache_path, "wb") as fp:
-            pickle.dump(cls.tables, fp)
+            cls.symbol_table.to_bytes(fp)
+            cls.parse_tables["module"].to_bytes(fp)
 
         difference = end - start
         logger.info(f"Generated tables after {difference:.2f} seconds")
@@ -912,11 +923,7 @@ class ASTParser:
         elt_nodes: list[ast.TupleTypeEltNode] = []
         for i, elt in enumerate(elts.sequence().items):
             elt_node = ast.TupleTypeEltNode(
-                id=self.node_id(),
-                start=elt.start,
-                end=elt.end,
-                index=i,
-                type=elt
+                id=self.node_id(), start=elt.start, end=elt.end, index=i, type=elt
             )
             elt_nodes.append(elt_node)
 

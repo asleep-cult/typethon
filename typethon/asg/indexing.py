@@ -59,9 +59,7 @@ class DefIndexing:
     def def_result(self, def_id: asg.DefinitionId) -> resolution.DefResult:
         return resolution.DefResult(kind=self.def_kinds[def_id], def_id=def_id)
 
-    def def_id(
-        self, def_kind: resolution.DefKind, node: ast.Node
-    ) -> asg.DefinitionId:
+    def def_id(self, def_kind: resolution.DefKind, node: ast.Node) -> asg.DefinitionId:
         def_id = self.asg_ctx.def_id(node)
         self.def_kinds[def_id] = def_kind
         return def_id
@@ -84,10 +82,14 @@ class DefIndexing:
 
         for subexpression in ast.walk_type_expressions(type_expression):
             match subexpression:
-                case ast.StructTypeNode() if subexpression.id not in self.asg_ctx.def_nodes:
+                case ast.StructTypeNode() if (
+                    subexpression.id not in self.asg_ctx.def_nodes
+                ):
                     struct_def_id = self.index_struct(subexpression)
                     self.asg_ctx.record_parent(struct_def_id, def_id)
-                case ast.TupleTypeNode() if subexpression.id not in self.asg_ctx.def_nodes:
+                case ast.TupleTypeNode() if (
+                    subexpression.id not in self.asg_ctx.def_nodes
+                ):
                     tuple_def_id = self.index_tuple(subexpression)
                     self.asg_ctx.record_parent(tuple_def_id, def_id)
 

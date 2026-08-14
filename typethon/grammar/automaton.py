@@ -265,10 +265,10 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             terminal_symbol
         )
         entry = self.table.get_action(current_state, interned_symbol)
-        if entry == UNSET_ACTION:
+        if entry is None:
             symbols = [
                 self.table.frozen_symbols.get_frozen_symbol(i)
-                for i, entry in enumerate(self.table.actions[current_state])
+                for i, entry in enumerate(self.table.all_actions(current_state))
                 if entry != UNSET_ACTION
             ]
             string = ", ".join(symbols)
@@ -280,17 +280,15 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 f"The next token should have been one of the following: {string}. ({source!r})"
             )
 
-        action = entry[0]
+        action, number = entry
         match action:
             case ActionKind.SHIFT:
                 token = self.advance()
-                next_state = entry[1]
-                self.stack.append((token, next_state))
+                self.stack.append((token, number))
 
             case ActionKind.REDUCE:
-                production_id = entry[1]
                 frozen_production = self.table.frozen_symbols.get_frozen_production(
-                    production_id
+                    number
                 )
 
                 items = self.pop_stack(
@@ -309,7 +307,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 current_state = self.current_state()
 
                 next_state = self.table.get_goto(current_state, frozen_production.lhs)
-                if next_state == UNSET_GOTO:
+                if next_state is None:
                     nonterminal = self.table.frozen_symbols.get_frozen_symbol(
                         frozen_production.lhs
                     )
@@ -320,10 +318,9 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 self.stack.append((node, next_state))
 
             case ActionKind.ACCEPT:
-                production_id = entry[1]
                 items = self.pop_stack(len(self.stack) - 1)
 
-                action = self.table.frozen_symbols.get_frozen_action(production_id)
+                action = self.table.frozen_symbols.get_frozen_action(number)
                 if action is not None:
                     transformer = self.transformers[action]
                     return transformer.transform(self.get_item_span(items), items)
