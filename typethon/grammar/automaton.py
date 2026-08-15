@@ -3,16 +3,13 @@ from __future__ import annotations
 import enum
 import typing
 from collections.abc import Sequence
-from types import FunctionType
 
 import attr
 
 from ..syntax.scanner import Scanner
 from ..syntax.tokens import Token
 from .exceptions import (
-    DeadlockError,
     ParserAutomatonError,
-    StackUnderflowError,
     UnexpectedTokenError,
 )
 from .frozen import (
@@ -20,8 +17,6 @@ from .frozen import (
     UNSET_GOTO,
     ActionKind,
     FrozenParserTable,
-    FrozenSymbol,
-    InternedFrozenSymbol,
 )
 
 
@@ -74,48 +69,30 @@ type NodeItem[TokenKindT: enum.Enum, KeywordKindT: enum.Enum] = (
 )
 
 
-@attr.s(kw_only=True, slots=True)
-class Transformer[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
-    name: str = attr.ib()
-    callback: typing.Callable[..., NodeItem[TokenKindT, KeywordKindT]] = attr.ib()
-
-    @classmethod
-    def from_function(
-        cls, function: FunctionType[..., NodeItem[TokenKindT, KeywordKindT]]
-    ) -> Transformer[TokenKindT, KeywordKindT]:
-        return cls(name=function.__name__, callback=function)
-
-
 class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     # https://www.cs.uaf.edu/~chappell/class/2023_spr/cs331/lect/cs331-20230220-shiftred.pdf
     def __init__(
         self,
         scanner: Scanner[TokenKindT, KeywordKindT],
         table: FrozenParserTable[TokenKindT, KeywordKindT],
-        transformers: typing.Iterable[Transformer[TokenKindT, KeywordKindT]],
+        transformers: typing.Iterable[typing.Callable[..., NodeLike]],
         *,
         deadlock_threshold: int = 500,
     ) -> None:
         self.scanner = scanner
         self.table = table
         self.transformers = {
-            transformer.name: transformer for transformer in transformers
+            transformer.__name__: transformer for transformer in transformers
         }
         self.deadlock_threshold = deadlock_threshold
 
         self.state_stack: list[int] = [0]
         self.item_stack: list[NodeItem[TokenKindT, KeywordKindT]] = [OptionNode(start=0, end=0, item=None)]
 
-        self.transformers["@prepend"] = Transformer.from_function(
-            self.transform_prepend
-        )
-        self.transformers["@flatten"] = Transformer.from_function(
-            self.transform_flatten
-        )
-        self.transformers["@sequence"] = Transformer.from_function(
-            self.transform_sequence
-        )
-        self.transformers["@option"] = Transformer.from_function(self.transform_option)
+        self.transformers["@prepend"] = self.transform_prepend
+        self.transformers["@flatten"] = self.transform_flatten
+        self.transformers["@sequence"] = self.transform_sequence
+        self.transformers["@option"] = self.transform_option
 
     def get_item_span(
         self,
@@ -225,6 +202,10 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         current_token = None
         current_terminal = None
 
+        SHIFT = ActionKind.SHIFT.value
+        REDUCE = ActionKind.REDUCE.value
+        ACCEPT = ActionKind.ACCEPT.value
+
         while True:
             if current_token is None:
                 current_token = scan_fn()
@@ -243,7 +224,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 ]
                 string = ", ".join(symbols)
                 source = self.scanner.source[
-                    self.scanner.position - 20 : self.scanner.position + 20
+                    current_token.start - 20 : current_token.end + 20
                 ]
                 raise UnexpectedTokenError(
                     f"Automaton encountered an unexpected token {current_token.kind.name!r} in state #{current_state}. "
@@ -252,62 +233,61 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             action = (entry & 0xC000) >> 14
             number = entry & 0x3FFF
-            match action:
-                case ActionKind.SHIFT:
-                    item_stack.append(current_token)
-                    state_stack.append(number)
-                    current_token = None
+            if action == SHIFT:
+                item_stack.append(current_token)
+                state_stack.append(number)
+                current_token = None
 
-                case ActionKind.REDUCE:
-                    frozen_production = frozen_symbols.get_frozen_production(number)
-                    rhs_length = frozen_production.rhs_length
-                    captured = frozen_production.captured
+            elif action == REDUCE:
+                frozen_production = frozen_symbols.get_frozen_production(number)
+                rhs_length = frozen_production.rhs_length
+                captured = frozen_production.captured
 
-                    if rhs_length:
+                items = ()
+                if rhs_length:
+                    if captured:
                         items = [
                             item_stack[i - rhs_length] for i in range(rhs_length) if i in captured
                         ]
 
-                        del item_stack[-rhs_length:]
-                        del state_stack[-rhs_length:]
+                    del item_stack[-rhs_length:]
+                    del state_stack[-rhs_length:]
+
+                action = frozen_symbols.get_frozen_action(
+                    frozen_production.id
+                )
+                if action is not None:
+                    transformer = transformers[action]
+                    node = transformer(self.get_item_span(items), *items)
+                else:
+                    if len(items) == 1:
+                        node, = items
                     else:
-                        items = ()
+                        node = self.create_default_node(items)
 
-                    action = frozen_symbols.get_frozen_action(
-                        frozen_production.id
-                    )
-                    if action is not None:
-                        transformer = transformers[action]
-                        node = transformer.callback(self.get_item_span(items), *items)
-                    else:
-                        if len(items) == 1:
-                            node, = items
-                        else:
-                            node = self.create_default_node(items)
+                current_state = state_stack[-1]
+                symbol_id = frozen_production.lhs - terminals_size
+                next_state = goto_table[(current_state * nonterminals_size) + symbol_id]
+                if next_state == UNSET_GOTO:
+                    nonterminal = frozen_symbols.get_frozen_symbol(frozen_production.lhs)
+                    raise ParserAutomatonError(f"Automaton found no GOTO for {nonterminal} in {current_state}")
 
-                    current_state = state_stack[-1]
-                    symbol_id = frozen_production.lhs - terminals_size
-                    next_state = goto_table[(current_state * nonterminals_size) + symbol_id]
-                    if next_state == UNSET_GOTO:
-                        nonterminal = frozen_symbols.get_frozen_symbol(frozen_production.lhs)
-                        raise ParserAutomatonError(f"Automaton found no GOTO for {nonterminal} in {current_state}")
+                state_stack.append(next_state - 1)
+                item_stack.append(node)
 
-                    state_stack.append(next_state - 1)
-                    item_stack.append(node)
+            elif action == ACCEPT:
+                index = len(self.item_stack) - 1
+                if index:
+                    items = item_stack[-index:]
+                    del item_stack[-index:]
+                    del state_stack[-index:]
 
-                case ActionKind.ACCEPT:
-                    index = len(self.item_stack) - 1
-                    if index:
-                        items = item_stack[-index:]
-                        del item_stack[-index:]
-                        del state_stack[-index:]
+                action = frozen_symbols.get_frozen_action(number)
+                if action is not None:
+                    transformer = transformers[action]
+                    return transformer(self.get_item_span(items), *items)
+                else:
+                    if len(items) == 1:
+                        return items[0]
 
-                    action = frozen_symbols.get_frozen_action(number)
-                    if action is not None:
-                        transformer = transformers[action]
-                        return transformer.callback(self.get_item_span(items), *items)
-                    else:
-                        if len(items) == 1:
-                            return items[1]
-
-                        return self.create_default_node(items)
+                    return self.create_default_node(items)

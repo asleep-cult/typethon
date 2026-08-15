@@ -16,7 +16,6 @@ from ...grammar import (
     ParserAutomaton,
     ParserTableGenerator,
     SequenceNode,
-    Transformer,
 )
 from ...grammar import (
     NodeItem as NodeItemT,
@@ -109,9 +108,7 @@ class ASTParser:
             if transformer_wrapper is not None:
                 function = transformer_wrapper(function).__get__(self)
 
-            transformers.append(
-                Transformer[TokenKind, KeywordKind].from_function(function)
-            )
+            transformers.append(function)
 
         if self.parse_tables is None:
             raise ValueError("Call ASTParser.load_parser_tables()")

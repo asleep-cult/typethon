@@ -1,4 +1,5 @@
 import enum
+import typing
 
 from ..syntax.tokens import (
     IdentifierToken,
@@ -100,7 +101,8 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
     def parse_rules(self) -> list[ast.RuleNode[TokenKindT, KeywordKindT]]:
         rules: list[ast.RuleNode[TokenKindT, KeywordKindT]] = []
-        while not self.scanner.is_eof():
+        self.scanner.scan_source()
+        while self.scanner.tokens:
             rules.append(self.parse_rule())
 
         return rules

@@ -1,7 +1,7 @@
 import enum
 
 from ..scanner import Scanner
-from ..tokens import Token as TokenT
+from ..tokens import Token as TokenT, StdTokenKind
 from ..tokens import TokenMap
 
 
@@ -59,6 +59,30 @@ class TokenKind(enum.Enum):
 
 
 TOKENS: TokenMap[TokenKind] = (
+    ("->", TokenKind.RARROW),
+    ("...", TokenKind.ELLIPSIS),
+    ("<<=", TokenKind.DOUBLELTHANEQUAL),
+    (">>=", TokenKind.DOUBLEGTHANEQUAL),
+    ("**=", TokenKind.DOUBLESTAREQUAL),
+    ("//=", TokenKind.DOUBLESLASHEQUAL),
+    ("**", TokenKind.DOUBLESTAR),
+    ("+=", TokenKind.PLUSEQUAL),
+    ("-=", TokenKind.MINUSEQUAL),
+    ("*=", TokenKind.STAREQUAL),
+    ("/=", TokenKind.SLASHEQUAL),
+    ("@=", TokenKind.ATEQUAL),
+    ("%=", TokenKind.PERCENTEQUAL),
+    ("&=", TokenKind.AMPERSANDEQUAL),
+    ("|=", TokenKind.VERTICALBAREQUAL),
+    ("^=", TokenKind.CIRCUMFLEXEQUAL),
+    (":=", TokenKind.COLONEQUAL),
+    ("//", TokenKind.DOUBLESLASH),
+    ("==", TokenKind.EQEQUAL),
+    ("!=", TokenKind.NOTEQUAL),
+    ("<=", TokenKind.LTHANEQ),
+    (">=", TokenKind.GTHANEQ),
+    ("<<", TokenKind.DOUBLELTHAN),
+    (">>", TokenKind.DOUBLEGTHAN),
     ("(", TokenKind.OPENPAREN),
     (")", TokenKind.CLOSEPAREN),
     ("[", TokenKind.OPENBRACKET),
@@ -83,30 +107,6 @@ TOKENS: TokenMap[TokenKind] = (
     ("~", TokenKind.TILDE),
     ("^", TokenKind.CIRCUMFLEX),
     ("'", TokenKind.TICK),
-    ("//", TokenKind.DOUBLESLASH),
-    ("==", TokenKind.EQEQUAL),
-    ("!=", TokenKind.NOTEQUAL),
-    ("<=", TokenKind.LTHANEQ),
-    (">=", TokenKind.GTHANEQ),
-    ("<<", TokenKind.DOUBLELTHAN),
-    (">>", TokenKind.DOUBLEGTHAN),
-    ("**", TokenKind.DOUBLESTAR),
-    ("+=", TokenKind.PLUSEQUAL),
-    ("-=", TokenKind.MINUSEQUAL),
-    ("*=", TokenKind.STAREQUAL),
-    ("/=", TokenKind.SLASHEQUAL),
-    ("@=", TokenKind.ATEQUAL),
-    ("%=", TokenKind.PERCENTEQUAL),
-    ("&=", TokenKind.AMPERSANDEQUAL),
-    ("|=", TokenKind.VERTICALBAREQUAL),
-    ("^=", TokenKind.CIRCUMFLEXEQUAL),
-    (":=", TokenKind.COLONEQUAL),
-    ("->", TokenKind.RARROW),
-    ("<<=", TokenKind.DOUBLELTHANEQUAL),
-    (">>=", TokenKind.DOUBLEGTHANEQUAL),
-    ("**=", TokenKind.DOUBLESTAREQUAL),
-    ("//=", TokenKind.DOUBLESLASHEQUAL),
-    ("...", TokenKind.ELLIPSIS),
 )
 
 
