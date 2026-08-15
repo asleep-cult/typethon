@@ -1,3 +1,5 @@
+
+import re
 import enum
 import typing
 
@@ -79,7 +81,9 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         keywords: KeywordMap[KeywordKindT],
         matched_tokens: dict[TokenKindT, TokenKindT],
     ) -> None:
+        # XXX: There is significant overhead added by the scanner because it goes character by character.
         self.source = source
+        self.source_len = len(source)
         self.position = 0
 
         self.tokens = self.create_lookup_table(dict(tokens))
@@ -97,6 +101,10 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         self.match_stack_bottom = 0
         self.indentation_nesting_stack: list[tuple[int, tuple[int, int]]] = []
+
+        self.indent_pattern = re.compile("[\t ]+")
+        self.identifier_pattern = re.compile("[a-zA-Z_][a-zA-Z0-9_]*")
+        self.whitespace_pattern = re.compile("[ \t\f\r]+")
 
     def is_match_stack_effectively_empty(self) -> bool:
         return len(self.match_stack) - self.match_stack_bottom <= 0
@@ -136,10 +144,10 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         return table
 
     def is_eof(self) -> bool:
-        return self.position >= len(self.source)
+        return self.position >= self.source_len
 
     def char_at(self, index: int) -> str:
-        if index >= len(self.source):
+        if index >= self.source_len:
             return EOF
 
         return self.source[index]
@@ -148,8 +156,7 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         return self.char_at(self.position + skip)
 
     def consume_char(self, skip: int = 1) -> str:
-        char = self.char_at(self.position)
-
+        char = self.source[self.position]
         if not self.is_eof():
             self.position += skip
 
@@ -187,20 +194,26 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def scan_indentation(self) -> None:
         start = self.position
 
-        indent = 0
-        altindent = 0
+        result = self.indent_pattern.match(self.source, start)
+        if result is not None:
+            self.position = result.end()
 
-        while is_indent(self.peek_char()):
-            char = self.consume_char()
+            content = result.group(0)
+            indent = content.count(" ")
+            altindent = indent
 
-            if char == " ":
-                indent += 1
-                altindent += 1
-            elif char == "\t":
-                indent += ((indent // TABSIZE) + 1) * TABSIZE
-                altindent += ((indent // ALTTABSIZE) + 1) * ALTTABSIZE
+            tab_count = content.count("\t")
+            if tab_count:
+                indent = ((indent + TABSIZE) // TABSIZE) * TABSIZE
+                indent += (tab_count - 1) * TABSIZE
 
-        if is_blank(self.peek_char()):
+                altindent = ((indent + TABSIZE) // TABSIZE) * TABSIZE
+                altindent += (tab_count - 1) * TABSIZE
+        else:
+            indent = 0
+            altindent = 0
+
+        if self.position < self.source_len and is_blank(self.source[self.position]):
             return
 
         self.add_pending_indentation(start, indent, altindent)
@@ -255,13 +268,14 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def identifier_or_string(self) -> Token[TokenKindT, KeywordKindT]:
         start = self.position
 
-        char = self.consume_char()
-        assert is_identifier_start(char)
+        result = self.identifier_pattern.match(self.source, start)
+        assert result is not None
 
-        self.consume_while(is_identifier)
-        content = self.source[start : self.position]
+        position = result.end()
+        content = result.group(0)
 
-        if self.peek_char() in "'\"":
+        self.position = position
+        if position < self.source_len and self.source[position] in "'\"":
             flags = StringTokenFlags.NONE
 
             for char in content.lower():
@@ -363,8 +377,8 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def newline(self) -> Token[TokenKindT, KeywordKindT] | None:
         start = self.position
 
-        char = self.consume_char()
-        assert char == "\n"
+        assert self.source[self.position] == '\n'
+        self.position += 1
 
         if self.is_newline or not self.is_match_stack_effectively_empty():
             return None
@@ -458,12 +472,12 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         current_table = self.tokens
         current_kind = StdTokenKind.EINVALID
 
-        while True:
-            char = self.peek_char()
+        while self.position < self.source_len:
+            char = self.source[self.position]
             entry = current_table.get(char)
 
             if entry is not None:
-                self.consume_char()
+                self.position += 1
 
                 current_table = entry[0]
                 if entry[1] is not None:
@@ -502,15 +516,17 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             if self.pending_tokens:
                 return self.pending_tokens.pop(0)
 
-            self.consume_while(is_whitespace)
+            result = self.whitespace_pattern.match(self.source, self.position)
+            if result is not None:
+                self.position = result.end()
 
-            if self.is_eof():
+            if self.position >= self.source_len:
                 return TokenData(
                     kind=StdTokenKind.EOF, start=self.position, end=self.position
                 )
 
             start = self.position
-            char = self.peek_char()
+            char = self.source[start]
 
             if is_identifier_start(char):
                 return self.identifier_or_string()
@@ -541,7 +557,7 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 return token
 
             elif char == ".":
-                char = self.peek_char(1)
+                char = self.source[self.position + 1]
                 if is_digit(char):
                     return self.number()
 
