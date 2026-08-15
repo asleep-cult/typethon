@@ -94,7 +94,7 @@ class SymbolResolver:
         def_id = self.asg_ctx.def_nodes.get(index.node_id)
         param_index = self.asg_ctx.def_index.def_params.get(def_id)
         if param_index is not None:
-            scope.type_parameters.update(param_index.paremeters)
+            scope.type_parameters.update(param_index.parameters)
 
         for name, entry in index.entries.items():
             match entry.result.kind:

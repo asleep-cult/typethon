@@ -34,7 +34,7 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             keywords=(),
             matched_tokens={GrammarTokenKind.OPENPAREN: GrammarTokenKind.CLOSEPAREN},
         )
-        self.buffer: list[GrammarToken] = []
+        self.buffer: list[GrammarToken] = self.scanner.scan()
 
     def parse_identifier(
         self, token: IdentifierToken
@@ -75,34 +75,31 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
     def scan_no_whitespace(self) -> GrammarToken:
         while True:
-            token = self.scanner.scan()
+            token = self.buffer[0]
             if token.kind in (StdTokenKind.INDENT, StdTokenKind.DEDENT):
+                self.buffer.pop(0)
                 continue
 
             return token
 
     def scan_token(self, *, skip_newline: bool = False) -> GrammarToken:
         while True:
-            if self.buffer:
-                token = self.buffer.pop(0)
-            else:
-                token = self.scan_no_whitespace()
+            token = self.scan_no_whitespace()
 
             if token.kind is not StdTokenKind.NEWLINE:
+                self.buffer.pop(0)
                 return token
             elif not skip_newline:
+                self.buffer.pop(0)
                 return token
 
     def peek_token(self, index: int = 1) -> GrammarToken:
-        while len(self.buffer) < index:
-            self.buffer.append(self.scan_no_whitespace())
-
+        self.scan_no_whitespace()
         return self.buffer[index - 1]
 
     def parse_rules(self) -> list[ast.RuleNode[TokenKindT, KeywordKindT]]:
         rules: list[ast.RuleNode[TokenKindT, KeywordKindT]] = []
-        self.scanner.scan_source()
-        while self.scanner.tokens:
+        while self.peek_token().kind is not StdTokenKind.EOF:
             rules.append(self.parse_rule())
 
         return rules

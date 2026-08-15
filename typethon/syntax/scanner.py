@@ -221,7 +221,7 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             self.tokens.append(token)
             return end        
 
-    def scan_source(self) -> list[Token[TokenKindT, KeywordKindT]]:
+    def scan(self) -> list[Token[TokenKindT, KeywordKindT]]:
         self.scanned = True
         token_group = "|".join(re.escape(token) for token in self.token_map)
 
@@ -395,25 +395,17 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     if end == -1:
                         end = len(source)
 
-                    comment = self.source[position + 1 : end]
+                    comment = self.source[position : end]
 
                     directive_start = comment.find("[")
                     directive_end = comment.find("]")
 
-                    if directive_start == 0 and directive_end == -1:
+                    if directive_start == 0 and directive_end != -1:
                         content = comment[directive_start + 1 : directive_end]
                         self.tokens.append(DirectiveToken(start=position, end=end, content=content))
-
-                    position = end + 1
+                        position = end
+                    else:
+                        position = end + 1
 
                 case "string":
                     position = self.string(position, source)
-
-    def scan(self) -> Token[TokenKindT, KeywordKindT]:
-        if not self.scanned:
-            self.scan_source()
-
-        if self.tokens:
-            return self.tokens.pop(0)
-
-        return TokenData(kind=StdTokenKind.EOF, start=0, end=0)

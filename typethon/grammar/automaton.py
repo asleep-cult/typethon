@@ -182,7 +182,9 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         # Optimizations to avoid attribute lookup in the loop.
         # This makes the parser loop 20-50% faster.
         # There is significant overhead in the scanner.
-        scan_fn = self.scanner.scan
+        tokens = self.scanner.scan()
+        tokens_len = len(tokens)
+        index = 0
 
         frozen_symbols = self.table.frozen_symbols
         transformers = self.transformers
@@ -208,8 +210,11 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         while True:
             if current_token is None:
-                current_token = scan_fn()
+                current_token = tokens[index]
                 current_terminal = terminals[current_token.kind.name]
+
+                if tokens_len > index + 1:
+                    index += 1
             else:
                 assert current_terminal is not None
 

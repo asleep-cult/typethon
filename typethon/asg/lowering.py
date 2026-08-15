@@ -70,13 +70,18 @@ class AsgLowering:
                 assert False, "Invalid field owner"
 
     def lower_struct(self, def_id: asg.DefinitionId) -> asg.StructDef:
-        struct = self.asg_ctx.node_for_def_id(def_id)
-        assert isinstance(struct, ast.StructTypeNode)
+        node = self.asg_ctx.node_for_def_id(def_id)
+        if isinstance(node, ast.TypeDefinitionNode):
+            parent_node = node
+            struct = node.type
+            assert isinstance(struct, ast.StructTypeNode)
+        else:
+            parent_id = self.asg_ctx.parent_id(def_id)
+            parent_node = (
+                self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+            )
+            struct = node
 
-        parent_id = self.asg_ctx.parent_id(def_id)
-        parent_node = (
-            self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
-        )
         if isinstance(parent_node, (ast.TypeDefinitionNode, ast.SumTypeVariantNode)):
             name = parent_node.name
             is_definition = True
@@ -100,13 +105,18 @@ class AsgLowering:
         )
 
     def lower_tuple(self, def_id: asg.DefinitionId) -> asg.TupleDef:
-        tuple = self.asg_ctx.node_for_def_id(def_id)
-        assert isinstance(tuple, ast.TupleTypeNode)
+        node = self.asg_ctx.node_for_def_id(def_id)
+        if isinstance(node, ast.TypeDefinitionNode):
+            parent_node = node
+            tuple = node.type
+            assert isinstance(tuple, ast.TupleTypeNode)
+        else:
+            parent_id = self.asg_ctx.parent_id(def_id)
+            parent_node = (
+                self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+            )
+            tuple = node
 
-        parent_id = self.asg_ctx.parent_id(def_id)
-        parent_node = (
-            self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
-        )
         if isinstance(parent_node, (ast.TypeDefinitionNode, ast.SumTypeVariantNode)):
             name = parent_node.name
             is_definition = True
@@ -217,24 +227,24 @@ class AsgLowering:
 
     def lower_new_type(self, def_id: asg.DefinitionId) -> asg.AliasDef:
         node = self.asg_ctx.node_for_def_id(def_id)
+        if isinstance(node, ast.TypeDefinitionNode):
+            parent_node = node
+            new_type = node.type
+        else:
+            parent_id = self.asg_ctx.parent_id(def_id)
+            parent_node = (
+                self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+            )
+            assert isinstance(parent_node, ast.SumTypeVariantNode)
+            new_type = node
 
-        parent_id = self.asg_ctx.parent_id(def_id)
-        assert parent_id is not None
-        parent_node = self.asg_ctx.node_for_def_id(parent_id)
-
-        match parent_node:
-            case ast.TypeDefinitionNode():
-                assert node is parent_node.type
-
-                type = self.lower_type(node)
-                return asg.AliasDef(def_id=def_id, name=parent_node.name, type=type)
-            case ast.SumTypeVariantNode():
-                assert node is parent_node.type
-
-                type = self.lower_type(node)
-                return asg.AliasDef(def_id=def_id, name=parent_node.name, type=type)
-            case _:
-                assert False, f"Invalid parent for alias: {parent_node}"
+        new_type = typing.cast(ast.TypeExpressionNode, new_type)
+        type = self.lower_type(new_type)
+        return asg.AliasDef(
+            def_id=def_id,
+            name=parent_node.name,
+            type=type,
+        )
 
     def lower_function(self, def_id: asg.DefinitionId) -> asg.FunctionDef:
         node = self.asg_ctx.node_for_def_id(def_id)

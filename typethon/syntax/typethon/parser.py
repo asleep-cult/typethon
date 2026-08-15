@@ -90,7 +90,7 @@ class ASTParser:
         self.node_id_counter = count()
         self.scanner = create_scanner(source)
 
-        transformers: list[Transformer[TokenKind, KeywordKind]] = []
+        transformers = []
 
         def is_transformer(member: typing.Any) -> bool:
             return inspect.ismethod(member) and (
