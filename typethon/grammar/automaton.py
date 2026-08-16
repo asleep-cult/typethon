@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import attr
 
 from ..syntax.scanner import Scanner
-from ..syntax.tokens import Token
+from ..syntax.tokens import Token, StdTokenKind, TokenData
 from .exceptions import (
     ParserAutomatonError,
     UnexpectedTokenError,
@@ -94,23 +94,15 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         self.transformers["@sequence"] = self.transform_sequence
         self.transformers["@option"] = self.transform_option
 
-    def get_item_span(
-        self,
-        items: Sequence[NodeItem[TokenKindT, KeywordKindT]],
-    ) -> tuple[int, int]:
-        if not items:
-            return (0, 0)
-
-        return (items[0].start, items[-1].end)
-
     def create_default_node(
-        self, items: list[NodeItem[TokenKindT, KeywordKindT]]
+        self,
+        span: tuple[int, int],
+        items: list[NodeItem[TokenKindT, KeywordKindT]]
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if len(items) == 1:
             return items[0]
 
-        start, end = self.get_item_span(items)
-        return Node(start=start, end=end, items=items)
+        return Node(start=span[0], end=span[1], items=items)
 
     def transform_prepend[ItemT](
         self,
@@ -137,7 +129,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         span: tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> SequenceNode[NodeItem[TokenKindT, KeywordKindT]]:
-        sequence = SequenceNode[NodeItem[TokenKindT, KeywordKindT]](
+        sequence = SequenceNode(
             start=span[0], end=span[1], items=[]
         )
         for item in items:
@@ -171,11 +163,11 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if not items:
-            return OptionNode(start=-1, end=-1)
+            return OptionNode(start=span[0], end=span[1])
 
         list_items = list(items)
         return OptionNode(
-            start=span[0], end=span[1], item=self.create_default_node(list_items)
+            start=span[0], end=span[1], item=self.create_default_node(span, list_items)
         )
 
     def parse(self) -> NodeItem[TokenKindT, KeywordKindT]:
@@ -203,10 +195,14 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         current_token = None
         current_terminal = None
+        end_stack = [0]
+        effective_end = 0
 
         SHIFT = ActionKind.SHIFT.value
         REDUCE = ActionKind.REDUCE.value
         ACCEPT = ActionKind.ACCEPT.value
+
+        ignore_end = (StdTokenKind.INDENT, StdTokenKind.DEDENT, StdTokenKind.NEWLINE)
 
         while True:
             if current_token is None:
@@ -241,6 +237,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             if action == SHIFT:
                 item_stack.append(current_token)
                 state_stack.append(number)
+                end_stack.append(effective_end)
                 current_token = None
 
             elif action == REDUCE:
@@ -250,6 +247,14 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
                 items = ()
                 if rhs_length:
+                    start = item_stack[-rhs_length].start
+
+                    end = start
+                    for item in reversed(item_stack):
+                        if not isinstance(item, TokenData) or item.kind not in ignore_end:
+                            end = item.end
+                            break
+
                     if captured:
                         items = [
                             item_stack[i - rhs_length] for i in range(rhs_length) if i in captured
@@ -257,18 +262,23 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
                     del item_stack[-rhs_length:]
                     del state_stack[-rhs_length:]
+                else:
+                    # Epsilon production... really has no span
+                    # Just use the end of the last item so the next reduction has the proper start position
+                    start = item_stack[-1].end
+                    end = item_stack[-1].end
 
-                action = frozen_symbols.get_frozen_action(
-                    frozen_production.id
-                )
+                action = frozen_symbols.get_frozen_action(frozen_production.id)
+
                 if action is not None:
                     transformer = transformers[action]
-                    node = transformer(self.get_item_span(items), *items)
+                    node = transformer((start, end), *items)
                 else:
                     if len(items) == 1:
                         node, = items
                     else:
-                        node = self.create_default_node(items)
+                        start = item_stack[-1].end
+                        node = self.create_default_node((start, end), items)
 
                 current_state = state_stack[-1]
                 symbol_id = frozen_production.lhs - terminals_size
@@ -290,9 +300,9 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 action = frozen_symbols.get_frozen_action(number)
                 if action is not None:
                     transformer = transformers[action]
-                    return transformer(self.get_item_span(items), *items)
+                    return transformer((0, current_token.end), *items)
                 else:
                     if len(items) == 1:
                         return items[0]
 
-                    return self.create_default_node(items)
+                    return self.create_default_node((0, current_token.end), items)

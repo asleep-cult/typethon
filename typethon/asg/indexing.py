@@ -178,13 +178,11 @@ class DefIndexing:
                 case ast.StructTypeNode() if (
                     subexpression.id not in self.asg_ctx.def_nodes
                 ):
-                    struct_def_id = self.index_struct(def_id, subexpression)
-                    self.asg_ctx.record_parent(struct_def_id, def_id)
+                    self.index_struct(def_id, subexpression)
                 case ast.TupleTypeNode() if (
                     subexpression.id not in self.asg_ctx.def_nodes
                 ):
-                    tuple_def_id = self.index_tuple(def_id, subexpression)
-                    self.asg_ctx.record_parent(tuple_def_id, def_id)
+                    self.index_tuple(def_id, subexpression)
 
             if not isinstance(subexpression, ast.TypeParameterNode):
                 continue
