@@ -33,10 +33,7 @@ class SymbolScope:
     # Shadowing must be forbidden. Symbol scope should be simplified to types and values
     node_id: ast.NodeId = attr.ib()
     kind: ScopeKind = attr.ib()
-    type_definitions: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
-    type_parameters: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
-    class_defs: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
-    function_defs: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
+    definitions: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
     local_definitions: dict[str, LocalDef] = attr.ib(factory=dict)
 
 
@@ -55,7 +52,7 @@ class DefKind(enum.Enum):
 
 
 class ResultKind(enum.Enum):
-    ERROR = enum.auto()
+    UNDEFINED = enum.auto()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -69,7 +66,7 @@ class LocalResult:
     node_id: ast.NodeId = attr.ib()
 
 
-type ResolvedSymbol = DefResult | LocalResult | typing.Literal[ResultKind.ERROR]
+type ResolvedSymbol = DefResult | LocalResult | typing.Literal[ResultKind.UNDEFINED]
 
 
 @attr.s(kw_only=True, slots=True)
@@ -94,16 +91,10 @@ class SymbolResolver:
         def_id = self.asg_ctx.def_nodes.get(index.node_id)
         param_index = self.asg_ctx.def_index.def_params.get(def_id)
         if param_index is not None:
-            scope.type_parameters.update(param_index.parameters)
+            scope.definitions.update(param_index.parameters)
 
         for name, entry in index.entries.items():
-            match entry.result.kind:
-                case DefKind.STRUCT | DefKind.TUPLE | DefKind.SUM | DefKind.NEW_TYPE:
-                    scope.type_definitions[name] = entry.result.def_id
-                case DefKind.FUNCTION:
-                    scope.function_defs[name] = entry.result.def_id
-                case DefKind.CLASS:
-                    scope.class_defs[name] = entry.result.def_id
+            scope.definitions[name] = entry.result.def_id
 
         return scope
 
@@ -156,9 +147,8 @@ class SymbolResolver:
             case ast.FunctionDefNode():
                 def_id = self.asg_ctx.def_id_for_node_id(statement.id)
                 subindex = self.asg_ctx.def_index.def_indexes[def_id]
-                if statement.body is not None:
-                    scope = self.create_scope(subindex, ScopeKind.FUNCTION)
-                    self.initialize_symbols_for_function(subindex, scope, statement)
+                scope = self.create_scope(subindex, ScopeKind.FUNCTION)
+                self.initialize_symbols_for_function(subindex, scope, statement)
 
             case ast.ClassDefNode():
                 def_id = self.asg_ctx.def_id_for_node_id(statement.id)
@@ -235,14 +225,10 @@ class SymbolResolver:
 
                 for parameter in subexpression.parameters:
                     if parameter.type is not None:
-                        self.asg_ctx.def_index.index_type_expression(
-                            parent_id, def_id, parameter.type
-                        )
+                        self.asg_ctx.def_index.index_type_expression(def_id, parameter.type)
 
                 if subexpression.returns is not None:
-                    self.asg_ctx.def_index.index_type_expression(
-                        parent_id, def_id, subexpression.returns
-                    )
+                    self.asg_ctx.def_index.index_type_expression(def_id, subexpression.returns)
 
                 scope = self.create_scope(subindex, ScopeKind.LAMBDA)
                 for parameter in subexpression.parameters:
@@ -269,58 +255,19 @@ class SymbolResolver:
         self,
         name: str,
         *,
-        include_local_definitions: bool = True,
-        include_functions: bool = True,
-        include_type_parameters: bool = True,
-        include_type_definitions: bool = True,
-        include_classes: bool = True,
+        include_locals: bool = True,
+        include_definitions: bool = True,
     ) -> ResolvedSymbol:
-        first_iteration = True
-        can_access_type_parameters = include_type_parameters
-        can_access_class_parameters = True
-        can_access_definitions = include_local_definitions
-
         for scope in reversed(self.scope_stack):
-            if can_access_definitions and name in scope.local_definitions:
+            if include_locals and name in scope.local_definitions:
                 return LocalResult(node_id=scope.local_definitions[name].node_id)
 
-            if can_access_type_parameters and name in scope.type_parameters:
-                return DefResult(
-                    kind=DefKind.TYPE_PARAMETER, def_id=scope.type_parameters[name]
-                )
+        for scope in reversed(self.scope_stack):
+            if include_definitions and name in scope.definitions:
+                def_id = scope.definitions[name]
+                return DefResult(kind=self.asg_ctx.def_kind(def_id), def_id=def_id)
 
-            if scope.kind is ScopeKind.CLASS and can_access_class_parameters:
-                if name in scope.type_parameters:
-                    return DefResult(
-                        kind=DefKind.TYPE_PARAMETER, def_id=scope.type_parameters[name]
-                    )
-
-                can_access_class_parameters = False
-
-            if include_functions and name in scope.function_defs:
-                return DefResult(
-                    kind=DefKind.FUNCTION, def_id=scope.function_defs[name]
-                )
-
-            if include_type_definitions and name in scope.type_definitions:
-                def_id = scope.type_definitions[name]
-                def_kind = self.asg_ctx.def_index.def_kinds[def_id]
-                return DefResult(kind=def_kind, def_id=def_id)
-
-            if include_classes and name in scope.class_defs:
-                return DefResult(kind=DefKind.CLASS, def_id=scope.class_defs[name])
-
-            if scope.kind is not ScopeKind.BLOCK and scope.kind is not ScopeKind.LAMBDA:
-                can_access_definitions = False
-                can_access_type_parameters = False
-
-                if not first_iteration:
-                    can_access_class_parameters = False
-
-            if first_iteration:
-                first_iteration = False
-
-        return ResultKind.ERROR
+        return ResultKind.UNDEFINED
 
     def resolve_attribute(
         self,
@@ -330,20 +277,53 @@ class SymbolResolver:
         if isinstance(value, DefResult):
             index = self.asg_ctx.def_index.def_indexes.get(value.def_id)
             if index is None:
-                return ResultKind.ERROR
+                return ResultKind.UNDEFINED
 
             entry = index.entries.get(name)
             if entry is not None:
                 return entry.result
 
-        return ResultKind.ERROR
+        return ResultKind.UNDEFINED
 
     def resolve_symbols_for_type_expression(
         self, type_expression: ast.TypeExpressionNode
     ) -> None:
         match type_expression:
             case ast.NameNode():
-                result = self.resolve_symbol(type_expression.value)
+                result = self.resolve_symbol(type_expression.value, include_locals=False)
+                assert isinstance(result, DefResult)
+                if result.kind is DefKind.TYPE_PARAMETER:
+                    # It's added to the scope for the function body, where type parameter can only be accessed as t
+                    # But the separation between the contexts kind of falls apart when it's a type expression
+                    # in the function body. It begins to look completely arbitrary when you have something
+                    # like this:
+                    # ...
+                    #   def f(x: 't) -> ():
+                    #       x: Box('t) = Box(t).new(x)
+                    # ...
+                    # Which now makes me realize that the separation between types and expressions
+                    # along with the lack of paths breaks things in code.
+                    # For example, it would be impossible to write
+                    # x = Box({ x: int })
+                    # ...
+                    # But, this would be valid
+                    # x: Box({ x: int }) = ...
+                    # ...
+                    # After pondering the issue, I have concluded that it will be necessary
+                    # to introduce some special syntax for type paths...
+                    #...
+                    # Something like this:
+                    #   - <module.Box('t)>.new
+                    #   - <[int]>.append
+                    #   - <'t>.AssociatedType.function()
+                    #   - <'t.AssociatedType>.function()
+                    # ...
+                    # And also another syntax for calling type constructors outside of paths:
+                    # Like this
+                    #   - Box.('t).new()
+                    # ...
+                    assert False, "Use 't to access the type parameter"
+
                 self.asg_ctx.syms_resolved[type_expression.id] = result
 
             case ast.TypeCallNode():
@@ -356,7 +336,7 @@ class SymbolResolver:
                 result = self.asg_ctx.syms_resolved.get(type_expression.type.id)
                 if result is not None:
                     attribute = self.resolve_attribute(result, type_expression.attr)
-                    if attribute is not ResultKind.ERROR:
+                    if attribute is not ResultKind.UNDEFINED:
                         self.asg_ctx.syms_resolved[type_expression.id] = attribute
 
             case ast.ListTypeNode():
@@ -440,7 +420,7 @@ class SymbolResolver:
                     self.exit_node(statement.else_statement)
 
             case ast.AssignNode() | ast.AugAssignNode():
-                self.resolve_symbols_for_expression(statement.target)
+                self.resolve_assignment_target(statement, statement.target)
                 if statement.value is not None:
                     self.resolve_symbols_for_expression(statement.value)
 
@@ -448,7 +428,64 @@ class SymbolResolver:
                 self.resolve_symbols_for_expression(statement.value)
 
             case ast.ExprNode():
+                if isinstance(statement.expr, ast.AnnotatedNode):
+                    # An unused ascription could be an implicit local creation i.e
+                    # def f() -> ():
+                    #   y: int
+                    # Any attemps to add assignment destructuring must be careful..
+                    # It is very difficult to decide what the following mean:
+                    # ...
+                    # def f() -> ():
+                    #   (x: int, y: int)
+                    #   (x, y): int
+                    #   (x: int, y: int) = (a, b)
+                    #   (x, y): int = (a, b)
+                    self.resolve_assignment_target(statement, statement.expr)
+
                 self.resolve_symbols_for_expression(statement.expr)
+
+    def create_assignment_target(
+        self,
+        assignment: ast.AssignNode | ast.AugAssignNode | ast.ExprNode,
+        target: ast.NameNode,
+    ) -> None:
+        self.add_local_definition(target.value, assignment.id)
+        self.asg_ctx.syms_resolved[target.id] = LocalResult(node_id=assignment.id)
+
+    def resolve_assignment_target(
+        self,
+        assignment: ast.AssignNode | ast.AugAssignNode | ast.ExprNode,
+        target: ast.ExpressionNode,
+    ) -> None:
+        match target:
+            case ast.NameNode():
+                result = self.resolve_symbol(target.value, include_definitions=False)
+                # There is a separate namespace for definitions and locals, you can technically shadow
+                # a definition with a local variable. Do we even want this behavior I'm not sure...
+
+                if result is not ResultKind.UNDEFINED:
+                    assert isinstance(result, LocalResult)
+                    self.asg_ctx.syms_resolved[target.id] = result
+                else:
+                    self.create_assignment_target(assignment, target)
+
+            case ast.AnnotatedNode():
+                match target.value:
+                    case ast.NameNode():
+                        self.create_assignment_target(assignment, target.value)
+                    case _:
+                        # It's not an assignment.
+                        # Unused ascription to a non-name expression could be a type assertion
+                        # and possibly help with unification.
+                        self.resolve_symbols_for_expression(target.value)
+
+                self.resolve_symbols_for_type_expression(target.type)
+
+            case ast.AttributeNode():
+                self.resolve_symbols_for_expression(target.value)
+
+            case _:
+                assert False, "Invalid target for assignment"
 
     def resolve_symbols_for_expression(self, expression: ast.ExpressionNode) -> None:
         match expression:
@@ -494,7 +531,7 @@ class SymbolResolver:
                 result = self.asg_ctx.syms_resolved.get(expression.value.id)
                 if result is not None:
                     attribute = self.resolve_attribute(result, expression.attr)
-                    if attribute is not ResultKind.ERROR:
+                    if attribute is not ResultKind.UNDEFINED:
                         self.asg_ctx.syms_resolved[expression.id] = attribute
 
             case ast.SubscriptNode():

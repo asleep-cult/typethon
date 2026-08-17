@@ -190,15 +190,6 @@ class ASTParser:
     def create_expr_statement(
         self, span: tuple[int, int], expression: ast.ExpressionNode
     ) -> ast.ExprNode | ast.AssignNode:
-        if isinstance(expression, ast.AnnotatedNode):
-            return ast.AssignNode(
-                id=self.node_id(),
-                start=span[0],
-                end=span[1],
-                target=expression,
-                value=None,
-            )
-
         return ast.ExprNode(
             id=self.node_id(),
             start=span[0],

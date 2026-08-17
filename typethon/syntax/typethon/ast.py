@@ -117,7 +117,7 @@ class ReturnNode(Node):
 @attr.s(kw_only=True, slots=True)
 class AssignNode(Node):
     target: ExpressionNode = attr.ib()
-    value: ExpressionNode | None = attr.ib()
+    value: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)

@@ -222,8 +222,8 @@ use Map('k, 'v) as Index('k, 'v):
 
 # Maybe there will be a Type.new() convention
 
-# I added a proof of concept lambda syntax that simply uses two colons
-# and allows multiline blocks with a delimeter. Here is how it looks:
+# I added a proof of concept lambda syntax that allows multiline blocks.
+# Here is how it looks:
 
 # Simple lambda
 
@@ -409,7 +409,7 @@ type Number = int
     | float
     | complex
 
-return numbers.filter(|n| n >= 50)
+return numbers.filter(|n|: n >= 50)
     .map(str)
     .join(", ")
 

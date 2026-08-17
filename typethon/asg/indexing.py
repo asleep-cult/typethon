@@ -13,6 +13,7 @@ if typing.TYPE_CHECKING:
 
 @attr.s(kw_only=True, slots=True)
 class TypeParamIndex:
+    def_id: asg.DefinitionId = attr.ib()
     parameters: dict[str, asg.DefinitionId] = attr.ib(factory=dict)
 
 
@@ -36,6 +37,19 @@ class DefIndex:
         assert self.parent is not None
         return self.parent.get_def_id()
 
+    def add_entry(
+        self,
+        name: str,
+        def_result: resolution.DefResult,
+        *,
+        index: DefIndex | None = None,
+    ) -> None:
+        if name in self.entries:
+            entry = self.entries[name]
+            assert False, f"{entry.result.kind.name} {name} is obsured by {def_result.kind.name} of the same name"
+
+        self.entries[name] = IndexedEntry(own_index=index, result=def_result)
+
 
 # In general, the strategy for type definitions is as follows:
 # If a struct/tuple/alias is created in a type definition, the node
@@ -58,7 +72,7 @@ class DefIndex:
 # ^^^ (1)    ^ (2)   ^^^^ (3)  ^ (4)   ^^^^ (5) [ AST - node ids ]
 # ^^^ (6)    ^ (7)   ^^^^ (8)  ^ (9)   ^^^^ (10) [ ASG - def ids ]
 # node_defs => { 6 : SumTypeNode("Sum", 1), 7: SumTypeVariantNode("Var1", 2), 8: StructDefNode(..., 3) }
-# def_nodes => { 6: 1, 7: 2, 8: 3, 9: 4, 10: 5 }
+# def_nodes => { 1: 6, 2: 7, 3: 8, 4: 9, 5: 10 }
 # def_parents [ def id: def id ] => { 2: 1, 3: 2, 4: 1, 5: 4 }
 # ...
 # For ASG there are two cases where a struct/tuple is nominal:
@@ -96,6 +110,14 @@ class DefIndexing:
         self.def_kinds[def_id] = def_kind
         return def_id
 
+    def param_index(self, def_id: asg.DefinitionId) -> TypeParamIndex:
+        param_index = self.def_params.get(def_id)
+        if param_index is None:
+            param_index = TypeParamIndex(def_id=def_id)
+            self.def_params[def_id] = param_index
+
+        return param_index
+
     def search_for_parameter(
         self,
         def_id: asg.DefinitionId,
@@ -129,49 +151,49 @@ class DefIndexing:
         parent_id = self.asg_ctx.parent_id(def_id)
         def_kind = self.def_kinds[def_id]
 
-        if def_kind in (
-            resolution.DefKind.SUM,
-            resolution.DefKind.USE,
-            resolution.DefKind.CLASS,
-            resolution.DefKind.FUNCTION,
-        ) or parent_id is None:
-            # Unambiguously defined on this definition
-            param_index = self.def_params.get(def_id)
-            if param_index is None:
-                param_index = TypeParamIndex()
-                self.def_params[def_id] = param_index
-
-            return param_index
-
-        elif def_kind in (resolution.DefKind.FIELD, resolution.DefKind.VARIANT):
-            # Unambiguously defined on the outer definition
-            return self.get_defining_index(parent_id)
-
-        elif def_kind in (resolution.DefKind.STRUCT, resolution.DefKind.TUPLE, resolution.DefKind.NEW_TYPE):
-            parent_kind = self.def_kinds[parent_id]
-            # We are a nested type and cannot own the parameter
-            if parent_kind in (
-                resolution.DefKind.STRUCT,
-                resolution.DefKind.TUPLE,
-                resolution.DefKind.FIELD,
-                resolution.DefKind.VARIANT,
+        match def_kind:
+            case (
+                resolution.DefKind.SUM
+                | resolution.DefKind.USE
+                | resolution.DefKind.CLASS
+                | resolution.DefKind.FUNCTION
             ):
+                # Unambiguously defined on this definition
+                return self.param_index(def_id)
+
+            case resolution.DefKind.FIELD | resolution.DefKind.VARIANT:
+                # Unambiguously defined on the outer definition
+                assert parent_id is not None
                 return self.get_defining_index(parent_id)
 
-            param_index = self.def_params.get(def_id)
-            if param_index is None:
-                param_index = TypeParamIndex()
-                self.def_params[def_id] = param_index
+            case resolution.DefKind.STRUCT | resolution.DefKind.TUPLE | resolution.DefKind.NEW_TYPE:
+                assert parent_id is not None
+                parent_kind = self.def_kinds[parent_id]
+                if parent_kind in (
+                    resolution.DefKind.FIELD,
+                    resolution.DefKind.VARIANT,
+                ):
+                    # We are a nested type and cannot own the parameter
+                    return self.get_defining_index(parent_id)
+                else:
+                    assert parent_kind not in (
+                        resolution.DefKind.STRUCT,
+                        resolution.DefKind.TUPLE
+                    ), "Structural types must be owned by a field "
 
-            return param_index
+                return self.param_index(def_id)
 
-        # Probably missing some edge cases
-        assert False, f"{self.asg_ctx.node_for_def_id(def_id)!r}"
+            case _:
+                # Def kind is a module or type parameter.
+                # The type parameter case should be impossible
+                assert False, f"Improper target for type parameter definition {def_kind}({def_id} )"
 
     def index_type_expression(
         self,
         def_id: asg.DefinitionId,
         type_expression: ast.TypeExpressionNode,
+        *,
+        in_function_body: bool = True,
     ) -> None:
         for subexpression in ast.walk_type_expressions(type_expression):
             match subexpression:
@@ -187,6 +209,12 @@ class DefIndexing:
             if not isinstance(subexpression, ast.TypeParameterNode):
                 continue
 
+            if in_function_body:
+                # We definitely shouldn't be defining type parameters on the function signature
+                # within the body... But is there any merit to explicitly defining local
+                # type vars for the unification process?
+                assert False, "Parameter creation disallowed..."
+
             param_def_id = self.search_for_parameter(def_id, subexpression)
             if param_def_id is None:
                 param_def_id = self.def_id(
@@ -194,6 +222,7 @@ class DefIndexing:
                 )
 
                 param_index = self.get_defining_index(def_id)
+                self.asg_ctx.record_parent(param_def_id, param_index.def_id)
                 param_index.parameters[subexpression.name] = param_def_id
 
             self.asg_ctx.record_node(param_def_id, subexpression.id)
@@ -244,7 +273,10 @@ class DefIndexing:
 
     def index_function(
         self, index: DefIndex, statement: ast.FunctionDefNode
-    ) -> tuple[asg.DefinitionId, DefIndex | None]:
+    ) -> tuple[asg.DefinitionId, DefIndex]:
+        # For now, functions prototypes have a subindex and scope becuase I cant be certain
+        # that I'm not introducing some unexpected behavior by omitting it
+
         def_id = self.def_id(resolution.DefKind.FUNCTION, statement)
         parent_id = index.get_def_id()
         self.asg_ctx.record_parent(def_id, parent_id)
@@ -254,9 +286,8 @@ class DefIndexing:
 
         self.index_type_expression(def_id, statement.returns)
 
-        subindex = None
+        subindex = self.def_index(statement.id, index)
         if statement.body is not None:
-            subindex = self.def_index(statement.id, index)
             self.index_block(subindex, statement.body)
 
         return def_id, subindex
@@ -285,25 +316,19 @@ class DefIndexing:
                         self.asg_ctx.record_parent(def_id, parent_id)
                         self.index_type_expression(def_id, statement.type)
 
-                index.entries[statement.name] = IndexedEntry(
-                    result=self.def_result(def_id)
-                )
+                index.add_entry(statement.name, self.def_result(def_id))
 
             case ast.SumTypeNode():
                 def_id = self.def_id(resolution.DefKind.SUM, statement)
                 self.asg_ctx.record_parent(def_id, parent_id)
 
                 subindex = self.def_index(statement.id, index)
-                index.entries[statement.name] = IndexedEntry(
-                    own_index=subindex, result=self.def_result(def_id)
-                )
+                index.add_entry(statement.name, self.def_result(def_id), index=subindex)
 
                 for variant in statement.variants:
                     variant_def_id = self.def_id(resolution.DefKind.VARIANT, variant)
                     self.asg_ctx.record_parent(variant_def_id, def_id)
-                    subindex.entries[variant.name] = IndexedEntry(
-                        result=self.def_result(variant_def_id)
-                    )
+                    subindex.add_entry(variant.name, self.def_result(variant_def_id))
 
                     type_def_id = None
                     match variant.type:
@@ -325,9 +350,7 @@ class DefIndexing:
 
             case ast.FunctionDefNode():
                 def_id, subindex = self.index_function(index, statement)
-                index.entries[statement.name] = IndexedEntry(
-                    own_index=subindex, result=self.def_result(def_id)
-                )
+                index.add_entry(statement.name, self.def_result(def_id), index=subindex)
 
             case ast.ClassDefNode():
                 def_id = self.def_id(resolution.DefKind.CLASS, statement)
@@ -335,7 +358,7 @@ class DefIndexing:
                 self.asg_ctx.record_parent(def_id, parent_id)
 
                 if statement.parameters:
-                    param_index = TypeParamIndex()
+                    param_index = TypeParamIndex(def_id=def_id)
                     self.def_params[def_id] = param_index
 
                     for type_parameter in statement.parameters:
@@ -345,9 +368,7 @@ class DefIndexing:
                         param_index.parameters[type_parameter.name] = param_def_id
 
                 subindex = self.def_index(statement.id, index)
-                index.entries[statement.name] = IndexedEntry(
-                    own_index=subindex, result=self.def_result(def_id)
-                )
+                index.add_entry(statement.name, self.def_result(def_id), index=subindex)
 
                 for substatement in statement.body:
                     if not isinstance(substatement, ast.FunctionDefNode):

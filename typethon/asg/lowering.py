@@ -168,7 +168,7 @@ class AsgLowering:
                 result = self.asg_ctx.syms_resolved[type_expression.id]
                 if isinstance(result, LocalResult):
                     assert False, "Type contains local def"
-                elif result == ResultKind.ERROR:
+                elif result == ResultKind.UNDEFINED:
                     assert False, f"Undefined name {type_expression.value}"
 
                 segment = asg.PathSegment(name=type_expression.value, result=result)
@@ -205,7 +205,7 @@ class AsgLowering:
                 assert not isinstance(result, LocalResult)
 
                 if result is not None:
-                    assert result != ResultKind.ERROR
+                    assert result != ResultKind.UNDEFINED
                     segment = asg.PathSegment(name=type_expression.attr, result=result)
                 else:
                     segment = asg.DynamicPathSegment(name=type_expression.attr)

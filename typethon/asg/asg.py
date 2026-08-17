@@ -68,6 +68,9 @@ class AsgContext:
         self.node_defs[def_id] = node
         return def_id
 
+    def def_kind(self, def_id: DefinitionId) -> DefKind:
+        return self.def_index.def_kinds[def_id]
+
     def def_id_for_node_id(self, node_id: ast.NodeId) -> DefinitionId:
         return self.def_nodes[node_id]
 
