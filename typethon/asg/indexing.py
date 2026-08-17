@@ -193,7 +193,7 @@ class DefIndexing:
         def_id: asg.DefinitionId,
         type_expression: ast.TypeExpressionNode,
         *,
-        in_function_body: bool = True,
+        allow_new_parameters: bool = True,
     ) -> None:
         for subexpression in ast.walk_type_expressions(type_expression):
             match subexpression:
@@ -209,14 +209,14 @@ class DefIndexing:
             if not isinstance(subexpression, ast.TypeParameterNode):
                 continue
 
-            if in_function_body:
-                # We definitely shouldn't be defining type parameters on the function signature
-                # within the body... But is there any merit to explicitly defining local
-                # type vars for the unification process?
-                assert False, "Parameter creation disallowed..."
-
             param_def_id = self.search_for_parameter(def_id, subexpression)
             if param_def_id is None:
+                if not allow_new_parameters:
+                    # We definitely shouldn't be defining type parameters on the function signature
+                    # within the body... But is there any merit to explicitly defining local
+                    # type vars for the unification process?
+                    assert False, "Parameter creation disallowed in function body..."
+
                 param_def_id = self.def_id(
                     resolution.DefKind.TYPE_PARAMETER, subexpression
                 )

@@ -170,20 +170,20 @@ class SymbolResolver:
             case ast.ForNode():
                 subindex = self.asg_ctx.def_index.block_indexes[statement.id]
                 self.create_scope(subindex, ScopeKind.BLOCK)
-                self.initialize_lambdas(index, statement.target)
-                self.initialize_lambdas(index, statement.iterator)
+                self.initialize_unindexed_expressions(index, statement.target)
+                self.initialize_unindexed_expressions(index, statement.iterator)
                 self.initialize_symbols_for_block(subindex, scope, statement.body)
 
             case ast.WhileNode():
                 subindex = self.asg_ctx.def_index.block_indexes[statement.id]
                 self.create_scope(subindex, ScopeKind.BLOCK)
-                self.initialize_lambdas(index, statement.condition)
+                self.initialize_unindexed_expressions(index, statement.condition)
                 self.initialize_symbols_for_block(subindex, scope, statement.body)
 
             case ast.IfNode():
                 subindex = self.asg_ctx.def_index.block_indexes[statement.id]
                 self.create_scope(subindex, ScopeKind.BLOCK)
-                self.initialize_lambdas(subindex, statement.condition)
+                self.initialize_unindexed_expressions(subindex, statement.condition)
                 self.initialize_symbols_for_block(subindex, scope, statement.body)
 
                 if statement.else_statement is not None:
@@ -196,17 +196,17 @@ class SymbolResolver:
                     )
 
             case ast.AssignNode() | ast.AugAssignNode():
-                self.initialize_lambdas(index, statement.target)
+                self.initialize_unindexed_expressions(index, statement.target)
                 if statement.value is not None:
-                    self.initialize_lambdas(index, statement.value)
+                    self.initialize_unindexed_expressions(index, statement.value)
 
             case ast.ReturnNode() if statement.value is not None:
-                self.initialize_lambdas(index, statement.value)
+                self.initialize_unindexed_expressions(index, statement.value)
 
             case ast.ExprNode():
-                self.initialize_lambdas(index, statement.expr)
+                self.initialize_unindexed_expressions(index, statement.expr)
 
-    def initialize_lambdas(
+    def initialize_unindexed_expressions(
         self,
         index: indexing.DefIndex,
         expression: ast.ExpressionNode,
@@ -235,6 +235,13 @@ class SymbolResolver:
                     self.add_local_definition(parameter.name, parameter.id, scope=scope)
 
                 self.initialize_symbols_for_block(subindex, scope, subexpression.body)
+
+            elif isinstance(subexpression, ast.AnnotatedNode):
+                self.asg_ctx.def_index.index_type_expression(
+                    parent_id,
+                    subexpression.type,
+                    allow_new_parameters=False,
+                )
 
     def enter_node(self, node: ast.Node) -> SymbolScope:
         if node.id not in self.scopes:

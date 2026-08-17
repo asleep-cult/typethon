@@ -18,7 +18,7 @@ simple_statement:
     #[create_continue_statement]
     | "continue"
     #[create_return_statement]
-    | "return" !expression?
+    | "return" !expression_with_annotation?
     #[create_expr_statement]
     | !expression_with_annotation
     | !assignment

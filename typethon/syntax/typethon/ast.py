@@ -449,9 +449,9 @@ type TypeExpressionNode = (
 
 
 def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionNode]:
-    # NOTE: This omits everything within lambda nodes
-    # Probably because it's only purpose is to find lambda nodes and it should
-    # be named accordingly?
+    # NOTE: This omits everything within lambda nodes because calling code
+    # generally needs to run some statement handler on it, which will then
+    # call this function again
     yield expression
 
     match expression:
@@ -491,6 +491,9 @@ def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionN
 
             if expression.step_index is not None:
                 yield from walk_expressions(expression.step_index)
+        case StructNode():
+            for field in expression.fields:
+                yield from walk_expressions(field.value)
 
 
 def walk_type_expressions(
