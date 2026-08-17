@@ -217,9 +217,7 @@ class SymbolResolver:
                 def_id = self.asg_ctx.def_index.def_id(DefKind.FUNCTION, subexpression)
                 self.asg_ctx.record_parent(def_id, parent_id)
 
-                subindex = indexing.DefIndex(
-                    parent=index, def_id=def_id, node_id=subexpression.id
-                )
+                subindex = self.asg_ctx.def_index.def_index(parent=index, node_id=subexpression.id)
                 self.asg_ctx.def_index.block_indexes[subexpression.id] = subindex
                 self.asg_ctx.def_index.index_block(subindex, subexpression.body)
 
@@ -376,7 +374,7 @@ class SymbolResolver:
 
             case ast.FunctionDefNode():
                 for parameter in statement.parameters:
-                    self.resolve_symbols_for_type_expression(parameter.annotation)
+                    self.resolve_symbols_for_type_expression(parameter.type)
 
                 self.resolve_symbols_for_type_expression(statement.returns)
 

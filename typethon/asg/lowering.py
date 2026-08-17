@@ -248,19 +248,22 @@ class AsgLowering:
 
     def lower_function(self, def_id: asg.DefinitionId) -> asg.FunctionDef:
         node = self.asg_ctx.node_for_def_id(def_id)
-        assert isinstance(node, ast.FunctionDefNode)
+        assert isinstance(node, (ast.FunctionDefNode, ast.LambdaNode))
 
         parameters: dict[str, asg.FunctionParameter] = {}
         for parameter in node.parameters:
             parameter_def = asg.FunctionParameter(
-                name=parameter.name, type=self.lower_type(parameter.annotation)
+                name=parameter.name,
+                type=self.lower_type(parameter.type) if parameter.type is not None else None
             )
             parameters[parameter.name] = parameter_def
 
-        returns = self.lower_type(node.returns)
+        returns = (
+            self.lower_type(node.returns) if node.returns is not None else None
+        )
         return asg.FunctionDef(
             def_id=def_id,
-            name=node.name,
+            name=node.name if isinstance(node, ast.FunctionDefNode) else "<anonymous function>",
             parameters=parameters,
             returns=returns,
         )

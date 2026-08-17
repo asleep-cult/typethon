@@ -201,7 +201,7 @@ class ASTParser:
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        annotation: ast.TypeExpressionNode,
+        type: ast.TypeExpressionNode,
         default: OptionNode[ast.ExpressionNode],
     ) -> NodeItem:
         return ast.FunctionParameterNode(
@@ -209,7 +209,7 @@ class ASTParser:
             start=span[0],
             end=span[1],
             name=name.content,
-            annotation=annotation,
+            type=type,
             default=default.item,
         )
 

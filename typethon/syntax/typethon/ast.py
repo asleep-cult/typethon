@@ -319,7 +319,7 @@ class SliceNode(Node):
 @attr.s(kw_only=True, slots=True)
 class FunctionParameterNode(Node):
     name: str = attr.ib()
-    annotation: TypeExpressionNode = attr.ib()
+    type: TypeExpressionNode = attr.ib()
     default: ExpressionNode | None = attr.ib()
 
 

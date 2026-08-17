@@ -282,7 +282,7 @@ class DefIndexing:
         self.asg_ctx.record_parent(def_id, parent_id)
 
         for parameter in statement.parameters:
-            self.index_type_expression(def_id, parameter.annotation)
+            self.index_type_expression(def_id, parameter.type)
 
         self.index_type_expression(def_id, statement.returns)
 
