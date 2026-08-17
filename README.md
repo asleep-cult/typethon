@@ -11,36 +11,25 @@ benefits can be retained, and a language that is in many respects superior
 can emerge. With that being said, the two most important factors for
 developing this language are correctness, followed by simplicity. Naturally,
 the two languages that should influence Typethon most are Python and Rust.
-Everything outlined below is both semantically and syntactically accurate
-to my vision of the language with the possible exception of the type parameter
-constriant syntax.
 
 #### Notes on progress
 * The parser is implemented as a custom LR(1) generator with a pushdown automaton
 and most of the AST has been defined.
-* I have began working on type-analysis, but I am not a fan of the direction it is
-heading in. Because I believe this problem can only be solved by improving my
-understanding of static analysis overall, I will begin doing more research on the
-internals of the Rust compiler. In addition, my inability to fully understand certain
-functional concepts that could serve our goal of correctness suggests that it might
-be necessary to do more research in that area as well. This, and the fact that I have
-more important real-world obligations, means that I will have to postpone development
-of this project until further notice. Instead, my current goals are much less ambitious:
-    1. Port the LR(1) parser generator into OCaml, allowing the parser table to be dumped
-    and run in any language.
-    2. Start a moderately complex project in Rust to learn the rules of the borrow checker
-    and type system.
-    3. Deeply research the Rust compiler development guide and resources that explain
-    complex functional theories.
-* Upon "further notice", I will make a decision about whether the entire project should
-be ported to Rust, Ocaml, or maybe even Zig.
+* I am currently working on the abstract semantic graph, which is a lowered representation of the AST split up into definitions and code. Code can exist on functions and modules with the intention of allowing code to be written at the top level of a file. The operating principle of ASG lowering is as follows:
+    * Index all definitions (types, functions, etc.) recording a parent, AST node, and id for every definition
+    * Resolve all names to a definition or local name and resolve attriute lookups from the index wherever possible
+    * Lower nodes on demand and cache the result
 
+* The following is undecided/not yet implemented for asg:
+    * Paths are entirely ambiguous in code, so ASG code has no notion of paths, while ASG types do. I considered a path promotion phase after type initialization, but this would rely on unification in some capacity. It seems more reasonable for ASG code to remain pathless and do the work during unification.
+    * Due to automatic local insertion (implicit binding creation on assignment or ascription), the name resolver has to do a bit more work to resolve local definitions.
+    * I have to define the rules for automatic return insertion in lambdas and add it to the lowering phase.
 ```py
 # Gotchas:
 # 1) Single quote strings can only contain one character, 't represents a type parameter
 # 2) Classes do not represent functionality tied to a state. Instead, they classify
 # types with the same functions (i.e. Haskell class, Java interface, Rust traits)
-# 3) Scoping is stricter and bindings must be created using the let keyword
+# 3) Scoping is stricter
 
 # Data types can be tuples or structures, they can be defined with type
 # assignment statements.
