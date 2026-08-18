@@ -1,5 +1,5 @@
 from .asg import (
-    AliasDef,
+    NewTypeDef,
     Annotated,
     AsgBody,
     AsgCode,

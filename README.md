@@ -15,14 +15,20 @@ the two languages that should influence Typethon most are Python and Rust.
 #### Notes on progress
 * The parser is implemented as a custom LR(1) generator with a pushdown automaton
 and most of the AST has been defined.
-* I am currently working on the abstract semantic graph, which is a lowered representation of the AST split up into definitions and code. Code can exist on functions and modules with the intention of allowing code to be written at the top level of a file. The operating principle of ASG lowering is as follows:
+* I am currently working on the abstract semantic graph, which is a lowered representation of 
+the AST split up into definitions and code. Code can exist on functions and modules with the 
+intention of allowing code to be written at the top level of a file. The operating principle of 
+ASG lowering is as follows:
     * Index all definitions (types, functions, etc.) recording a parent, AST node, and id for every definition
     * Resolve all names to a definition or local name and resolve attriute lookups from the index wherever possible
     * Lower nodes on demand and cache the result
 
 * The following is undecided/not yet implemented for asg:
-    * Paths are entirely ambiguous in code, so ASG code has no notion of paths, while ASG types do. I considered a path promotion phase after type initialization, but this would rely on unification in some capacity. It seems more reasonable for ASG code to remain pathless and do the work during unification.
-    * Due to automatic local insertion (implicit binding creation on assignment or ascription), the name resolver has to do a bit more work to resolve local definitions.
+    * Paths are entirely ambiguous in code, so ASG code has no notion of paths, while ASG types do.
+    I considered a path promotion phase after type initialization, but this would rely on unification in some capacity.
+    It seems more reasonable for ASG code to remain pathless and do the work during unification.
+    * Due to automatic local insertion (implicit binding creation on assignment or ascription), the name resolver
+    has to do a bit more work to resolve local definitions.
     * I have to define the rules for automatic return insertion in lambdas and add it to the lowering phase.
 ```py
 # Gotchas:

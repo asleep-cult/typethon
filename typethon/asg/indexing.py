@@ -52,7 +52,7 @@ class DefIndex:
 
 
 # In general, the strategy for type definitions is as follows:
-# If a struct/tuple/alias is created in a type definition, the node
+# If a struct/tuple/new type is created in a type definition, the node
 # for the type is is stored as the type definition statement.
 # The node id for the type expression within the statement is merely
 # mapped to the definition id. In other words, the statement and

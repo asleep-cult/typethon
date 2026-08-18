@@ -147,7 +147,7 @@ class AsgLowering:
         if node.type is not None:
             type_def_id = self.asg_ctx.def_id_for_node_id(node.type.id)
             type = self.lower_def(type_def_id)
-            assert isinstance(type, (asg.StructDef, asg.TupleDef, asg.AliasDef))
+            assert isinstance(type, (asg.StructDef, asg.TupleDef, asg.NewTypeDef))
 
         return asg.SumVariant(def_id=def_id, name=node.name, type=type)
 
@@ -229,7 +229,7 @@ class AsgLowering:
             case _:
                 assert False, f"{type_expression} is not valid as a type expression"
 
-    def lower_new_type(self, def_id: asg.DefinitionId) -> asg.AliasDef:
+    def lower_new_type(self, def_id: asg.DefinitionId) -> asg.NewTypeDef:
         node = self.asg_ctx.node_for_def_id(def_id)
         if isinstance(node, ast.TypeDefinitionNode):
             parent_node = node
@@ -244,7 +244,7 @@ class AsgLowering:
 
         new_type = typing.cast(ast.ExpressionNode, new_type)
         type = self.lower_type(new_type)
-        return asg.AliasDef(
+        return asg.NewTypeDef(
             def_id=def_id,
             name=parent_node.name,
             type=type,

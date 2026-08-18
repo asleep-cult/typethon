@@ -39,7 +39,7 @@ class TypeInitializer:
                 assert False, "Invalid type segment"
             case asg.ClassDef():
                 assert False, "Not implemented"
-            case asg.SumDef() | asg.AliasDef():
+            case asg.SumDef() | asg.NewTypeDef():
                 info = self.store.adts[segment.result.def_id]
                 return types.Adt(info=info, structural=False, args=arguments)
             case _:
@@ -105,7 +105,7 @@ class TypeInitializer:
                 )
             case asg.StructField() | asg.TupleElt():
                 type = self.lower_type(def_id, definition.type)
-            case asg.AliasDef():
+            case asg.NewTypeDef():
                 assert definition.type is not None
                 type = self.lower_type(def_id, definition.type)
             case asg.FunctionDef():
@@ -196,7 +196,7 @@ class TypeInitializer:
                     adt.variants.append(self.initialize_struct_variant(type))
                 case asg.TupleDef():
                     adt.variants.append(self.initialize_tuple_variant(type))
-                case asg.AliasDef():
+                case asg.NewTypeDef():
                     adt.variants.append(
                         typeinfo.AdtVariant(def_id=type.def_id, name=type.name)
                     )

@@ -31,7 +31,7 @@ class AsgContext:
     # regardless of where they are located in the code.
     # A definition is any one of the following:
     #   xx.tpy: ModuleDef
-    #   type XX = ...: StructDef/TupleDef/AliasDef/SumDef
+    #   type XX = ...: StructDef/TupleDef/SumDef/NewTypeDef
     #   def xx(...) -> ...: FunctionDef
     #   use XX [for YY]: UseDef
 
@@ -137,7 +137,7 @@ class TupleDef(Definition):
 @attr.s(kw_only=True, slots=True)
 class SumVariant(Definition):
     name: str = attr.ib()
-    type: StructDef | TupleDef | AliasDef | None = attr.ib(factory=dict)
+    type: StructDef | TupleDef | NewTypeDef | None = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -147,7 +147,7 @@ class SumDef(Definition):
 
 
 @attr.s(kw_only=True, slots=True)
-class AliasDef(Definition):
+class NewTypeDef(Definition):
     name: str = attr.ib()
     type: AsgType | None = attr.ib(default=None)
 
@@ -193,13 +193,13 @@ type AsgDefinition = (
     | SumDef
     | SumVariant
     | TypeParameterDef
-    | AliasDef
+    | NewTypeDef
     | FunctionDef
     | ClassDef
     | UseDef
 )
 
-type TypeDefinition = StructDef | TupleDef | SumDef | AliasDef
+type TypeDefinition = StructDef | TupleDef | SumDef | NewTypeDef
 
 
 @attr.s(kw_only=True, slots=True)
