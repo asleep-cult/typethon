@@ -1,10 +1,8 @@
 from __future__ import annotations
 
+import attr
 import enum
 import typing
-from collections.abc import Sequence
-
-import attr
 
 from ..syntax.scanner import Scanner
 from ..syntax.tokens import Token, StdTokenKind, TokenData

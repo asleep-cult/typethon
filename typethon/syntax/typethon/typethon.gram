@@ -218,10 +218,7 @@ slice:
     | !expression
 
 atom:
-    #[create_constant]
-    | !"true"
-    #[create_constant]
-    | !"false"
+    | !type_only_atom
     #[create_constant]
     | !"..."
     #[create_name]
@@ -230,7 +227,7 @@ atom:
     | !NUMBER
     #[create_string]
     | !STRING+
-    | !struct
+    | !record
     | !tuple
     | !group
 
@@ -267,16 +264,16 @@ complex_lambda_hook:
 complex_lambda:
     | !complex_lambda_hook DEDENT
 
-struct:
-    #[create_struct]
-    | "{" !struct_fields? "}"
+record:
+    #[create_record]
+    | "{" !record_fields? "}"
 
-struct_fields:
+record_fields:
     #[@prepend]
-    | !struct_field ("," !struct_field)* ","?
+    | !record_field ("," !record_field)* ","?
 
-struct_field:
-    #[create_struct_field]
+record_field:
+    #[create_record_field]
     | !IDENTIFIER "=" !expression_with_annotation
 
 tuple:
@@ -307,15 +304,19 @@ type_expression:
     | "(" !type_expression ")"
 
 type_primary:
-    #[create_type_call]
+    #[create_call]
     | !type_primary "(" !type_expression_list? ")"
-    #[create_type_attribute]
+    #[create_attribute]
     | !type_primary "." !IDENTIFIER
     | !type_atom
 
 type_expression_list:
     #[@prepend]
     | !type_expression ("," !type_expression)* ","?
+
+struct_type:
+    #[create_struct_type]
+    | "{" !struct_type_fields "}"
 
 struct_type_fields:
     #[@prepend]
@@ -333,13 +334,16 @@ type_parameter_list:
     #[@prepend]
     | !type_parameter ("," !type_parameter)* ","?
 
-type_atom:
+type_only_atom:
     | !type_parameter
     #[create_self_type]
     | "Self"
-    #[create_name]
-    | !IDENTIFIER
     #[create_struct_type]
     | "{" !struct_type_fields "}"
-    #[create_tuple_type]
+
+type_atom:
+    | !type_only_atom
+    #[create_name]
+    | !IDENTIFIER
+    #[create_tuple]
     | "(" !type_expression_list? ")"

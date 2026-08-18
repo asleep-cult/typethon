@@ -85,7 +85,7 @@ class FunctionDefNode(Node):
     parameters: list[FunctionParameterNode] = attr.ib()
     body: list[StatementNode] | None = attr.ib()
     decorators: list[ExpressionNode] = attr.ib()
-    returns: TypeExpressionNode = attr.ib()
+    returns: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -98,14 +98,14 @@ class ClassDefNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class UseNode(Node):
-    type: TypeExpressionNode = attr.ib()
+    type: ExpressionNode = attr.ib()
     body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class UseAsNode(Node):
-    type: TypeExpressionNode = attr.ib()
-    type_class: TypeExpressionNode = attr.ib()
+    type: ExpressionNode = attr.ib()
+    type_class: ExpressionNode = attr.ib()
     body: list[StatementNode] = attr.ib()
 
 
@@ -180,20 +180,20 @@ class ContinueNode(Node): ...
 @attr.s(kw_only=True, slots=True)
 class LambdaParameterNode(Node):
     name: str = attr.ib()
-    type: TypeExpressionNode | None = attr.ib()
+    type: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class LambdaNode(Node):
     parameters: list[LambdaParameterNode] = attr.ib()
-    returns: TypeExpressionNode | None = attr.ib()
+    returns: ExpressionNode | None = attr.ib()
     body: list[StatementNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class AnnotatedNode(Node):
     value: ExpressionNode = attr.ib()
-    type: TypeExpressionNode = attr.ib()
+    type: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -289,19 +289,14 @@ class NameNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class StructNode(Node):
-    fields: list[StructFieldNode] = attr.ib()
+class RecordNode(Node):
+    fields: list[RecordFieldNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class StructFieldNode(Node):
+class RecordFieldNode(Node):
     name: str = attr.ib()
     value: ExpressionNode = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class TupleNode(Node):
-    elts: list[ExpressionNode] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -319,7 +314,7 @@ class SliceNode(Node):
 @attr.s(kw_only=True, slots=True)
 class FunctionParameterNode(Node):
     name: str = attr.ib()
-    type: TypeExpressionNode = attr.ib()
+    type: ExpressionNode = attr.ib()
     default: ExpressionNode | None = attr.ib()
 
 
@@ -332,7 +327,6 @@ class AliasNode(Node):
 @attr.s(kw_only=True, slots=True)
 class TypeParameterNode(Node):
     name: str = attr.ib()
-    constraint: TypeExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -340,27 +334,9 @@ class SelfTypeNode(Node): ...
 
 
 @attr.s(kw_only=True, slots=True)
-class TypeCallNode(Node):
-    type: TypeExpressionNode = attr.ib()
-    args: list[TypeExpressionNode] = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class TypeAttributeNode(Node):
-    type: TypeExpressionNode = attr.ib()
-    attr: str = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class ListTypeNode(Node):
-    elt: TypeExpressionNode = attr.ib()
-    # size: int | None = attr.ib(default=None)
-
-
-@attr.s(kw_only=True, slots=True)
 class TypeDefinitionNode(Node):
     name: str = attr.ib()
-    type: TypeExpressionNode = attr.ib()
+    type: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -372,13 +348,13 @@ class SumTypeNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SumTypeVariantNode(Node):
     name: str = attr.ib()
-    type: TypeExpressionNode | None = attr.ib()
+    type: ExpressionNode | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class StructTypeFieldNode(Node):
     name: str = attr.ib()
-    type: TypeExpressionNode = attr.ib()
+    type: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -387,14 +363,14 @@ class StructTypeNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class TupleTypeEltNode(Node):
+class TupleEltNode(Node):
     index: int = attr.ib()
-    type: TypeExpressionNode = attr.ib()
+    value: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class TupleTypeNode(Node):
-    elts: list[TupleTypeEltNode] = attr.ib()
+class TupleNode(Node):
+    elts: list[TupleEltNode] = attr.ib()
 
 
 type StatementNode = (
@@ -429,34 +405,33 @@ type ExpressionNode = (
     | AttributeNode
     | SubscriptNode
     | NameNode
-    | StructNode
+    | RecordNode
     | TupleNode
     | ListNode
     | SliceNode
-)
-
-type DataTypeNode = StructTypeNode | TupleTypeNode
-
-type TypeExpressionNode = (
-    NameNode
     | SelfTypeNode
     | TypeParameterNode
-    | TypeCallNode
-    | TypeAttributeNode
-    | ListTypeNode
-    | DataTypeNode
+    | StructTypeNode
 )
 
 
-def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionNode]:
+def walk_expressions(
+    expression: ExpressionNode,
+    *,
+    no_recurse: tuple[type[ExpressionNode], ...] = (),
+) -> typing.Generator[ExpressionNode]:
     # NOTE: This omits everything within lambda nodes because calling code
     # generally needs to run some statement handler on it, which will then
     # call this function again
     yield expression
 
+    if type(expression) in no_recurse:
+        return
+
     match expression:
         case AnnotatedNode():
             yield from walk_expressions(expression.value)
+            yield from walk_expressions(expression.type)
         case BoolOpNode():
             for value in expression.values:
                 yield from walk_expressions(value)
@@ -479,9 +454,12 @@ def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionN
             yield from walk_expressions(expression.value)
             for slice in expression.slices:
                 yield from walk_expressions(slice)
-        case ListNode() | TupleNode():
+        case ListNode():
             for elt in expression.elts:
                 yield from walk_expressions(elt)
+        case TupleNode():
+            for elt in expression.elts:
+                yield from walk_expressions(elt.value)
         case SliceNode():
             if expression.start_index is not None:
                 yield from walk_expressions(expression.start_index)
@@ -491,28 +469,9 @@ def walk_expressions(expression: ExpressionNode) -> typing.Generator[ExpressionN
 
             if expression.step_index is not None:
                 yield from walk_expressions(expression.step_index)
-        case StructNode():
+        case RecordNode():
             for field in expression.fields:
                 yield from walk_expressions(field.value)
-
-
-def walk_type_expressions(
-    type_expression: TypeExpressionNode,
-) -> typing.Generator[TypeExpressionNode]:
-    yield type_expression
-
-    match type_expression:
-        case TypeCallNode():
-            yield from walk_type_expressions(type_expression.type)
-            for argument in type_expression.args:
-                yield from walk_type_expressions(argument)
-        case TypeAttributeNode():
-            yield from walk_type_expressions(type_expression.type)
-        case ListTypeNode():
-            yield from walk_type_expressions(type_expression.elt)
         case StructTypeNode():
-            for field in type_expression.fields:
-                yield from walk_type_expressions(field.type)
-        case TupleTypeNode():
-            for elt in type_expression.elts:
-                yield from walk_type_expressions(elt.type)
+            for field in expression.fields:
+                yield from walk_expressions(field.type)

@@ -88,11 +88,6 @@ class SymbolResolver:
         scope = SymbolScope(node_id=index.node_id, kind=kind)
         self.scopes[index.node_id] = scope
 
-        def_id = self.asg_ctx.def_nodes.get(index.node_id)
-        param_index = self.asg_ctx.def_index.def_params.get(def_id)
-        if param_index is not None:
-            scope.definitions.update(param_index.parameters)
-
         for name, entry in index.entries.items():
             scope.definitions[name] = entry.result.def_id
 
@@ -158,8 +153,8 @@ class SymbolResolver:
                 self.initialize_symbols_for_block(subindex, scope, statement.body)
 
             case ast.UseNode() | ast.UseAsNode():
-                for statement in statement.body:
-                    assert isinstance(statement, ast.FunctionDefNode)
+                for substatement in statement.body:
+                    assert isinstance(substatement, ast.FunctionDefNode)
 
                     # TODO: FIND THE FUNCTION'S OWN INDEX ELSEWHERE...
                     # DOES THE USE STATEMENT NEED ITS OWN SCOPE??????
@@ -212,34 +207,74 @@ class SymbolResolver:
         expression: ast.ExpressionNode,
     ) -> None:
         parent_id = index.get_def_id()
-        for subexpression in ast.walk_expressions(expression):
-            if isinstance(subexpression, ast.LambdaNode):
-                def_id = self.asg_ctx.def_index.def_id(DefKind.FUNCTION, subexpression)
-                self.asg_ctx.record_parent(def_id, parent_id)
+        for subexpression in ast.walk_expressions(expression, no_recurse=(ast.AnnotatedNode, ast.StructTypeNode)):
+            # Indexing does a shallow pass over the AST collecting definitions and does not
+            # go further than the statement level for any purpose. As a result, the lambda
+            # and unambiguous expression-level type indexing logic is done here.
+            # Unambiguous expression-level types consist of:
+            #   1) Lambda parameter types & return type
+            #   2) Annotated expression types (i.e the T in `x: T`)
+            #   3) Type parameters `'t`
+            #   4) Struct types `{ field1: T1, ... }`
+            # ...
+            # Ambiguous types are impossible to fully resolve without the type checker and
+            # this stems from the fact that 1) Path syntax is the same as attribute syntax
+            # and 2) Type constructor syntax is the same as function call syntax.
+            # Consider the following example that highlights the ambiguity:
+            # ...
+            #   Type.GenericAssociatedType((int, int)).function((1, 2))
+            # ...
+            # Here, it is difficult to determine whether we should run index_type_expression
+            # on the first tuple, or the second tuple. And impossible to determine
+            # whether it would be valid in its context in the first place.
+            # As a result, this work will be deferred to the type checker... which should in theory
+            # be a simple task.
+            # From a language perspective, I think fusing the type and expression syntax was a good
+            # choice because it allows types to be used as first class values and opens the door
+            # to bare assignments (with no type prefix) becoming aliases.
+            # The obvious confusion between { x: T } and { x = y } must be explained and handled
+            # gracefully by the compiler. I have real fears of entering (`==` vs `===` territory)
 
-                subindex = self.asg_ctx.def_index.def_index(parent=index, node_id=subexpression.id)
-                self.asg_ctx.def_index.block_indexes[subexpression.id] = subindex
-                self.asg_ctx.def_index.index_block(subindex, subexpression.body)
+            match subexpression:
+                case ast.LambdaNode():
+                    def_id = self.asg_ctx.def_index.def_id(DefKind.FUNCTION, subexpression)
+                    self.asg_ctx.record_parent(def_id, parent_id)
 
-                for parameter in subexpression.parameters:
-                    if parameter.type is not None:
-                        self.asg_ctx.def_index.index_type_expression(def_id, parameter.type)
+                    subindex = self.asg_ctx.def_index.def_index(parent=index, node_id=subexpression.id)
+                    self.asg_ctx.def_index.block_indexes[subexpression.id] = subindex
+                    self.asg_ctx.def_index.index_block(subindex, subexpression.body)
 
-                if subexpression.returns is not None:
-                    self.asg_ctx.def_index.index_type_expression(def_id, subexpression.returns)
+                    for parameter in subexpression.parameters:
+                        if parameter.type is not None:
+                            self.asg_ctx.def_index.index_type_expression(def_id, parameter.type)
 
-                scope = self.create_scope(subindex, ScopeKind.LAMBDA)
-                for parameter in subexpression.parameters:
-                    self.add_local_definition(parameter.name, parameter.id, scope=scope)
+                    if subexpression.returns is not None:
+                        self.asg_ctx.def_index.index_type_expression(def_id, subexpression.returns)
 
-                self.initialize_symbols_for_block(subindex, scope, subexpression.body)
+                    scope = self.create_scope(subindex, ScopeKind.LAMBDA)
+                    for parameter in subexpression.parameters:
+                        self.add_local_definition(parameter.name, parameter.id, scope=scope)
 
-            elif isinstance(subexpression, ast.AnnotatedNode):
-                self.asg_ctx.def_index.index_type_expression(
-                    parent_id,
-                    subexpression.type,
-                    allow_new_parameters=False,
-                )
+                    self.initialize_symbols_for_block(subindex, scope, subexpression.body)
+
+                case ast.AnnotatedNode():
+                    self.asg_ctx.def_index.index_type_expression(
+                        parent_id,
+                        subexpression.type,
+                        allow_new_parameters=False,
+                    )
+                    self.initialize_unindexed_expressions(index, subexpression.value)
+
+                case ast.StructTypeNode():
+                    # TODO: An anonymous struct should not be owning type parameters...
+                    self.asg_ctx.def_index.index_struct(parent_id, subexpression)
+
+                case ast.TypeParameterNode():
+                    self.asg_ctx.def_index.index_type_expression(
+                        parent_id,
+                        subexpression,
+                        allow_new_parameters=False,
+                    )
 
     def enter_node(self, node: ast.Node) -> SymbolScope:
         if node.id not in self.scopes:
@@ -297,63 +332,36 @@ class SymbolResolver:
             case ast.NameNode():
                 result = self.resolve_symbol(type_expression.value, include_locals=False)
                 assert isinstance(result, DefResult)
-                if result.kind is DefKind.TYPE_PARAMETER:
-                    # It's added to the scope for the function body, where type parameter can only be accessed as t
-                    # But the separation between the contexts kind of falls apart when it's a type expression
-                    # in the function body. It begins to look completely arbitrary when you have something
-                    # like this:
-                    # ...
-                    #   def f(x: 't) -> ():
-                    #       x: Box('t) = Box(t).new(x)
-                    # ...
-                    # Which now makes me realize that the separation between types and expressions
-                    # along with the lack of paths breaks things in code.
-                    # For example, it would be impossible to write
-                    # x = Box({ x: int })
-                    # ...
-                    # But, this would be valid
-                    # x: Box({ x: int }) = ...
-                    # ...
-                    # After pondering the issue, I have concluded that it will be necessary
-                    # to introduce some special syntax for type paths...
-                    #...
-                    # Something like this:
-                    #   - <module.Box('t)>.new
-                    #   - <[int]>.append
-                    #   - <'t>.AssociatedType.function()
-                    #   - <'t.AssociatedType>.function()
-                    # ...
-                    # And also another syntax for calling type constructors outside of paths:
-                    # Like this
-                    #   - Box.('t).new()
-                    # ...
-                    assert False, "Use 't to access the type parameter"
-
                 self.asg_ctx.syms_resolved[type_expression.id] = result
 
-            case ast.TypeCallNode():
-                self.resolve_symbols_for_type_expression(type_expression.type)
+            case ast.CallNode():
+                self.resolve_symbols_for_type_expression(type_expression.callable)
                 for argument in type_expression.args:
                     self.resolve_symbols_for_type_expression(argument)
 
-            case ast.TypeAttributeNode():
-                self.resolve_symbols_for_type_expression(type_expression.type)
-                result = self.asg_ctx.syms_resolved.get(type_expression.type.id)
+            case ast.AttributeNode():
+                self.resolve_symbols_for_type_expression(type_expression.value)
+                result = self.asg_ctx.syms_resolved.get(type_expression.value.id)
                 if result is not None:
                     attribute = self.resolve_attribute(result, type_expression.attr)
                     if attribute is not ResultKind.UNDEFINED:
                         self.asg_ctx.syms_resolved[type_expression.id] = attribute
 
-            case ast.ListTypeNode():
-                self.resolve_symbols_for_type_expression(type_expression.elt)
+            case ast.ListNode():
+                assert len(type_expression.elts) == 1
+                self.resolve_symbols_for_type_expression(type_expression.elts[1])
 
             case ast.StructTypeNode():
                 for field in type_expression.fields:
                     self.resolve_symbols_for_type_expression(field.type)
 
-            case ast.TupleTypeNode():
+            case ast.TupleNode():
                 for elt in type_expression.elts:
-                    self.resolve_symbols_for_type_expression(elt.type)
+                    self.resolve_symbols_for_type_expression(elt.value)
+
+            case _:
+                if not isinstance(type_expression, ast.TypeParameterNode):
+                    assert False, f"{type_expression} is not valid as a type expression"
 
     def resolve_symbols_for_block(self, statements: list[ast.StatementNode]) -> None:
         for statement in statements:
@@ -542,7 +550,7 @@ class SymbolResolver:
             case ast.SubscriptNode():
                 self.resolve_symbols_for_expression(expression.value)
 
-            case ast.StructNode():
+            case ast.RecordNode():
                 for field in expression.fields:
                     self.resolve_symbols_for_expression(field.value)
 

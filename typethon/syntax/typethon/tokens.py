@@ -1,7 +1,7 @@
 import enum
 
 from ..scanner import Scanner
-from ..tokens import Token as TokenT, StdTokenKind
+from ..tokens import Token as TokenT
 from ..tokens import TokenMap
 
 
@@ -115,8 +115,6 @@ class KeywordKind(enum.Enum):
     OF = enum.auto()
     SELF = enum.auto()
     TYPE = enum.auto()
-    TRUE = enum.auto()
-    FALSE = enum.auto()
     AND = enum.auto()
     BREAK = enum.auto()
     CLASS = enum.auto()
@@ -143,8 +141,6 @@ KEYWORDS = (
     ("of", KeywordKind.OF),
     ("Self", KeywordKind.SELF),
     ("type", KeywordKind.TYPE),
-    ("true", KeywordKind.TRUE),
-    ("false", KeywordKind.FALSE),
     ("and", KeywordKind.AND),
     ("break", KeywordKind.BREAK),
     ("class", KeywordKind.CLASS),

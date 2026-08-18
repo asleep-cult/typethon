@@ -124,9 +124,11 @@ class DefIndexing:
         parameter: ast.TypeParameterNode,
     ) -> asg.DefinitionId | None:
         own_params = self.def_params.get(def_id)
+        def_kind = self.def_kinds[def_id]
         parent_id = self.asg_ctx.parent_id(def_id)
+        parent_kind = self.def_kinds[parent_id] if parent_id is not None else None
 
-        use_parent = parent_id is not None and self.def_kinds[parent_id] in (
+        use_parent = parent_kind in (
             resolution.DefKind.STRUCT,
             resolution.DefKind.TUPLE,
             resolution.DefKind.SUM,
@@ -134,12 +136,20 @@ class DefIndexing:
             resolution.DefKind.CLASS,
             resolution.DefKind.FIELD,
         )
+        if (
+            parent_kind is resolution.DefKind.FUNCTION
+            and def_kind in (resolution.DefKind.STRUCT, resolution.DefKind.TUPLE)
+        ):
+            assert parent_id is not None
+            use_parent = not isinstance(self.asg_ctx.node_for_def_id(def_id), ast.TypeDefinitionNode)
+
         if own_params is not None:
             result = own_params.parameters.get(parameter.name)
             if result is not None:
                 return result
 
         if use_parent:
+            assert parent_id is not None
             return self.search_for_parameter(parent_id, parameter)
 
     def get_defining_index(
@@ -175,11 +185,16 @@ class DefIndexing:
                 ):
                     # We are a nested type and cannot own the parameter
                     return self.get_defining_index(parent_id)
-                else:
+
+                elif not isinstance(self.asg_ctx.node_for_def_id(def_id), ast.TypeDefinitionNode):
                     assert parent_kind not in (
                         resolution.DefKind.STRUCT,
                         resolution.DefKind.TUPLE
-                    ), "Structural types must be owned by a field "
+                    ), "Parent of structural type within struct or tuple should be a field"
+
+                    assert parent_kind is not resolution.DefKind.FUNCTION, (
+                        "A structural type attempted to define a type parameter on a function"
+                    )
 
                 return self.param_index(def_id)
 
@@ -191,20 +206,21 @@ class DefIndexing:
     def index_type_expression(
         self,
         def_id: asg.DefinitionId,
-        type_expression: ast.TypeExpressionNode,
+        type_expression: ast.ExpressionNode,
         *,
         allow_new_parameters: bool = True,
     ) -> None:
-        for subexpression in ast.walk_type_expressions(type_expression):
+        # NOTE: This function gets called on expressions that are unambiguously types, (i.e type annotations)
+        for subexpression in ast.walk_expressions(type_expression, no_recurse=(ast.StructTypeNode, ast.TupleNode)):
             match subexpression:
                 case ast.StructTypeNode() if (
                     subexpression.id not in self.asg_ctx.def_nodes
                 ):
-                    self.index_struct(def_id, subexpression)
-                case ast.TupleTypeNode() if (
+                    self.index_struct(def_id, subexpression, allow_new_parameters=allow_new_parameters)
+                case ast.TupleNode() if (
                     subexpression.id not in self.asg_ctx.def_nodes
                 ):
-                    self.index_tuple(def_id, subexpression)
+                    self.index_tuple(def_id, subexpression, allow_new_parameters=allow_new_parameters)
 
             if not isinstance(subexpression, ast.TypeParameterNode):
                 continue
@@ -227,7 +243,13 @@ class DefIndexing:
 
             self.asg_ctx.record_node(param_def_id, subexpression.id)
 
-    def index_struct(self, parent_id: asg.DefinitionId, node: ast.StructTypeNode | ast.TypeDefinitionNode) -> asg.DefinitionId:
+    def index_struct(
+        self,
+        parent_id: asg.DefinitionId,
+        node: ast.StructTypeNode | ast.TypeDefinitionNode,
+        *,
+        allow_new_parameters: bool = True,
+    ) -> asg.DefinitionId:
         # Struct definition may point to struct type or type definition ast
         if isinstance(node, ast.TypeDefinitionNode):
             struct = node.type
@@ -244,15 +266,24 @@ class DefIndexing:
         for field in struct.fields:
             field_def_id = self.def_id(resolution.DefKind.FIELD, field)
             self.asg_ctx.record_parent(field_def_id, def_id)
-            self.index_type_expression(field_def_id, field.type)
+            self.index_type_expression(
+                field_def_id,
+                field.type,
+                allow_new_parameters=allow_new_parameters,
+            )
 
         return def_id
 
-    def index_tuple(self, parent_id: asg.DefinitionId, node: ast.TupleTypeNode | ast.TypeDefinitionNode) -> asg.DefinitionId:
+    def index_tuple(
+        self,
+        parent_id: asg.DefinitionId, node: ast.TupleNode | ast.TypeDefinitionNode,
+        *,
+        allow_new_parameters: bool = True,
+    ) -> asg.DefinitionId:
         # Tuple definition may point to struct type or type definition ast
         if isinstance(node, ast.TypeDefinitionNode):
             tuple = node.type
-            assert isinstance(tuple, ast.TupleTypeNode)
+            assert isinstance(tuple, ast.TupleNode)
         else:
             tuple = node
 
@@ -263,7 +294,11 @@ class DefIndexing:
         for elt in tuple.elts:
             elt_def_id = self.def_id(resolution.DefKind.FIELD, elt)
             self.asg_ctx.record_parent(elt_def_id, def_id)
-            self.index_type_expression(elt_def_id, elt.type)
+            self.index_type_expression(
+                elt_def_id,
+                elt.value,
+                allow_new_parameters=allow_new_parameters,
+            )
 
         return def_id
 
@@ -306,7 +341,7 @@ class DefIndexing:
                 match statement.type:
                     case ast.StructTypeNode():
                         def_id = self.index_struct(parent_id, statement)
-                    case ast.TupleTypeNode():
+                    case ast.TupleNode():
                         def_id = self.index_tuple(parent_id, statement)
                     case _:
                         # NEW_TYPE node may point to type definition statement
@@ -334,7 +369,7 @@ class DefIndexing:
                     match variant.type:
                         case ast.StructTypeNode():
                             type_def_id = self.index_struct(variant_def_id, variant.type)
-                        case ast.TupleTypeNode():
+                        case ast.TupleNode():
                             type_def_id = self.index_tuple(variant_def_id, variant.type)
                         case _:
                             if variant.type is not None:

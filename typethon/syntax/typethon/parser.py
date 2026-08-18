@@ -1,8 +1,6 @@
 import inspect
 import io
 import logging
-import pickle
-import struct
 import time
 import typing
 from itertools import count
@@ -25,7 +23,6 @@ from ..tokens import (
     IdentifierToken,
     NumberToken,
     NumberTokenFlags,
-    StdTokenKind,
     StringToken,
     StringTokenFlags,
 )
@@ -46,34 +43,19 @@ logger = logging.getLogger(__name__)
 
 GRAMMAR_PATH = "./typethon.gram"
 GRAMMAR_CACHE_PATH = "./parsertables.bin"
-"""
-When the scanner is in any sort of parenthesis, it skips all newlines and indentation.
-So, for the block lambda to work, it has "trick" the scanner into thinking there
-are no parenthesis. The way I did this was with a new stack bottom state that the
-scanner uses to determine whether to skip whitespace.
-The tricky part about entering and exiting a nested stack to start/stop scanning whitespace
-is that it has to be done one token early to prevent the parser from using a token that
-should/shouldn't be next as the lookahead.
-
-The scanner also does automatic newline dedent insertion when the parenthesis nesting
-level drops below the bounds of the current block. So for example the following
-block would be valid despite the lack of a dedent token.
-
-f(|a, b|:
-    if a > b:
-        return true
-    else:
-        return b == 5)
-
-Block lambdas are only valid in the following contexts:
-1) Anywhere as a prarenthesized expression
-2) As the only argument to a function call
-
-Expression lambdas are valid anywhere an expression is
-"""
 
 
 class ASTParser:
+    # The grammar is written in a way that constrains type expressions
+    # to a subset of expressions that are valid as types; but this is not reflected
+    # in the AST. I tried to unify types and expressions in the grammar, but this created
+    # ambiguity for type definition statements and exploded the parser table to 10,000
+    # states. The reason I don't properly represent the grammar in the AST is because
+    # I would need to expressions generic over their subexpression type and I would
+    # end up with something like TypeExpressionNode = TupleNode[TypeExpression] | ...
+    # and ExpressionNode = TupleNode[TypeExpressionNode | ExpressionNode] | ...
+    # And I do not want to make the entire expression AST generic.
+
     symbol_table: typing.ClassVar[FrozenSymbolTable | None] = None
     parse_tables: typing.ClassVar[
         dict[str, FrozenParserTable[TokenKind, KeywordKind]] | None
@@ -201,7 +183,7 @@ class ASTParser:
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        type: ast.TypeExpressionNode,
+        type: ast.ExpressionNode,
         default: OptionNode[ast.ExpressionNode],
     ) -> NodeItem:
         return ast.FunctionParameterNode(
@@ -219,7 +201,7 @@ class ASTParser:
         decorators: OptionNode[SequenceNode[ast.ExpressionNode]],
         name: IdentifierToken,
         parameters: OptionNode[SequenceNode[ast.FunctionParameterNode]],
-        returns: ast.TypeExpressionNode,
+        returns: ast.ExpressionNode,
     ) -> ast.FunctionDefNode:
         return ast.FunctionDefNode(
             id=self.node_id(),
@@ -262,7 +244,7 @@ class ASTParser:
     def create_use_statement(
         self,
         span: tuple[int, int],
-        type: ast.TypeExpressionNode,
+        type: ast.ExpressionNode,
         body: SequenceNode[ast.StatementNode],
     ) -> ast.UseNode:
         return ast.UseNode(
@@ -276,8 +258,8 @@ class ASTParser:
     def create_use_as_statement(
         self,
         span: tuple[int, int],
-        type: ast.TypeExpressionNode,
-        type_class: ast.TypeExpressionNode,
+        type: ast.ExpressionNode,
+        type_class: ast.ExpressionNode,
         body: SequenceNode[ast.StatementNode],
     ) -> ast.UseAsNode:
         return ast.UseAsNode(
@@ -352,7 +334,7 @@ class ASTParser:
         self,
         span: tuple[int, int],
         value: ast.ExpressionNode,
-        type: ast.TypeExpressionNode,
+        type: ast.ExpressionNode,
     ) -> ast.AnnotatedNode:
         return ast.AnnotatedNode(
             id=self.node_id(),
@@ -628,21 +610,7 @@ class ASTParser:
         span: tuple[int, int],
         token: Token,
     ) -> ast.ConstantNode:
-        match token.kind:
-            case KeywordKind.TRUE:
-                return ast.ConstantNode(
-                    id=self.node_id(),
-                    start=span[0],
-                    end=span[1],
-                    kind=ast.ConstantKind.TRUE,
-                )
-            case KeywordKind.FALSE:
-                return ast.ConstantNode(
-                    id=self.node_id(),
-                    start=span[0],
-                    end=span[1],
-                    kind=ast.ConstantKind.FALSE,
-                )
+        assert False, "Not Implemented"
 
     def create_number(
         self,
@@ -732,25 +700,25 @@ class ASTParser:
             value=identifier.content,
         )
 
-    def create_struct(
+    def create_record(
         self,
         span: tuple[int, int],
-        fields: OptionNode[SequenceNode[ast.StructFieldNode]],
-    ) -> ast.StructNode:
-        return ast.StructNode(
+        fields: OptionNode[SequenceNode[ast.RecordFieldNode]],
+    ) -> ast.RecordNode:
+        return ast.RecordNode(
             id=self.node_id(),
             start=span[0],
             end=span[1],
             fields=fields.sequence().items,
         )
 
-    def create_struct_field(
+    def create_record_field(
         self,
         span: tuple[int, int],
         name: IdentifierToken,
         value: ast.ExpressionNode,
-    ) -> ast.StructFieldNode:
-        return ast.StructFieldNode(
+    ) -> ast.RecordFieldNode:
+        return ast.RecordFieldNode(
             id=self.node_id(),
             start=span[0],
             end=span[1],
@@ -763,18 +731,25 @@ class ASTParser:
         span: tuple[int, int],
         elts: OptionNode[SequenceNode[ast.ExpressionNode]],
     ) -> ast.TupleNode:
+        elt_nodes: list[ast.TupleEltNode] = []
+        for i, elt in enumerate(elts.sequence().items):
+            elt_node = ast.TupleEltNode(
+                id=self.node_id(), start=elt.start, end=elt.end, index=i, value=elt
+            )
+            elt_nodes.append(elt_node)
+
         return ast.TupleNode(
             id=self.node_id(),
             start=span[0],
             end=span[1],
-            elts=elts.sequence().items,
+            elts=elt_nodes,
         )
 
     def create_lambda_parameter(
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        type: OptionNode[ast.TypeExpressionNode],
+        type: OptionNode[ast.ExpressionNode],
     ) -> ast.LambdaParameterNode:
         return ast.LambdaParameterNode(
             id=self.node_id(),
@@ -788,7 +763,7 @@ class ASTParser:
         self,
         span: tuple[int, int],
         parameters: OptionNode[SequenceNode[ast.LambdaParameterNode]],
-        returns: OptionNode[ast.TypeExpressionNode],
+        returns: OptionNode[ast.ExpressionNode],
     ) -> ast.LambdaNode:
         self.scanner.start_nested_indentation()
         return ast.LambdaNode(
@@ -839,7 +814,7 @@ class ASTParser:
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        types: SequenceNode[ast.TypeExpressionNode | ast.SumTypeVariantNode],
+        types: SequenceNode[ast.ExpressionNode | ast.SumTypeVariantNode],
     ) -> ast.TypeDefinitionNode | ast.SumTypeNode:
         if len(types.items) > 1:
             variants: list[ast.SumTypeVariantNode] = []
@@ -893,7 +868,7 @@ class ASTParser:
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        type: ast.TypeExpressionNode,
+        type: ast.ExpressionNode,
     ) -> ast.StructTypeFieldNode:
         return ast.StructTypeFieldNode(
             id=self.node_id(),
@@ -903,30 +878,11 @@ class ASTParser:
             type=type,
         )
 
-    def create_tuple_type(
-        self,
-        span: tuple[int, int],
-        elts: OptionNode[SequenceNode[ast.TypeExpressionNode]],
-    ) -> ast.TupleTypeNode:
-        elt_nodes: list[ast.TupleTypeEltNode] = []
-        for i, elt in enumerate(elts.sequence().items):
-            elt_node = ast.TupleTypeEltNode(
-                id=self.node_id(), start=elt.start, end=elt.end, index=i, type=elt
-            )
-            elt_nodes.append(elt_node)
-
-        return ast.TupleTypeNode(
-            id=self.node_id(),
-            start=span[0],
-            end=span[1],
-            elts=elt_nodes,
-        )
-
     def create_sum_field(
         self,
         span: tuple[int, int],
         name: IdentifierToken,
-        type: ast.TypeExpressionNode,
+        type: ast.ExpressionNode,
     ) -> ast.SumTypeVariantNode:
         return ast.SumTypeVariantNode(
             id=self.node_id(),
@@ -946,35 +902,6 @@ class ASTParser:
             start=span[0],
             end=span[1],
             name=name.content,
-            constraint=None,
-        )
-
-    def create_type_call(
-        self,
-        span: tuple[int, int],
-        type: ast.TypeExpressionNode,
-        args: OptionNode[SequenceNode[ast.TypeExpressionNode]],
-    ) -> ast.TypeCallNode:
-        return ast.TypeCallNode(
-            id=self.node_id(),
-            start=span[0],
-            end=span[1],
-            type=type,
-            args=args.sequence().items,
-        )
-
-    def create_type_attribute(
-        self,
-        span: tuple[int, int],
-        type: ast.TypeExpressionNode,
-        attr: IdentifierToken,
-    ) -> ast.TypeAttributeNode:
-        return ast.TypeAttributeNode(
-            id=self.node_id(),
-            start=span[0],
-            end=span[1],
-            type=type,
-            attr=attr.content,
         )
 
     def parse(self) -> NodeItem:

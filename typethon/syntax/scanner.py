@@ -73,6 +73,22 @@ def is_binary(char: str) -> bool:
 
 
 class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
+    # When the scanner is in any sort of parenthesis, it skips all newlines and indentation.
+    # So, for the block lambda to work, it has "trick" the scanner into thinking there
+    # are no parenthesis. The way I did this was with a new stack bottom state that the
+    # scanner uses to determine whether to skip whitespace.
+    # The tricky part about entering and exiting a nested stack to start/stop scanning whitespace
+    # is that it has to be done one token early to prevent the parser from using a token that
+    # should/shouldn't be next as the lookahead.
+    # The scanner also does automatic newline dedent insertion when the parenthesis nesting
+    # level drops below the bounds of the current block. So for example the following
+    # block would be valid despite the lack of a dedent token.
+    # f(|a, b|:
+    #     if a > b:
+    #         True
+    #     else:
+    #         b == 5)
+
     def __init__(
         self,
         source: str,

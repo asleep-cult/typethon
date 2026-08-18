@@ -63,8 +63,8 @@ class AsgLowering:
                 type = self.lower_type(node.type)
                 return asg.StructField(def_id=def_id, name=node.name, type=type)
             case DefKind.TUPLE:
-                assert isinstance(node, ast.TupleTypeEltNode)
-                type = self.lower_type(node.type)
+                assert isinstance(node, ast.TupleEltNode)
+                type = self.lower_type(node.value)
                 return asg.TupleElt(def_id=def_id, index=node.index, type=type)
             case _:
                 assert False, "Invalid field owner"
@@ -109,7 +109,7 @@ class AsgLowering:
         if isinstance(node, ast.TypeDefinitionNode):
             parent_node = node
             tuple = node.type
-            assert isinstance(tuple, ast.TupleTypeNode)
+            assert isinstance(tuple, ast.TupleEltNode)
         else:
             parent_id = self.asg_ctx.parent_id(def_id)
             parent_node = (
@@ -124,7 +124,7 @@ class AsgLowering:
             name = "<anonymous tuple>"
             is_definition = False
 
-        assert isinstance(tuple, ast.TupleTypeNode)
+        assert isinstance(tuple, ast.TupleNode)
         elts: list[asg.TupleElt] = []
         for elt in tuple.elts:
             elt_def_id = self.asg_ctx.def_id_for_node_id(elt.id)
@@ -162,7 +162,7 @@ class AsgLowering:
 
         return asg.SumDef(def_id=def_id, name=node.name, variants=variants)
 
-    def lower_type(self, type_expression: ast.TypeExpressionNode) -> asg.AsgType:
+    def lower_type(self, type_expression: ast.ExpressionNode) -> asg.AsgType:
         match type_expression:
             case ast.NameNode():
                 result = self.asg_ctx.syms_resolved[type_expression.id]
@@ -183,8 +183,8 @@ class AsgLowering:
                 assert isinstance(type_parameter, asg.TypeParameterDef)
                 return type_parameter
 
-            case ast.TypeCallNode():
-                path = self.lower_type(type_expression.type)
+            case ast.CallNode():
+                path = self.lower_type(type_expression.callable)
                 if not isinstance(path, asg.Path):
                     segment = asg.ExprPathSegment(expression=path)
                     path = asg.Path(segments=[segment])
@@ -195,8 +195,8 @@ class AsgLowering:
 
                 return path
 
-            case ast.TypeAttributeNode():
-                path = self.lower_type(type_expression.type)
+            case ast.AttributeNode():
+                path = self.lower_type(type_expression.value)
                 if not isinstance(path, asg.Path):
                     segment = asg.ExprPathSegment(expression=path)
                     path = asg.Path(segments=[segment])
@@ -213,17 +213,21 @@ class AsgLowering:
                 path.segments.append(segment)
                 return path
 
-            case ast.ListTypeNode():
-                type = self.lower_type(type_expression.elt)
+            case ast.ListNode():
+                assert len(type_expression.elts) == 1, "List type must have one node"
+                type = self.lower_type(type_expression.elts[0])
                 return asg.ListType(elt=type)
 
             case ast.StructTypeNode():
                 def_id = self.asg_ctx.def_id_for_node_id(type_expression.id)
                 return self.lower_struct(def_id)
 
-            case ast.TupleTypeNode():
+            case ast.TupleNode():
                 def_id = self.asg_ctx.def_id_for_node_id(type_expression.id)
                 return self.lower_tuple(def_id)
+
+            case _:
+                assert False, f"{type_expression} is not valid as a type expression"
 
     def lower_new_type(self, def_id: asg.DefinitionId) -> asg.AliasDef:
         node = self.asg_ctx.node_for_def_id(def_id)
@@ -238,7 +242,7 @@ class AsgLowering:
             assert isinstance(parent_node, ast.SumTypeVariantNode)
             new_type = node
 
-        new_type = typing.cast(ast.TypeExpressionNode, new_type)
+        new_type = typing.cast(ast.ExpressionNode, new_type)
         type = self.lower_type(new_type)
         return asg.AliasDef(
             def_id=def_id,

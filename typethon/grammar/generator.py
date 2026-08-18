@@ -286,6 +286,9 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             name=name,
             entrypoint=entrypoint,
         )
+        if symbol.name in self.nonterminals:
+            raise ValueError(f"Cannot create nonterminal {name} because it already exists")
+
         self.nonterminals[symbol.name] = symbol
         self.interned_symbols.append(symbol)
         return symbol
