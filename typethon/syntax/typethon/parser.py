@@ -843,6 +843,15 @@ class ASTParser:
             )
         else:
             type = types.items[0]
+            if isinstance(type, ast.SumTypeVariantNode):
+                return ast.SumTypeNode(
+                    id=self.node_id(),
+                    start=span[0],
+                    end=span[1],
+                    name=name.content,
+                    variants=[type],
+                )
+
             assert not isinstance(type, ast.SumTypeVariantNode)
             return ast.TypeDefinitionNode(
                 id=self.node_id(),
