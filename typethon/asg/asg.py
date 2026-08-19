@@ -124,26 +124,26 @@ class ModuleDef(Definition):
 @attr.s(kw_only=True, slots=True)
 class StructField(Definition):
     name: str = attr.ib()
-    type: AsgType = attr.ib()
+    type: AsgPathExpression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class StructDef(Definition):
+    # type Struct = { ... }
     name: str = attr.ib()
-    is_definition: bool = attr.ib()
     fields: dict[str, StructField] = attr.ib(factory=dict)
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleElt(Definition):
     index: int = attr.ib()
-    type: AsgType = attr.ib()
+    type: AsgPathExpression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class TupleDef(Definition):
+    # type Tuple = ( ... )
     name: str = attr.ib()
-    is_definition: bool = attr.ib()
     elts: list[TupleElt] = attr.ib(factory=list)
 
 
@@ -162,20 +162,20 @@ class SumDef(Definition):
 @attr.s(kw_only=True, slots=True)
 class NewTypeDef(Definition):
     name: str = attr.ib()
-    type: AsgType | None = attr.ib(default=None)
+    type: AsgPathExpression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FunctionParameter:
     name: str = attr.ib()
-    type: AsgType | None = attr.ib()
+    type: AsgPathExpression | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class FunctionDef(Definition):
     name: str = attr.ib()
     parameters: dict[str, FunctionParameter] = attr.ib(factory=dict)
-    returns: AsgType | None = attr.ib()
+    returns: AsgPathExpression | None = attr.ib()
     body: AsgBody | None = attr.ib(default=None)
 
 
@@ -187,8 +187,8 @@ class ClassDef(Definition):
 
 @attr.s(kw_only=True, slots=True)
 class UseDef(Definition):
-    type: AsgType = attr.ib()
-    type_class: AsgType | None = attr.ib()
+    type: AsgPathExpression = attr.ib()
+    type_class: AsgPathExpression | None = attr.ib()
     functions: dict[str, FunctionDef] = attr.ib(factory=dict)
 
 
@@ -219,19 +219,37 @@ type TypeDefinition = StructDef | TupleDef | SumDef | NewTypeDef
 class PathSegment:
     name: str = attr.ib()
     result: DefResult = attr.ib()
-    arguments: list[AsgType] = attr.ib(factory=list)
+    arguments: list[AsgPathExpression] = attr.ib(factory=list)
 
 
 @attr.s(kw_only=True, slots=True)
-class DynamicPathSegment:
+class UnresolvedPathSegment:
     name: str = attr.ib()
-    arguments: list[AsgType] = attr.ib(factory=list)
+    arguments: list[AsgPathExpression] = attr.ib(factory=list)
 
 
 @attr.s(kw_only=True, slots=True)
-class ExprPathSegment:
-    expression: TypeParameterDef | ListType | StructDef | TupleDef = attr.ib()
-    arguments: list[AsgType] = attr.ib(factory=list)
+class ExpressionPathSegment:
+    expression: TypeParameterDef | PathList | PathStruct | PathTuple = attr.ib()
+    arguments: list[AsgPathExpression] = attr.ib(factory=list)
+
+
+@attr.s(kw_only=True, slots=True)
+class PathTuple:
+    # As an annotation: ( ... )
+    elts: list[AsgPathExpression] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class PathStruct:
+    # As an annotation: { ... }
+    fields: dict[str, AsgPathExpression] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class PathList:
+    # As an annotation:  [...]
+    elt: AsgPathExpression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -249,12 +267,7 @@ class Path:
     #   and it is resolved to Attribute (or whetever I decide to call it)
     # When there are arguments after non-local definition `y`, the result of the arguments
     # are resolved and added to the segment's arguments.
-    segments: list[PathSegment | DynamicPathSegment | ExprPathSegment] = attr.ib(factory=list)
-
-
-@attr.s(kw_only=True, slots=True)
-class ListType:
-    elt: AsgType = attr.ib()
+    segments: list[PathSegment | UnresolvedPathSegment | ExpressionPathSegment] = attr.ib(factory=list)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -262,7 +275,7 @@ class AsgError:
     node: ast.Node = attr.ib()
 
 
-type AsgType = Path | ListType | StructDef | TupleDef | TypeParameterDef
+type AsgPathExpression = Path | PathList | PathStruct | PathTuple | TypeParameterDef
 
 
 @attr.s(kw_only=True, slots=True)
@@ -285,7 +298,7 @@ class Name:
 @attr.s(kw_only=True, slots=True)
 class Local(AsgCode):
     local_definition: LocalResult = attr.ib()
-    type: AsgType | None = attr.ib()
+    type: AsgPathExpression | None = attr.ib()
     value: Expression | None = attr.ib()
 
 
@@ -312,7 +325,7 @@ class If(AsgCode):
 @attr.s(kw_only=True, slots=True)
 class Assign(AsgCode):
     target: AssignTarget = attr.ib()
-    type: AsgType | None = attr.ib()
+    type: AsgPathExpression | None = attr.ib()
     value: Expression = attr.ib()
 
 
@@ -349,7 +362,7 @@ class Lambda(AsgCode):
 @attr.s(kw_only=True, slots=True)
 class Ascribe(AsgCode):
     value: Expression = attr.ib()
-    type: AsgType = attr.ib()
+    type: AsgPathExpression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -441,23 +454,22 @@ class Record(AsgCode):
 
 
 @attr.s(kw_only=True, slots=True)
-class Tuple(AsgCode):
-    # Ambiguous with TuplDef
+class AmbiguousTuple(AsgCode):
+    # Ambiguous with PathTuple
     elts: list[Expression] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class List(AsgCode):
-    # Ambiguous with ListType
+class AmbiguousList(AsgCode):
+    # Ambiguous with PathList
     elts: list[Expression] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Type(AsgCode):
-    # Unambiguous type expressions written in non-type expression context
+class CoPathExpression(AsgCode):
+    # Unambiguous path expressions written in non-path expression context
     # This should only be type parameter or struct definition
-    def_id: DefinitionId = attr.ib()
-    def_kind: DefKind = attr.ib()
+    expression: TypeParameterDef | PathStruct = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -467,14 +479,14 @@ class Slice(AsgCode):
     step: Expression | None = attr.ib()
 
 
-type PossibleTypeExpression = (
+type PossiblePathExpression = (
     Name
     | Call
     | Attribute
-    # ExprPathSegment.expression
-    | Tuple
-    | List
-    | Type
+    # ExpressionPathSegment.expression
+    | AmbiguousTuple
+    | AmbiguousList
+    | CoPathExpression
 )
 
 type AssignTarget = Name | Attribute
@@ -494,7 +506,7 @@ type Expression = (
     | Subscript
     | Record
     | Slice
-    | PossibleTypeExpression
+    | PossiblePathExpression
 )
 
 type Statement = Local | For | While | If | Assign | AugAssign | Return | Break | Continue | Expr

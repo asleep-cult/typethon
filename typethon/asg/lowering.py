@@ -60,11 +60,11 @@ class AsgLowering:
         match self.asg_ctx.def_index.def_kinds[parent_id]:
             case DefKind.STRUCT:
                 assert isinstance(node, ast.StructTypeFieldNode)
-                type = self.lower_type(node.type)
+                type = self.lower_path(node.type)
                 return asg.StructField(def_id=def_id, name=node.name, type=type)
             case DefKind.TUPLE:
                 assert isinstance(node, ast.TupleEltNode)
-                type = self.lower_type(node.value)
+                type = self.lower_path(node.value)
                 return asg.TupleElt(def_id=def_id, index=node.index, type=type)
             case _:
                 assert False, "Invalid field owner"
@@ -77,15 +77,10 @@ class AsgLowering:
             assert isinstance(struct, ast.StructTypeNode)
         else:
             parent_id = self.asg_ctx.parent_id(def_id)
-            parent_node = self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+            assert parent_id is not None
+            parent_node = self.asg_ctx.node_for_def_id(parent_id)
+            assert isinstance(parent_node, ast.SumTypeVariantNode)
             struct = node
-
-        if isinstance(parent_node, (ast.TypeDefinitionNode, ast.SumTypeVariantNode)):
-            name = parent_node.name
-            is_definition = True
-        else:
-            name = "<anonymous struct>"
-            is_definition = False
 
         assert isinstance(struct, ast.StructTypeNode)
         fields: dict[str, asg.StructField] = {}
@@ -97,8 +92,7 @@ class AsgLowering:
 
         return asg.StructDef(
             def_id=def_id,
-            name=name,
-            is_definition=is_definition,
+            name=parent_node.name,
             fields=fields,
         )
 
@@ -110,15 +104,10 @@ class AsgLowering:
             assert isinstance(tuple, ast.TupleNode)
         else:
             parent_id = self.asg_ctx.parent_id(def_id)
-            parent_node = self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
+            assert parent_id is not None
+            parent_node = self.asg_ctx.node_for_def_id(parent_id)
+            assert isinstance(parent_node, ast.SumTypeVariantNode)
             tuple = node
-
-        if isinstance(parent_node, (ast.TypeDefinitionNode, ast.SumTypeVariantNode)):
-            name = parent_node.name
-            is_definition = True
-        else:
-            name = "<anonymous tuple>"
-            is_definition = False
 
         assert isinstance(tuple, ast.TupleNode)
         elts: list[asg.TupleElt] = []
@@ -130,8 +119,7 @@ class AsgLowering:
 
         return asg.TupleDef(
             def_id=def_id,
-            name=name,
-            is_definition=is_definition,
+            name=parent_node.name,
             elts=elts,
         )
 
@@ -158,75 +146,78 @@ class AsgLowering:
 
         return asg.SumDef(def_id=def_id, name=node.name, variants=variants)
 
-    def lower_type(self, type_expression: ast.ExpressionNode) -> asg.AsgType:
-        match type_expression:
+    def lower_path(self, path_expression: ast.ExpressionNode) -> asg.AsgPathExpression:
+        match path_expression:
             case ast.NameNode():
-                result = self.asg_ctx.syms_resolved[type_expression.id]
+                result = self.asg_ctx.syms_resolved[path_expression.id]
                 if isinstance(result, LocalResult):
                     assert False, "Type contains local def"
                 elif result == ResultKind.UNDEFINED:
-                    assert False, f"Undefined name {type_expression.value}"
+                    assert False, f"Undefined name {path_expression.value}"
 
-                segment = asg.PathSegment(name=type_expression.value, result=result)
+                segment = asg.PathSegment(name=path_expression.value, result=result)
                 return asg.Path(segments=[segment])
 
             case ast.ConstantNode():
-                if type_expression.kind is not ast.ConstantKind.SELF:
-                    assert False, "Invalid constant in type expression"
+                if path_expression.kind is not ast.ConstantKind.SELF:
+                    assert False, "Invalid constant in path expression"
 
                 assert False, "Not implemented"
 
             case ast.TypeParameterNode():
-                def_id = self.asg_ctx.def_id_for_node_id(type_expression.id)
+                def_id = self.asg_ctx.def_id_for_node_id(path_expression.id)
                 type_parameter = self.lower_def(def_id)
                 assert isinstance(type_parameter, asg.TypeParameterDef)
                 return type_parameter
 
             case ast.CallNode():
-                path = self.lower_type(type_expression.callable)
+                path = self.lower_path(path_expression.callable)
                 if not isinstance(path, asg.Path):
-                    segment = asg.ExprPathSegment(expression=path)
+                    segment = asg.ExpressionPathSegment(expression=path)
                     path = asg.Path(segments=[segment])
 
-                for argument in type_expression.args:
-                    type_argument = self.lower_type(argument)
-                    path.segments[-1].arguments.append(type_argument)
+                for argument in path_expression.args:
+                    path_argument = self.lower_path(argument)
+                    path.segments[-1].arguments.append(path_argument)
 
                 return path
 
             case ast.AttributeNode():
-                path = self.lower_type(type_expression.value)
+                path = self.lower_path(path_expression.value)
                 if not isinstance(path, asg.Path):
-                    segment = asg.ExprPathSegment(expression=path)
+                    segment = asg.ExpressionPathSegment(expression=path)
                     path = asg.Path(segments=[segment])
 
-                result = self.asg_ctx.syms_resolved.get(type_expression.id)
+                result = self.asg_ctx.syms_resolved.get(path_expression.id)
                 assert not isinstance(result, LocalResult)
 
                 if result is not None:
                     assert result != ResultKind.UNDEFINED
-                    segment = asg.PathSegment(name=type_expression.attr, result=result)
+                    segment = asg.PathSegment(name=path_expression.attr, result=result)
                 else:
-                    segment = asg.DynamicPathSegment(name=type_expression.attr)
+                    segment = asg.UnresolvedPathSegment(name=path_expression.attr)
 
                 path.segments.append(segment)
                 return path
 
             case ast.ListNode():
-                assert len(type_expression.elts) == 1, "List type must have one node"
-                type = self.lower_type(type_expression.elts[0])
-                return asg.ListType(elt=type)
+                assert len(path_expression.elts) == 1, "List path must have one node"
+                path = self.lower_path(path_expression.elts[0])
+                return asg.PathList(elt=path)
 
             case ast.StructTypeNode():
-                def_id = self.asg_ctx.def_id_for_node_id(type_expression.id)
-                return self.lower_struct(def_id)
+                fields: dict[str, asg.AsgPathExpression] = {}
+                for field in path_expression.fields:
+                    fields[field.name] = self.lower_path(field.type)
+
+                return asg.PathStruct(fields=fields)
 
             case ast.TupleNode():
-                def_id = self.asg_ctx.def_id_for_node_id(type_expression.id)
-                return self.lower_tuple(def_id)
+                elts = [self.lower_path(elt.value) for elt in path_expression.elts]
+                return asg.PathTuple(elts=elts)
 
             case _:
-                assert False, f"{type_expression} is not valid as a type expression"
+                assert False, f"{path_expression} is not valid as a path expression"
 
     def lower_new_type(self, def_id: asg.DefinitionId) -> asg.NewTypeDef:
         node = self.asg_ctx.node_for_def_id(def_id)
@@ -240,7 +231,7 @@ class AsgLowering:
             new_type = node
 
         new_type = typing.cast(ast.ExpressionNode, new_type)
-        type = self.lower_type(new_type)
+        type = self.lower_path(new_type)
         return asg.NewTypeDef(
             def_id=def_id,
             name=parent_node.name,
@@ -255,11 +246,11 @@ class AsgLowering:
         for parameter in node.parameters:
             parameter_def = asg.FunctionParameter(
                 name=parameter.name,
-                type=self.lower_type(parameter.type) if parameter.type is not None else None,
+                type=self.lower_path(parameter.type) if parameter.type is not None else None,
             )
             parameters[parameter.name] = parameter_def
 
-        returns = self.lower_type(node.returns) if node.returns is not None else None
+        returns = self.lower_path(node.returns) if node.returns is not None else None
 
         body = None
         if node.body is not None:
@@ -427,7 +418,7 @@ class CodeLowering:
                 return asg.Ascribe(
                     code_id=self.asg_ctx.code_id(expression),
                     value=self.lower_expression(expression.value),
-                    type=self.asg_lowering.lower_type(expression.type),
+                    type=self.asg_lowering.lower_path(expression.type),
                 )
 
             case ast.BoolOpNode():
@@ -536,13 +527,13 @@ class CodeLowering:
                 )
 
             case ast.TupleNode():
-                return asg.Tuple(
+                return asg.AmbiguousTuple(
                     code_id=self.asg_ctx.code_id(expression),
                     elts=[self.lower_expression(elt.value) for elt in expression.elts],
                 )
 
             case ast.ListNode():
-                return asg.List(
+                return asg.AmbiguousList(
                     code_id=self.asg_ctx.code_id(expression),
                     elts=[self.lower_expression(elt) for elt in expression.elts],
                 )
@@ -578,9 +569,10 @@ class CodeLowering:
                     assert False, "No implemented"
 
             case ast.TypeParameterNode() | ast.StructTypeNode():
-                def_id = self.asg_ctx.def_id_for_node_id(expression.id)
-                return asg.Type(
+                path_expression = self.asg_lowering.lower_path(expression)
+                assert isinstance(path_expression, (asg.TypeParameterDef, asg.PathStruct))
+
+                return asg.CoPathExpression(
                     code_id=self.asg_ctx.code_id(expression),
-                    def_id=def_id,
-                    def_kind=self.asg_ctx.def_kind(def_id),
+                    expression=path_expression,
                 )

@@ -50,7 +50,7 @@ class TypeInitializer:
 
     def lower_type_path(self, def_id: asg.DefinitionId, path: asg.Path) -> types.Type:
         for segment in path.segments:
-            if isinstance(segment, asg.DynamicPathSegment):
+            if isinstance(segment, asg.UnresolvedPathSegment):
                 assert False, "You must implement path promotion :("
 
             # TODO: When can/can't args leak into the next segment?
@@ -58,7 +58,7 @@ class TypeInitializer:
 
         return result
 
-    def lower_type(self, def_id: asg.DefinitionId, type: asg.AsgType) -> types.Type:
+    def lower_type(self, def_id: asg.DefinitionId, type: asg.AsgPathExpression) -> types.Type:
         assert not isinstance(type, asg.AsgError)
         match type:
             case asg.Path():
@@ -67,7 +67,7 @@ class TypeInitializer:
                 generics = self.generics_of(def_id)
                 index = generics.index_map[type.def_id]
                 return types.Parameter(name=type.name, index=index)
-            case asg.ListType():
+            case asg.PathList():
                 return types.List(elt=self.lower_type(def_id, type.elt))
             case asg.StructDef() | asg.TupleDef():
                 assert not type.is_definition

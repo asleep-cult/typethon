@@ -46,14 +46,14 @@ GRAMMAR_CACHE_PATH = "./parsertables.bin"
 
 
 class ASTParser:
-    # The grammar is written in a way that constrains type expressions
-    # to a subset of expressions that are valid as types; but this is not reflected
-    # in the AST. I tried to unify types and expressions in the grammar, but this created
-    # ambiguity for type definition statements and exploded the parser table to 10,000
+    # The grammar is written in a way that constrains path expressions
+    # to a subset of expressions that are valid as paths; but this is not reflected
+    # in the AST. I tried to unify paths and expressions in the grammar, but this created
+    # ambiguity for path definition statements and exploded the parser table to 10,000
     # states. The reason I don't properly represent the grammar in the AST is because
-    # I would need to expressions generic over their subexpression type and I would
-    # end up with something like TypeExpressionNode = TupleNode[TypeExpression] | ...
-    # and ExpressionNode = TupleNode[TypeExpressionNode | ExpressionNode] | ...
+    # I would need to expressions generic over their subexpression path and I would
+    # end up with something like PathExpressionNode = TupleNode[PathExpressionNode] | ...
+    # and ExpressionNode = TupleNode[PathExpressionNode | ExpressionNode] | ...
     # And I do not want to make the entire expression AST generic.
 
     symbol_table: typing.ClassVar[FrozenSymbolTable | None] = None

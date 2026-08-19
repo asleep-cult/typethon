@@ -42,7 +42,7 @@ decorators: ("@" !expression NEWLINE)+
 
 function_prototype:
     #[create_function_prototype]
-    | !decorators? "def" !IDENTIFIER "(" !function_parameters? ")" "->" !type_expression
+    | !decorators? "def" !IDENTIFIER "(" !function_parameters? ")" "->" !path_expression
 
 function_def:
     #[add_function_body]
@@ -54,7 +54,7 @@ function_parameters:
 
 function_parameter:
     #[create_function_parameter]
-    | !IDENTIFIER ":" !type_expression ("=" !expression)?
+    | !IDENTIFIER ":" !path_expression ("=" !expression)?
 
 class_def:
     #[create_class]
@@ -62,9 +62,9 @@ class_def:
 
 use_statement:
     #[create_use_statement]
-    | "use" !type_expression ":" !block
+    | "use" !path_expression ":" !block
     #[create_use_as_statement]
-    | "use" !type_expression "as" !type_expression ":" !block
+    | "use" !path_expression "as" !path_expression ":" !block
 
 # for_statement:
     # [create_for_statement]
@@ -91,7 +91,7 @@ expression:
 expression_with_ascription:
     | !expression
     #[create_ascription_expression]
-    | !expression ":" !type_expression
+    | !expression ":" !path_expression
 
 expression_with_lambda:
     | !expression
@@ -218,7 +218,7 @@ slice:
     | !expression
 
 atom:
-    | !type_only_atom
+    | !path_only_atom
     #[create_constant]
     | !"..."
     #[create_name]
@@ -243,11 +243,11 @@ lambda_parameters:
 
 lambda_parameter:
     #[create_lambda_parameter]
-    | !IDENTIFIER (":" !type_expression)?
+    | !IDENTIFIER (":" !path_expression)?
 
 lambda_header:
     #[create_lambda]
-    | "|" !lambda_parameters? "|" ("->" !type_expression)?
+    | "|" !lambda_parameters? "|" ("->" !path_expression)?
 
 simple_lambda_hook:
     #[stop_nested_indentation]
@@ -291,28 +291,28 @@ type_definition:
     | "type" !IDENTIFIER "=" "(" !type_definition_expressions ")"
 
 type_definition_expression:
-    | !type_expression
+    | !path_expression
     #[create_sum_field]
-    | !IDENTIFIER "of" !type_expression
+    | !IDENTIFIER "of" !path_expression
 
 type_definition_expressions:
     #[@prepend]
     | !type_definition_expression ("|" !type_definition_expression)*
 
-type_expression:
-    | !type_primary
-    | "(" !type_expression ")"
+path_expression:
+    | !path_primary
+    | "(" !path_expression ")"
 
-type_primary:
+path_primary:
     #[create_call]
-    | !type_primary "(" !type_expression_list? ")"
+    | !path_primary "(" !path_expression_list? ")"
     #[create_attribute]
-    | !type_primary "." !IDENTIFIER
-    | !type_atom
+    | !path_primary "." !IDENTIFIER
+    | !path_atom
 
-type_expression_list:
+path_expression_list:
     #[@prepend]
-    | !type_expression ("," !type_expression)* ","?
+    | !path_expression ("," !path_expression)* ","?
 
 struct_type:
     #[create_struct_type]
@@ -324,7 +324,7 @@ struct_type_fields:
 
 struct_type_field:
     #[create_struct_type_field]
-    | !IDENTIFIER ":" !type_expression
+    | !IDENTIFIER ":" !path_expression
 
 type_parameter:
     #[create_type_parameter]
@@ -334,16 +334,16 @@ type_parameter_list:
     #[@prepend]
     | !type_parameter ("," !type_parameter)* ","?
 
-type_only_atom:
+path_only_atom:
     | !type_parameter
     #[create_self_type]
     | "Self"
     #[create_struct_type]
     | "{" !struct_type_fields "}"
 
-type_atom:
-    | !type_only_atom
+path_atom:
+    | !path_only_atom
     #[create_name]
     | !IDENTIFIER
     #[create_tuple]
-    | "(" !type_expression_list? ")"
+    | "(" !path_expression_list? ")"

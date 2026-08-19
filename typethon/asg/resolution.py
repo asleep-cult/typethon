@@ -205,9 +205,7 @@ class SymbolResolver:
         expression: ast.ExpressionNode,
     ) -> None:
         parent_id = index.get_def_id()
-        for subexpression in ast.walk_expressions(
-            expression, no_recurse=(ast.AscribeNode, ast.StructTypeNode)
-        ):
+        for subexpression in ast.walk_expressions(expression, no_recurse=(ast.AscribeNode,)):
             # Indexing does a shallow pass over the AST collecting definitions and does not
             # go further than the statement level for any purpose. As a result, the lambda
             # and unambiguous expression-level type indexing logic is done here.
@@ -224,7 +222,7 @@ class SymbolResolver:
             # ...
             #   Type.GenericAssociatedType((int, int)).function((1, 2))
             # ...
-            # Here, it is difficult to determine whether we should run index_type_expression
+            # Here, it is difficult to determine whether we should run index_path_expression
             # on the first tuple, or the second tuple. And impossible to determine
             # whether it would be valid in its context in the first place.
             # As a result, this work will be deferred to the type checker... which should in theory
@@ -248,10 +246,10 @@ class SymbolResolver:
 
                     for parameter in subexpression.parameters:
                         if parameter.type is not None:
-                            self.asg_ctx.def_index.index_type_expression(def_id, parameter.type)
+                            self.asg_ctx.def_index.index_path_expression(def_id, parameter.type)
 
                     if subexpression.returns is not None:
-                        self.asg_ctx.def_index.index_type_expression(def_id, subexpression.returns)
+                        self.asg_ctx.def_index.index_path_expression(def_id, subexpression.returns)
 
                     scope = self.create_scope(subindex, ScopeKind.LAMBDA)
                     for parameter in subexpression.parameters:
@@ -260,21 +258,15 @@ class SymbolResolver:
                     self.initialize_symbols_for_block(subindex, scope, subexpression.body)
 
                 case ast.AscribeNode():
-                    self.asg_ctx.def_index.index_type_expression(
+                    self.asg_ctx.def_index.index_path_expression(
                         parent_id,
                         subexpression.type,
                         allow_new_parameters=False,
                     )
                     self.initialize_unindexed_expressions(index, subexpression.value)
 
-                case ast.StructTypeNode():
-                    # TODO: An anonymous struct should not be owning type parameters...
-                    self.asg_ctx.def_index.index_struct(
-                        parent_id, subexpression, allow_new_parameters=False
-                    )
-
                 case ast.TypeParameterNode():
-                    self.asg_ctx.def_index.index_type_expression(
+                    self.asg_ctx.def_index.index_path_expression(
                         parent_id,
                         subexpression,
                         allow_new_parameters=False,
@@ -329,41 +321,41 @@ class SymbolResolver:
 
         return ResultKind.UNDEFINED
 
-    def resolve_symbols_for_type_expression(self, type_expression: ast.ExpressionNode) -> None:
-        match type_expression:
+    def resolve_symbols_for_path_expression(self, path_expression: ast.ExpressionNode) -> None:
+        match path_expression:
             case ast.NameNode():
-                result = self.resolve_symbol(type_expression.value)
+                result = self.resolve_symbol(path_expression.value)
                 assert isinstance(result, DefResult)
-                self.asg_ctx.syms_resolved[type_expression.id] = result
+                self.asg_ctx.syms_resolved[path_expression.id] = result
 
             case ast.CallNode():
-                self.resolve_symbols_for_type_expression(type_expression.callable)
-                for argument in type_expression.args:
-                    self.resolve_symbols_for_type_expression(argument)
+                self.resolve_symbols_for_path_expression(path_expression.callable)
+                for argument in path_expression.args:
+                    self.resolve_symbols_for_path_expression(argument)
 
             case ast.AttributeNode():
-                self.resolve_symbols_for_type_expression(type_expression.value)
-                result = self.asg_ctx.syms_resolved.get(type_expression.value.id)
+                self.resolve_symbols_for_path_expression(path_expression.value)
+                result = self.asg_ctx.syms_resolved.get(path_expression.value.id)
                 if result is not None:
-                    attribute = self.resolve_attribute(result, type_expression.attr)
+                    attribute = self.resolve_attribute(result, path_expression.attr)
                     if attribute is not ResultKind.UNDEFINED:
-                        self.asg_ctx.syms_resolved[type_expression.id] = attribute
+                        self.asg_ctx.syms_resolved[path_expression.id] = attribute
 
             case ast.ListNode():
-                assert len(type_expression.elts) == 1
-                self.resolve_symbols_for_type_expression(type_expression.elts[1])
+                assert len(path_expression.elts) == 1
+                self.resolve_symbols_for_path_expression(path_expression.elts[1])
 
             case ast.StructTypeNode():
-                for field in type_expression.fields:
-                    self.resolve_symbols_for_type_expression(field.type)
+                for field in path_expression.fields:
+                    self.resolve_symbols_for_path_expression(field.type)
 
             case ast.TupleNode():
-                for elt in type_expression.elts:
-                    self.resolve_symbols_for_type_expression(elt.value)
+                for elt in path_expression.elts:
+                    self.resolve_symbols_for_path_expression(elt.value)
 
             case _:
-                if not isinstance(type_expression, ast.TypeParameterNode):
-                    assert False, f"{type_expression} is not valid as a type expression"
+                if not isinstance(path_expression, ast.TypeParameterNode):
+                    assert False, f"{path_expression} is not valid as a type expression"
 
     def resolve_symbols_for_block(self, statements: list[ast.StatementNode]) -> None:
         for statement in statements:
@@ -375,18 +367,18 @@ class SymbolResolver:
     ) -> None:
         match statement:
             case ast.TypeDefinitionNode():
-                self.resolve_symbols_for_type_expression(statement.type)
+                self.resolve_symbols_for_path_expression(statement.type)
 
             case ast.SumTypeNode():
                 for variant in statement.variants:
                     if variant.type is not None:
-                        self.resolve_symbols_for_type_expression(variant.type)
+                        self.resolve_symbols_for_path_expression(variant.type)
 
             case ast.FunctionDefNode():
                 for parameter in statement.parameters:
-                    self.resolve_symbols_for_type_expression(parameter.type)
+                    self.resolve_symbols_for_path_expression(parameter.type)
 
-                self.resolve_symbols_for_type_expression(statement.returns)
+                self.resolve_symbols_for_path_expression(statement.returns)
 
                 if statement.body is not None:
                     self.enter_node(statement)
@@ -400,14 +392,14 @@ class SymbolResolver:
 
             case ast.UseNode():
                 self.enter_node(statement)
-                self.resolve_symbols_for_type_expression(statement.type)
+                self.resolve_symbols_for_path_expression(statement.type)
                 self.resolve_symbols_for_block(statement.body)
                 self.exit_node(statement)
 
             case ast.UseAsNode():
                 self.enter_node(statement)
-                self.resolve_symbols_for_type_expression(statement.type)
-                self.resolve_symbols_for_type_expression(statement.type_class)
+                self.resolve_symbols_for_path_expression(statement.type)
+                self.resolve_symbols_for_path_expression(statement.type_class)
                 self.exit_node(statement)
 
             case ast.ForNode():
@@ -494,7 +486,7 @@ class SymbolResolver:
                         # and possibly help with unification.
                         self.resolve_symbols_for_expression(target.value)
 
-                self.resolve_symbols_for_type_expression(target.type)
+                self.resolve_symbols_for_path_expression(target.type)
 
             case ast.AttributeNode():
                 self.resolve_symbols_for_expression(target.value)
@@ -508,17 +500,17 @@ class SymbolResolver:
                 self.enter_node(expression)
                 for parameter in expression.parameters:
                     if parameter.type is not None:
-                        self.resolve_symbols_for_type_expression(parameter.type)
+                        self.resolve_symbols_for_path_expression(parameter.type)
 
                 if expression.returns is not None:
-                    self.resolve_symbols_for_type_expression(expression.returns)
+                    self.resolve_symbols_for_path_expression(expression.returns)
 
                 self.resolve_symbols_for_block(expression.body)
                 self.exit_node(expression)
 
             case ast.AscribeNode():
                 self.resolve_symbols_for_expression(expression.value)
-                self.resolve_symbols_for_type_expression(expression.type)
+                self.resolve_symbols_for_path_expression(expression.type)
 
             case ast.BoolOpNode():
                 for value in expression.values:
