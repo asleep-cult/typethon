@@ -371,8 +371,8 @@ class SymbolResolver:
 
             case ast.SumTypeNode():
                 for variant in statement.variants:
-                    if variant.type is not None:
-                        self.resolve_symbols_for_path_expression(variant.type)
+                    if variant.of_type is not None:
+                        self.resolve_symbols_for_path_expression(variant.of_type.type)
 
             case ast.FunctionDefNode():
                 for parameter in statement.parameters:

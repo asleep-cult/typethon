@@ -829,7 +829,7 @@ class ASTParser:
                             start=type.start,
                             end=type.end,
                             name=type.value,
-                            type=None,
+                            of_type=None,
                         )
                         variants.append(variant)
                     case _:
@@ -899,7 +899,12 @@ class ASTParser:
             start=span[0],
             end=span[1],
             name=name.content,
-            type=type,
+            of_type=ast.VariantOfTypeNode(
+                id=self.node_id(),
+                start=type.start,
+                end=type.end,
+                type=type,
+            ),
         )
 
     def create_type_parameter(

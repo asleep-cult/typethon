@@ -180,7 +180,7 @@ class DefIndexing:
             case _:
                 # Def kind is a module or type parameter.
                 # The type parameter case should be impossible
-                assert False, f"Improper target for type parameter definition {def_kind}({def_id} )"
+                assert False, f"Improper target for type parameter definition {def_kind}({def_id})"
 
     def index_path_expression(
         self,
@@ -321,16 +321,19 @@ class DefIndexing:
                     self.asg_ctx.record_parent(variant_def_id, def_id)
                     subindex.add_entry(variant.name, self.def_result(variant_def_id))
 
-                    match variant.type:
-                        case ast.StructTypeNode():
-                            self.index_struct(variant_def_id, variant.type)
-                        case ast.TupleNode():
-                            self.index_tuple(variant_def_id, variant.type)
-                        case _:
-                            if variant.type is not None:
-                                type_def_id = self.def_id(resolution.DefKind.NEW_TYPE, variant.type)
+                    if variant.of_type is not None:
+                        match variant.of_type.type:
+                            case ast.StructTypeNode():
+                                self.index_struct(variant_def_id, variant.of_type.type)
+                            case ast.TupleNode():
+                                self.index_tuple(variant_def_id, variant.of_type.type)
+                            case _:
+                                # The variant type is put in an of_type wrapper because a type parameter
+                                # and the new type both need something to point to
+
+                                type_def_id = self.def_id(resolution.DefKind.NEW_TYPE, variant.of_type)
                                 self.asg_ctx.record_parent(type_def_id, variant_def_id)
-                                self.index_path_expression(type_def_id, variant.type)
+                                self.index_path_expression(type_def_id, variant.of_type.type)
 
                     # type T = ( V1 of { ... } | V2 of { ... } )
                     # ^^^^^^     ^^    ^^^^^^^

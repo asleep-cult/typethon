@@ -128,8 +128,11 @@ class AsgLowering:
         assert isinstance(node, ast.SumTypeVariantNode)
 
         type = None
-        if node.type is not None:
-            type_def_id = self.asg_ctx.def_id_for_node_id(node.type.id)
+        if node.of_type is not None:
+            node_id = (
+                node.of_type.id if isinstance(node.of_type.type, ast.TypeParameterNode) else node.of_type.type.id
+            )
+            type_def_id = self.asg_ctx.def_id_for_node_id(node_id)
             type = self.lower_def(type_def_id)
             assert isinstance(type, (asg.StructDef, asg.TupleDef, asg.NewTypeDef))
 
@@ -225,12 +228,13 @@ class AsgLowering:
             parent_node = node
             new_type = node.type
         else:
+            assert isinstance(node, ast.VariantOfTypeNode)
+
             parent_id = self.asg_ctx.parent_id(def_id)
             parent_node = self.asg_ctx.node_for_def_id(parent_id) if parent_id is not None else None
             assert isinstance(parent_node, ast.SumTypeVariantNode)
-            new_type = node
+            new_type = node.type
 
-        new_type = typing.cast(ast.ExpressionNode, new_type)
         type = self.lower_path(new_type)
         return asg.NewTypeDef(
             def_id=def_id,

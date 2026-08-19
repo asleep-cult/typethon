@@ -326,7 +326,12 @@ class SumTypeNode(Node):
 @attr.s(kw_only=True, slots=True)
 class SumTypeVariantNode(Node):
     name: str = attr.ib()
-    type: ExpressionNode | None = attr.ib()
+    of_type: VariantOfTypeNode | None = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class VariantOfTypeNode(Node):
+    type: ExpressionNode = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
