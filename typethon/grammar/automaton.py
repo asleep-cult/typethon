@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import attr
 import enum
 import typing
 
+import attr
+
 from ..syntax.scanner import Scanner
-from ..syntax.tokens import Token, StdTokenKind, TokenData
+from ..syntax.tokens import StdTokenKind, Token, TokenData
 from .exceptions import (
     ParserAutomatonError,
     UnexpectedTokenError,
@@ -79,13 +80,13 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     ) -> None:
         self.scanner = scanner
         self.table = table
-        self.transformers = {
-            transformer.__name__: transformer for transformer in transformers
-        }
+        self.transformers = {transformer.__name__: transformer for transformer in transformers}
         self.deadlock_threshold = deadlock_threshold
 
         self.state_stack: list[int] = [0]
-        self.item_stack: list[NodeItem[TokenKindT, KeywordKindT]] = [OptionNode(start=0, end=0, item=None)]
+        self.item_stack: list[NodeItem[TokenKindT, KeywordKindT]] = [
+            OptionNode(start=0, end=0, item=None)
+        ]
 
         self.transformers["@prepend"] = self.transform_prepend
         self.transformers["@flatten"] = self.transform_flatten
@@ -93,9 +94,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         self.transformers["@option"] = self.transform_option
 
     def create_default_node(
-        self,
-        span: tuple[int, int],
-        items: list[NodeItem[TokenKindT, KeywordKindT]]
+        self, span: tuple[int, int], items: list[NodeItem[TokenKindT, KeywordKindT]]
     ) -> NodeItem[TokenKindT, KeywordKindT]:
         if len(items) == 1:
             return items[0]
@@ -127,9 +126,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         span: tuple[int, int],
         *items: NodeItem[TokenKindT, KeywordKindT],
     ) -> SequenceNode[NodeItem[TokenKindT, KeywordKindT]]:
-        sequence = SequenceNode(
-            start=span[0], end=span[1], items=[]
-        )
+        sequence = SequenceNode(start=span[0], end=span[1], items=[])
         for item in items:
             self.flatten_recursive(sequence, item)
 
@@ -222,9 +219,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     if entry != UNSET_ACTION
                 ]
                 string = ", ".join(symbols)
-                source = self.scanner.source[
-                    current_token.start - 20 : current_token.end + 20
-                ]
+                source = self.scanner.source[current_token.start - 20 : current_token.end + 20]
                 raise UnexpectedTokenError(
                     f"Automaton encountered an unexpected token {current_token.kind.name!r} in state #{current_state}. "
                     f"The next token should have been one of the following: {string}. ({source!r})"
@@ -273,7 +268,7 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     node = transformer((start, end), *items)
                 else:
                     if len(items) == 1:
-                        node, = items
+                        (node,) = items
                     else:
                         start = item_stack[-1].end
                         node = self.create_default_node((start, end), items)
@@ -283,7 +278,9 @@ class ParserAutomaton[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 next_state = goto_table[(current_state * nonterminals_size) + symbol_id]
                 if next_state == UNSET_GOTO:
                     nonterminal = frozen_symbols.get_frozen_symbol(frozen_production.lhs)
-                    raise ParserAutomatonError(f"Automaton found no GOTO for {nonterminal} in {current_state}")
+                    raise ParserAutomatonError(
+                        f"Automaton found no GOTO for {nonterminal} in {current_state}"
+                    )
 
                 state_stack.append(next_state - 1)
                 item_stack.append(node)

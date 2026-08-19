@@ -1,6 +1,5 @@
-
-import re
 import enum
+import re
 import typing
 
 from .tokens import (
@@ -120,9 +119,7 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         return len(self.match_stack) - self.match_stack_bottom <= 0
 
     def start_nested_indentation(self) -> None:
-        self.indentation_nesting_stack.append(
-            (self.match_stack_bottom, self.indent_stack[-1])
-        )
+        self.indentation_nesting_stack.append((self.match_stack_bottom, self.indent_stack[-1]))
         self.match_stack_bottom = len(self.match_stack)
 
     def stop_nested_indentation(self) -> None:
@@ -136,19 +133,17 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         elif char == "f":
             return StringTokenFlags.FORMAT
 
-    def add_pending_indentation(self, start: int, position: int, indent: int, altindent: int) -> None:
+    def add_pending_indentation(
+        self, start: int, position: int, indent: int, altindent: int
+    ) -> None:
         last_indent, last_altindent = self.indent_stack[-1]
 
         if indent == last_indent:
             if altindent != last_altindent:
-                self.tokens.append(
-                    IndentToken(start=start, end=position, inconsistent=True)
-                )
+                self.tokens.append(IndentToken(start=start, end=position, inconsistent=True))
         elif indent > last_indent:
             if altindent <= last_altindent:
-                self.tokens.append(
-                    IndentToken(start=start, end=position, inconsistent=True)
-                )
+                self.tokens.append(IndentToken(start=start, end=position, inconsistent=True))
             else:
                 self.tokens.append(IndentToken(start=start, end=position))
 
@@ -163,13 +158,9 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             if indent == last_indent:
                 if altindent != last_altindent:
-                    self.tokens.append(
-                        DedentToken(start=start, end=position, inconsistent=True)
-                    )
+                    self.tokens.append(DedentToken(start=start, end=position, inconsistent=True))
                 else:
-                    self.tokens.append(
-                        DedentToken(start=start, end=position)
-                    )
+                    self.tokens.append(DedentToken(start=start, end=position))
             else:
                 inconsistent = indent == last_indent and altindent != last_altindent
                 self.tokens.append(
@@ -181,7 +172,7 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     )
                 )
 
-        self.is_newline = False        
+        self.is_newline = False
 
     def newline(self, position: int) -> None:
         if self.is_newline or not self.is_match_stack_effectively_empty():
@@ -191,15 +182,17 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         token = TokenData(kind=StdTokenKind.NEWLINE, start=position - 1, end=position)
         self.tokens.append(token)
 
-    def string(self, position: int, source: str, *, flags: StringTokenFlags = StringTokenFlags.NONE) -> int:
+    def string(
+        self, position: int, source: str, *, flags: StringTokenFlags = StringTokenFlags.NONE
+    ) -> int:
         start = position - 1
         source_len = len(source)
 
         multiline = False
-        if source_len > position and source[position] == "\"":
+        if source_len > position and source[position] == '"':
             position += 1
 
-            if source_len > position and source[position] == "\"":
+            if source_len > position and source[position] == '"':
                 position += 1
                 multiline = True
             else:
@@ -207,11 +200,11 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 self.tokens.append(token)
 
         if multiline:
-            end = source.find("\"\"\"", position)
+            end = source.find('"""', position)
             # XXX: COULD BE ESCAPED
             if end == -1:
                 flags |= StringTokenFlags.UNTERMINATED
-                content = source[start + 3:]
+                content = source[start + 3 :]
                 end = source_len
             else:
                 content = source[start + 3 : end]
@@ -221,13 +214,13 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             self.tokens.append(token)
             return end
         else:
-            end = source.find("\"", position)
+            end = source.find('"', position)
             if end == -1:
                 flags |= StringTokenFlags.UNTERMINATED
                 end = source.find("\n")
 
             if end == -1:
-                content = source[start + 1:]
+                content = source[start + 1 :]
                 end = source_len
             else:
                 content = source[start + 1 : end]
@@ -235,14 +228,14 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             token = StringToken(start=start, end=end, content=content, flags=flags)
             self.tokens.append(token)
-            return end        
+            return end
 
     def scan(self) -> list[Token[TokenKindT, KeywordKindT]]:
         self.scanned = True
         token_group = "|".join(re.escape(token) for token in self.token_map)
 
         if "'" in self.token_map:
-            string_group = "\""
+            string_group = '"'
         else:
             string_group = "'|\""
 
@@ -333,23 +326,36 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     tokens.append(token)
 
                 case "hexadecimal":
-                    token = NumberToken(start=start, end=position, content=content, flags=NumberTokenFlags.HEXADECIMAL)
+                    token = NumberToken(
+                        start=start,
+                        end=position,
+                        content=content,
+                        flags=NumberTokenFlags.HEXADECIMAL,
+                    )
                     tokens.append(token)
 
                 case "binary":
-                    token = NumberToken(start=start, end=position, content=content, flags=NumberTokenFlags.BINARY)
+                    token = NumberToken(
+                        start=start, end=position, content=content, flags=NumberTokenFlags.BINARY
+                    )
                     tokens.append(token)
 
                 case "octal":
-                    token = NumberToken(start=start, end=position, content=content, flags=NumberTokenFlags.OCTAL)
+                    token = NumberToken(
+                        start=start, end=position, content=content, flags=NumberTokenFlags.OCTAL
+                    )
                     tokens.append(token)
 
                 case "float":
-                    token = NumberToken(start=start, end=position, content=content, flags=NumberTokenFlags.FLOAT)
+                    token = NumberToken(
+                        start=start, end=position, content=content, flags=NumberTokenFlags.FLOAT
+                    )
                     tokens.append(token)
 
                 case "integer":
-                    token = NumberToken(start=start, end=position, content=content, flags=NumberTokenFlags.INTEGER)
+                    token = NumberToken(
+                        start=start, end=position, content=content, flags=NumberTokenFlags.INTEGER
+                    )
                     tokens.append(token)
 
                 case "token":
@@ -384,9 +390,7 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                             self.is_match_stack_effectively_empty()
                             and self.indentation_nesting_stack
                         ):
-                            self.tokens.append(
-                                TokenData(kind=StdTokenKind.NEWLINE, start=0, end=0)
-                            )
+                            self.tokens.append(TokenData(kind=StdTokenKind.NEWLINE, start=0, end=0))
 
                             indent, altindent = self.indentation_nesting_stack[-1][1]
                             self.add_pending_indentation(position, position, indent, altindent)
@@ -411,7 +415,7 @@ class Scanner[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     if end == -1:
                         end = len(source)
 
-                    comment = self.source[position : end]
+                    comment = self.source[position:end]
 
                     directive_start = comment.find("[")
                     directive_end = comment.find("]")

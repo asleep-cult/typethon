@@ -66,9 +66,7 @@ class Production[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def __hash__(self) -> int:
         return self.id
 
-    def add_symbol(
-        self, symbol: Symbol[TokenKindT, KeywordKindT], capture: bool
-    ) -> None:
+    def add_symbol(self, symbol: Symbol[TokenKindT, KeywordKindT], capture: bool) -> None:
         if capture:
             self.captured.append(len(self.rhs))
 
@@ -104,6 +102,5 @@ class Production[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 EOF = TerminalSymbol[typing.Any, typing.Any](id=0, kind=StdTokenKind.EOF)
 
 type Symbol[TokenKindT: enum.Enum, KeywordKindT: enum.Enum] = (
-    NonterminalSymbol[TokenKindT, KeywordKindT]
-    | TerminalSymbol[TokenKindT, KeywordKindT]
+    NonterminalSymbol[TokenKindT, KeywordKindT] | TerminalSymbol[TokenKindT, KeywordKindT]
 )

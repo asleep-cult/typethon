@@ -46,7 +46,9 @@ class DefIndex:
     ) -> None:
         if name in self.entries:
             entry = self.entries[name]
-            assert False, f"{entry.result.kind.name} {name} is obsured by {def_result.kind.name} of the same name"
+            assert False, (
+                f"{entry.result.kind.name} {name} is obsured by {def_result.kind.name} of the same name"
+            )
 
         self.entries[name] = IndexedEntry(own_index=index, result=def_result)
 
@@ -136,12 +138,14 @@ class DefIndexing:
             resolution.DefKind.CLASS,
             resolution.DefKind.FIELD,
         )
-        if (
-            parent_kind is resolution.DefKind.FUNCTION
-            and def_kind in (resolution.DefKind.STRUCT, resolution.DefKind.TUPLE)
+        if parent_kind is resolution.DefKind.FUNCTION and def_kind in (
+            resolution.DefKind.STRUCT,
+            resolution.DefKind.TUPLE,
         ):
             assert parent_id is not None
-            use_parent = not isinstance(self.asg_ctx.node_for_def_id(def_id), ast.TypeDefinitionNode)
+            use_parent = not isinstance(
+                self.asg_ctx.node_for_def_id(def_id), ast.TypeDefinitionNode
+            )
 
         if own_params is not None:
             result = own_params.parameters.get(parameter.name)
@@ -189,7 +193,7 @@ class DefIndexing:
                 elif not isinstance(self.asg_ctx.node_for_def_id(def_id), ast.TypeDefinitionNode):
                     assert parent_kind not in (
                         resolution.DefKind.STRUCT,
-                        resolution.DefKind.TUPLE
+                        resolution.DefKind.TUPLE,
                     ), "Parent of structural type within struct or tuple should be a field"
 
                     assert parent_kind is not resolution.DefKind.FUNCTION, (
@@ -211,16 +215,18 @@ class DefIndexing:
         allow_new_parameters: bool = True,
     ) -> None:
         # NOTE: This function gets called on expressions that are unambiguously types, (i.e type annotations)
-        for subexpression in ast.walk_expressions(type_expression, no_recurse=(ast.StructTypeNode, ast.TupleNode)):
+        for subexpression in ast.walk_expressions(
+            type_expression, no_recurse=(ast.StructTypeNode, ast.TupleNode)
+        ):
             match subexpression:
-                case ast.StructTypeNode() if (
-                    subexpression.id not in self.asg_ctx.def_nodes
-                ):
-                    self.index_struct(def_id, subexpression, allow_new_parameters=allow_new_parameters)
-                case ast.TupleNode() if (
-                    subexpression.id not in self.asg_ctx.def_nodes
-                ):
-                    self.index_tuple(def_id, subexpression, allow_new_parameters=allow_new_parameters)
+                case ast.StructTypeNode() if subexpression.id not in self.asg_ctx.def_nodes:
+                    self.index_struct(
+                        def_id, subexpression, allow_new_parameters=allow_new_parameters
+                    )
+                case ast.TupleNode() if subexpression.id not in self.asg_ctx.def_nodes:
+                    self.index_tuple(
+                        def_id, subexpression, allow_new_parameters=allow_new_parameters
+                    )
 
             if not isinstance(subexpression, ast.TypeParameterNode):
                 continue
@@ -233,9 +239,7 @@ class DefIndexing:
                     # type vars for the unification process?
                     assert False, "Parameter creation disallowed in function body..."
 
-                param_def_id = self.def_id(
-                    resolution.DefKind.TYPE_PARAMETER, subexpression
-                )
+                param_def_id = self.def_id(resolution.DefKind.TYPE_PARAMETER, subexpression)
 
                 param_index = self.get_defining_index(def_id)
                 self.asg_ctx.record_parent(param_def_id, param_index.def_id)
@@ -276,7 +280,8 @@ class DefIndexing:
 
     def index_tuple(
         self,
-        parent_id: asg.DefinitionId, node: ast.TupleNode | ast.TypeDefinitionNode,
+        parent_id: asg.DefinitionId,
+        node: ast.TupleNode | ast.TypeDefinitionNode,
         *,
         allow_new_parameters: bool = True,
     ) -> asg.DefinitionId:
@@ -345,9 +350,7 @@ class DefIndexing:
                         def_id = self.index_tuple(parent_id, statement)
                     case _:
                         # NEW_TYPE node may point to type definition statement
-                        def_id = self.def_id(
-                            resolution.DefKind.NEW_TYPE, statement
-                        )
+                        def_id = self.def_id(resolution.DefKind.NEW_TYPE, statement)
                         self.asg_ctx.record_parent(def_id, parent_id)
                         self.index_type_expression(def_id, statement.type)
 
@@ -373,9 +376,7 @@ class DefIndexing:
                             type_def_id = self.index_tuple(variant_def_id, variant.type)
                         case _:
                             if variant.type is not None:
-                                type_def_id = self.def_id(
-                                    resolution.DefKind.NEW_TYPE, variant.type
-                                )
+                                type_def_id = self.def_id(resolution.DefKind.NEW_TYPE, variant.type)
                                 self.asg_ctx.record_parent(type_def_id, variant_def_id)
                                 self.index_type_expression(type_def_id, variant.type)
 

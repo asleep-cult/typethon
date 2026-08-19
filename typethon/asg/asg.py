@@ -18,6 +18,7 @@ from .resolution import DefKind, DefResult, LocalResult, ResolvedSymbol, SymbolR
 # gets resolved as well.
 
 DefinitionId = typing.NewType("DefinitionId", int)
+CodeId = typing.NewType("CodeId", int)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -37,12 +38,15 @@ class AsgContext:
 
     diagnostics: DiagnosticReporter = attr.ib()
     def_id_counter: count[int] = attr.ib(factory=count)
+    code_id_counter: count[int] = attr.ib(factory=count)
     def_index: DefIndexing = attr.ib(init=False)
     root_index: DefIndex = attr.ib(init=False)
     defs: dict[DefinitionId, AsgDefinition] = attr.ib(factory=dict)
     def_parents: dict[DefinitionId, DefinitionId] = attr.ib(factory=dict)
     def_nodes: dict[ast.NodeId, DefinitionId] = attr.ib(factory=dict)
     node_defs: dict[DefinitionId, ast.Node] = attr.ib(factory=dict, repr=False)
+    code_nodes: dict[ast.NodeId, CodeId] = attr.ib(factory=dict)
+    node_code: dict[CodeId, ast.Node] = attr.ib(factory=dict)
     sym_resolver: SymbolResolver = attr.ib(init=False)
     syms_resolved: dict[ast.NodeId, ResolvedSymbol] = attr.ib(factory=dict)
 
@@ -67,6 +71,15 @@ class AsgContext:
         self.def_nodes[node.id] = def_id
         self.node_defs[def_id] = node
         return def_id
+
+    def code_id(self, node: ast.Node) -> CodeId:
+        if node.id in self.code_nodes:
+            return self.code_nodes[node.id]
+
+        code_id = CodeId(next(self.code_id_counter))
+        self.code_nodes[node.id] = code_id
+        self.node_code[code_id] = node
+        return code_id
 
     def def_kind(self, def_id: DefinitionId) -> DefKind:
         return self.def_index.def_kinds[def_id]
@@ -236,9 +249,7 @@ class Path:
     #   and it is resolved to Attribute (or whetever I decide to call it)
     # When there are arguments after non-local definition `y`, the result of the arguments
     # are resolved and added to the segment's arguments.
-    segments: list[PathSegment | DynamicPathSegment | ExprPathSegment] = attr.ib(
-        factory=list
-    )
+    segments: list[PathSegment | DynamicPathSegment | ExprPathSegment] = attr.ib(factory=list)
 
 
 @attr.s(kw_only=True, slots=True)
@@ -256,7 +267,7 @@ type AsgType = Path | ListType | StructDef | TupleDef | TypeParameterDef
 
 @attr.s(kw_only=True, slots=True)
 class AsgCode:
-    node_id: int = attr.ib()
+    code_id: CodeId = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -265,9 +276,10 @@ class AsgBody:
 
 
 @attr.s(kw_only=True, slots=True)
-class Resolved:
+class Name:
+    # Ambiguous with path segment with same name
     name: str = attr.ib()
-    result: ResolvedSymbol | AsgError = attr.ib()
+    resolved: ResolvedSymbol | AsgError = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -294,19 +306,19 @@ class While(AsgCode):
 class If(AsgCode):
     condition: Expression = attr.ib()
     body: AsgBody = attr.ib()
-    else_body: AsgBody = attr.ib()
+    else_body: AsgBody | None = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class Assignment(AsgCode):
-    target: Expression = attr.ib()
+class Assign(AsgCode):
+    target: AssignTarget = attr.ib()
     type: AsgType | None = attr.ib()
     value: Expression = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class AugAssignment(AsgCode):
-    target: Expression = attr.ib()
+class AugAssign(AsgCode):
+    target: AssignTarget = attr.ib()
     op: ast.OperatorKind = attr.ib()
     value: Expression = attr.ib()
 
@@ -335,7 +347,7 @@ class Lambda(AsgCode):
 
 
 @attr.s(kw_only=True, slots=True)
-class Annotated(AsgCode):
+class Ascribe(AsgCode):
     value: Expression = attr.ib()
     type: AsgType = attr.ib()
 
@@ -373,6 +385,7 @@ class Comparator(AsgCode):
 
 @attr.s(kw_only=True, slots=True)
 class Call(AsgCode):
+    # Ambiguous with path segment with arguments
     callable: Expression = attr.ib()
     args: list[Expression] = attr.ib()
 
@@ -404,6 +417,8 @@ class Constant(AsgCode):
 
 @attr.s(kw_only=True, slots=True)
 class Attribute(AsgCode):
+    # Ambiguous with path segment named attr
+    result: ResolvedSymbol | None = attr.ib(default=None)
     value: Expression = attr.ib()
     attr: str = attr.ib()
 
@@ -415,18 +430,34 @@ class Subscript(AsgCode):
 
 
 @attr.s(kw_only=True, slots=True)
-class Struct(AsgCode):
-    fields: dict[str, Expression] = attr.ib()
+class RecordField:
+    name: str = attr.ib()
+    value: Expression = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class Record(AsgCode):
+    fields: dict[str, RecordField] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class Tuple(AsgCode):
+    # Ambiguous with TuplDef
     elts: list[Expression] = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
 class List(AsgCode):
+    # Ambiguous with ListType
     elts: list[Expression] = attr.ib()
+
+
+@attr.s(kw_only=True, slots=True)
+class Type(AsgCode):
+    # Unambiguous type expressions written in non-type expression context
+    # This should only be type parameter or struct definition
+    def_id: DefinitionId = attr.ib()
+    def_kind: DefKind = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -436,37 +467,34 @@ class Slice(AsgCode):
     step: Expression | None = attr.ib()
 
 
+type PossibleTypeExpression = (
+    Name
+    | Call
+    | Attribute
+    # ExprPathSegment.expression
+    | Tuple
+    | List
+    | Type
+)
+
+type AssignTarget = Name | Attribute
+
 type Expression = (
-    Resolved
-    | Lambda
-    | Annotated
+    Lambda
+    | Ascribe
     | BoolOp
     | BinaryOp
     | UnaryOp
     | Compare
-    | Call
     | Integer
     | Float
     | Complex
     | String
     | Constant
-    | Attribute
     | Subscript
-    | Struct
-    | Tuple
-    | List
+    | Record
     | Slice
+    | PossibleTypeExpression
 )
 
-type Statement = (
-    Local
-    | For
-    | While
-    | If
-    | Assignment
-    | AugAssignment
-    | Return
-    | Break
-    | Continue
-    | Expr
-)
+type Statement = Local | For | While | If | Assign | AugAssign | Return | Break | Continue | Expr

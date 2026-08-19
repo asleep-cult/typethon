@@ -182,9 +182,7 @@ class SymbolResolver:
                 self.initialize_symbols_for_block(subindex, scope, statement.body)
 
                 if statement.else_statement is not None:
-                    subindex = self.asg_ctx.def_index.block_indexes[
-                        statement.else_statement.id
-                    ]
+                    subindex = self.asg_ctx.def_index.block_indexes[statement.else_statement.id]
                     self.create_scope(subindex, ScopeKind.BLOCK)
                     self.initialize_symbols_for_block(
                         subindex, scope, statement.else_statement.body
@@ -207,13 +205,15 @@ class SymbolResolver:
         expression: ast.ExpressionNode,
     ) -> None:
         parent_id = index.get_def_id()
-        for subexpression in ast.walk_expressions(expression, no_recurse=(ast.AnnotatedNode, ast.StructTypeNode)):
+        for subexpression in ast.walk_expressions(
+            expression, no_recurse=(ast.AscribeNode, ast.StructTypeNode)
+        ):
             # Indexing does a shallow pass over the AST collecting definitions and does not
             # go further than the statement level for any purpose. As a result, the lambda
             # and unambiguous expression-level type indexing logic is done here.
             # Unambiguous expression-level types consist of:
             #   1) Lambda parameter types & return type
-            #   2) Annotated expression types (i.e the T in `x: T`)
+            #   2) Ascription expression types (i.e the T in `x: T`)
             #   3) Type parameters `'t`
             #   4) Struct types `{ field1: T1, ... }`
             # ...
@@ -240,7 +240,9 @@ class SymbolResolver:
                     def_id = self.asg_ctx.def_index.def_id(DefKind.FUNCTION, subexpression)
                     self.asg_ctx.record_parent(def_id, parent_id)
 
-                    subindex = self.asg_ctx.def_index.def_index(parent=index, node_id=subexpression.id)
+                    subindex = self.asg_ctx.def_index.def_index(
+                        parent=index, node_id=subexpression.id
+                    )
                     self.asg_ctx.def_index.block_indexes[subexpression.id] = subindex
                     self.asg_ctx.def_index.index_block(subindex, subexpression.body)
 
@@ -257,7 +259,7 @@ class SymbolResolver:
 
                     self.initialize_symbols_for_block(subindex, scope, subexpression.body)
 
-                case ast.AnnotatedNode():
+                case ast.AscribeNode():
                     self.asg_ctx.def_index.index_type_expression(
                         parent_id,
                         subexpression.type,
@@ -267,7 +269,9 @@ class SymbolResolver:
 
                 case ast.StructTypeNode():
                     # TODO: An anonymous struct should not be owning type parameters...
-                    self.asg_ctx.def_index.index_struct(parent_id, subexpression)
+                    self.asg_ctx.def_index.index_struct(
+                        parent_id, subexpression, allow_new_parameters=False
+                    )
 
                 case ast.TypeParameterNode():
                     self.asg_ctx.def_index.index_type_expression(
@@ -325,12 +329,10 @@ class SymbolResolver:
 
         return ResultKind.UNDEFINED
 
-    def resolve_symbols_for_type_expression(
-        self, type_expression: ast.TypeExpressionNode
-    ) -> None:
+    def resolve_symbols_for_type_expression(self, type_expression: ast.ExpressionNode) -> None:
         match type_expression:
             case ast.NameNode():
-                result = self.resolve_symbol(type_expression.value, include_locals=False)
+                result = self.resolve_symbol(type_expression.value)
                 assert isinstance(result, DefResult)
                 self.asg_ctx.syms_resolved[type_expression.id] = result
 
@@ -441,7 +443,7 @@ class SymbolResolver:
                 self.resolve_symbols_for_expression(statement.value)
 
             case ast.ExprNode():
-                if isinstance(statement.expr, ast.AnnotatedNode):
+                if isinstance(statement.expr, ast.AscribeNode):
                     # An unused ascription could be an implicit local creation i.e
                     # def f() -> ():
                     #   y: int
@@ -482,7 +484,7 @@ class SymbolResolver:
                 else:
                     self.create_assignment_target(assignment, target)
 
-            case ast.AnnotatedNode():
+            case ast.AscribeNode():
                 match target.value:
                     case ast.NameNode():
                         self.create_assignment_target(assignment, target.value)
@@ -514,7 +516,7 @@ class SymbolResolver:
                 self.resolve_symbols_for_block(expression.body)
                 self.exit_node(expression)
 
-            case ast.AnnotatedNode():
+            case ast.AscribeNode():
                 self.resolve_symbols_for_expression(expression.value)
                 self.resolve_symbols_for_type_expression(expression.type)
 
@@ -556,7 +558,7 @@ class SymbolResolver:
 
             case ast.TupleNode():
                 for elt in expression.elts:
-                    self.resolve_symbols_for_expression(elt)
+                    self.resolve_symbols_for_expression(elt.value)
 
             case ast.ListNode():
                 for elt in expression.elts:

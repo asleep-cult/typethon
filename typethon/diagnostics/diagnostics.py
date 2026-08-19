@@ -23,9 +23,7 @@ class DiagnosticReporter:
         self.diagnostics: list[DiagnosticInfo] = []
 
     def has_error(self) -> bool:
-        return any(
-            diagnostic.level is DiagnosticLevel.ERROR for diagnostic in self.diagnostics
-        )
+        return any(diagnostic.level is DiagnosticLevel.ERROR for diagnostic in self.diagnostics)
 
     def report(
         self,

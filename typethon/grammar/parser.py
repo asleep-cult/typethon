@@ -60,9 +60,7 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         return ast.TokenNode(start=token.start, end=token.end, kind=kind)
 
-    def parse_string(
-        self, token: StringToken
-    ) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
+    def parse_string(self, token: StringToken) -> ast.ExpressionNode[TokenKindT, KeywordKindT]:
         if token.content in self.keywords:
             keyword = self.keywords[token.content]
             return ast.KeywordNode(start=token.start, end=token.end, keyword=keyword)

@@ -57,9 +57,9 @@ class ASTParser:
     # And I do not want to make the entire expression AST generic.
 
     symbol_table: typing.ClassVar[FrozenSymbolTable | None] = None
-    parse_tables: typing.ClassVar[
-        dict[str, FrozenParserTable[TokenKind, KeywordKind]] | None
-    ] = None
+    parse_tables: typing.ClassVar[dict[str, FrozenParserTable[TokenKind, KeywordKind]] | None] = (
+        None
+    )
 
     def __init__(
         self,
@@ -165,9 +165,7 @@ class ASTParser:
         span: tuple[int, int],
         value: OptionNode[ast.ExpressionNode],
     ) -> ast.ReturnNode:
-        return ast.ReturnNode(
-            id=self.node_id(), start=span[0], end=span[1], value=value.item
-        )
+        return ast.ReturnNode(id=self.node_id(), start=span[0], end=span[1], value=value.item)
 
     def create_expr_statement(
         self, span: tuple[int, int], expression: ast.ExpressionNode
@@ -330,13 +328,13 @@ class ASTParser:
             body=body.items,
         )
 
-    def create_annotated_expression(
+    def create_ascription_expression(
         self,
         span: tuple[int, int],
         value: ast.ExpressionNode,
         type: ast.ExpressionNode,
-    ) -> ast.AnnotatedNode:
-        return ast.AnnotatedNode(
+    ) -> ast.AscribeNode:
+        return ast.AscribeNode(
             id=self.node_id(),
             start=span[0],
             end=span[1],
@@ -610,13 +608,26 @@ class ASTParser:
         span: tuple[int, int],
         token: Token,
     ) -> ast.ConstantNode:
-        assert False, "Not Implemented"
+        match token.kind:
+            case KeywordKind.SELF:
+                kind = ast.ConstantKind.SELF
+            case TokenKind.ELLIPSIS:
+                kind = ast.ConstantKind.ELLIPSIS
+            case _:
+                assert False, "Unreachable"
+
+        return ast.ConstantNode(
+            id=self.node_id(),
+            start=span[0],
+            end=span[1],
+            kind=kind,
+        )
 
     def create_number(
         self,
         span: tuple[int, int],
         token: NumberToken,
-    ) -> ast.ConstantNode:
+    ) -> ast.IntegerNode | ast.ComplexNode | ast.FloatNode:
         if token.flags & NumberTokenFlags.BINARY:
             radix = 2
         elif token.flags & NumberTokenFlags.OCTAL:
@@ -799,16 +810,6 @@ class ASTParser:
         self.scanner.stop_nested_indentation()
         expression.body.extend(statements.items)
         return expression
-
-    def create_self_type(
-        self,
-        span: tuple[int, int],
-    ) -> ast.SelfTypeNode:
-        return ast.SelfTypeNode(
-            id=self.node_id(),
-            start=span[0],
-            end=span[1],
-        )
 
     def create_type_definition(
         self,

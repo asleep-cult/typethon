@@ -18,9 +18,9 @@ simple_statement:
     #[create_continue_statement]
     | "continue"
     #[create_return_statement]
-    | "return" !expression_with_annotation?
+    | "return" !expression_with_ascription?
     #[create_expr_statement]
-    | !expression_with_annotation
+    | !expression_with_ascription
     | !assignment
     | !function_prototype
     | !type_definition
@@ -32,11 +32,11 @@ block:
 
 assignment_with_lambda:
     #[create_assignment]
-    | !expression_with_annotation "=" !expression_with_lambda
+    | !expression_with_ascription "=" !expression_with_lambda
 
 assignment:
     #[create_assignment]
-    | !expression_with_annotation "=" !expression
+    | !expression_with_ascription "=" !expression
 
 decorators: ("@" !expression NEWLINE)+
 
@@ -88,9 +88,9 @@ expression:
     | !disjunction
     | !simple_lambda
 
-expression_with_annotation:
+expression_with_ascription:
     | !expression
-    #[create_annotated_expression]
+    #[create_ascription_expression]
     | !expression ":" !type_expression
 
 expression_with_lambda:
@@ -197,7 +197,7 @@ power:
 
 arguments:
     #[@flatten]
-    | !expression_with_annotation ("," !expression_with_annotation)* ","?
+    | !expression_with_ascription ("," !expression_with_ascription)* ","?
 
 primary:
     #[create_attribute]
@@ -233,9 +233,9 @@ atom:
 
 expression_list:
     #[@prepend]
-    | !expression_with_annotation ("," !expression_with_annotation)+ ","?
+    | !expression_with_ascription ("," !expression_with_ascription)+ ","?
     #[@sequence]
-    | !expression_with_annotation ","
+    | !expression_with_ascription ","
 
 lambda_parameters:
     #[@prepend]
@@ -274,14 +274,14 @@ record_fields:
 
 record_field:
     #[create_record_field]
-    | !IDENTIFIER "=" !expression_with_annotation
+    | !IDENTIFIER "=" !expression_with_ascription
 
 tuple:
     #[create_tuple]
     | "(" !expression_list? ")"
 
 group:
-    | "(" !expression_with_annotation ")"
+    | "(" !expression_with_ascription ")"
     | "(" !complex_lambda ")"
 
 type_definition:

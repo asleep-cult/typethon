@@ -74,9 +74,7 @@ class TypeInitializer:
                 adt = self.store.adts[type.def_id]
                 return types.Adt(info=adt, structural=True, args=[])
 
-    def get_identity_parameters(
-        self, def_id: asg.DefinitionId
-    ) -> list[types.Parameter]:
+    def get_identity_parameters(self, def_id: asg.DefinitionId) -> list[types.Parameter]:
         generics = self.generics_of(def_id)
         if generics.parent_id is None:
             return [
@@ -86,9 +84,7 @@ class TypeInitializer:
 
         parameters = self.get_identity_parameters(generics.parent_id)
         for parameter in generics.parameters:
-            parameters.append(
-                types.Parameter(name=parameter.name, index=parameter.index)
-            )
+            parameters.append(types.Parameter(name=parameter.name, index=parameter.index))
 
         return parameters
 
@@ -125,9 +121,7 @@ class TypeInitializer:
 
         parent_id = self.asg_ctx.parent(def_id)
         parent = self.asg_ctx.definition(parent_id) if parent_id is not None else None
-        if isinstance(
-            parent, (asg.StructDef, asg.TupleDef, asg.SumDef, asg.ClassDef, asg.UseDef)
-        ):
+        if isinstance(parent, (asg.StructDef, asg.TupleDef, asg.SumDef, asg.ClassDef, asg.UseDef)):
             parent_id = parent.def_id
             parent_generics = self.generics_of(parent_id)
             parent_count = parent_generics.get_count()
@@ -155,14 +149,10 @@ class TypeInitializer:
         self.store.generics[def_id] = generics_info
         return generics_info
 
-    def initialize_struct_variant(
-        self, struct_def: asg.StructDef
-    ) -> typeinfo.AdtVariant:
+    def initialize_struct_variant(self, struct_def: asg.StructDef) -> typeinfo.AdtVariant:
         variant = typeinfo.AdtVariant(def_id=struct_def.def_id, name=struct_def.name)
         for field in struct_def.fields.values():
-            variant.fields.append(
-                typeinfo.VariantField(def_id=field.def_id, name=field.name)
-            )
+            variant.fields.append(typeinfo.VariantField(def_id=field.def_id, name=field.name))
 
         return variant
 
@@ -197,9 +187,7 @@ class TypeInitializer:
                 case asg.TupleDef():
                     adt.variants.append(self.initialize_tuple_variant(type))
                 case asg.NewTypeDef():
-                    adt.variants.append(
-                        typeinfo.AdtVariant(def_id=type.def_id, name=type.name)
-                    )
+                    adt.variants.append(typeinfo.AdtVariant(def_id=type.def_id, name=type.name))
 
         self.store.adts[adt.def_id] = adt
         return adt

@@ -66,15 +66,11 @@ class MutableParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum](
         frozen_symbols: FrozenSymbolTable[TokenKindT, KeywordKindT],
     ) -> None:
         # Multiply by four because the numbers are 16 bits (2 bytes)
-        actions = bytearray(
-            len(frozen_symbols.interned_terminal_lookup) * number_of_states * 2
-        )
+        actions = bytearray(len(frozen_symbols.interned_terminal_lookup) * number_of_states * 2)
         # shape = (number_of_states, len(frozen_symbols.interned_terminal_lookup))
         actions_view = memoryview(actions).cast("H")
 
-        gotos = bytearray(
-            len(frozen_symbols.interned_nonterminal_lookup) * number_of_states * 2
-        )
+        gotos = bytearray(len(frozen_symbols.interned_nonterminal_lookup) * number_of_states * 2)
         # shape = (number_of_states, len(frozen_symbols.interned_nonterminal_lookup))
         gotos_view = memoryview(gotos).cast("H")
 
@@ -96,9 +92,7 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             return f"The next state of the {which} entry is as follows: {dumped}"
         elif entry[0] == ActionKind.REDUCE:
             production = self.generator.productions[entry[1]]
-            return (
-                f"The {which} entry reduced by the following procuction: {production}\n"
-            )
+            return f"The {which} entry reduced by the following procuction: {production}\n"
 
     def get_action_table_conflict_message(
         self,
@@ -126,9 +120,7 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         return writer.getvalue()
 
-    def add_accept(
-        self, state_id: int, production: Production[TokenKindT, KeywordKindT]
-    ) -> None:
+    def add_accept(self, state_id: int, production: Production[TokenKindT, KeywordKindT]) -> None:
         new_entry = self.table.pack_action(ActionKind.ACCEPT, production.id)
         index = self.table.action_index(state_id, EOF.id)
         existing_entry = self.table.actions[index]
@@ -201,9 +193,7 @@ class TableBuilder[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         symbol: NonterminalSymbol[TokenKindT, KeywordKindT],
         destination_id: int,
     ) -> None:
-        symbol_index = symbol.id - len(
-            self.table.frozen_symbols.interned_terminal_lookup
-        )
+        symbol_index = symbol.id - len(self.table.frozen_symbols.interned_terminal_lookup)
         index = self.table.goto_index(state_id, symbol_index)
         existing_entry = self.table.gotos[index]
 
@@ -243,9 +233,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             TokenKindT | KeywordKindT | StdTokenKind,
             TerminalSymbol[TokenKindT, KeywordKindT],
         ] = {}
-        self.epsilon_nonterminals: set[NonterminalSymbol[TokenKindT, KeywordKindT]] = (
-            set()
-        )
+        self.epsilon_nonterminals: set[NonterminalSymbol[TokenKindT, KeywordKindT]] = set()
         self.first_sets: list[LookaheadSet] = []
         self.nonterminal_closures: list[list[InternedParserItem]] = []
 
@@ -344,9 +332,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         self.productions.append(production)
         return production
 
-    def initialize_productions_for_rule(
-        self, rule: ast.RuleNode[TokenKindT, KeywordKindT]
-    ) -> None:
+    def initialize_productions_for_rule(self, rule: ast.RuleNode[TokenKindT, KeywordKindT]) -> None:
         nonterminal = self.nonterminals[rule.name]
 
         for item in rule.items:
@@ -458,9 +444,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 production.add_symbol(nonterminal, capture)
 
             case ast.CaptureNode():
-                self.add_symbols_for_expression(
-                    production, expression.expression, capture=True
-                )
+                self.add_symbols_for_expression(production, expression.expression, capture=True)
 
             case ast.AlternativeNode():
                 # plus-a:b = nonterminal
@@ -492,9 +476,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             case ast.GroupNode():
                 for subexpression in expression.expressions:
-                    self.add_symbols_for_expression(
-                        production, subexpression, capture=capture
-                    )
+                    self.add_symbols_for_expression(production, subexpression, capture=capture)
 
             case ast.KeywordNode():
                 production.add_symbol(self.terminals[expression.keyword], capture)
@@ -504,9 +486,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
             case ast.NameNode():
                 if expression.value not in self.nonterminals:
-                    raise ValueError(
-                        f"{expression.value!r} is not a valid nonterminal symbol"
-                    )
+                    raise ValueError(f"{expression.value!r} is not a valid nonterminal symbol")
 
                 production.add_symbol(self.nonterminals[expression.value], capture)
 
@@ -573,9 +553,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 interned_item = self.get_interned_item((production, 0))
                 closure.append(interned_item)
 
-    def iter_bitset(
-        self, bitset: int
-    ) -> typing.Iterator[TerminalSymbol[TokenKindT, KeywordKindT]]:
+    def iter_bitset(self, bitset: int) -> typing.Iterator[TerminalSymbol[TokenKindT, KeywordKindT]]:
         return (
             typing.cast(
                 TerminalSymbol[TokenKindT, KeywordKindT],
@@ -585,9 +563,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             if bitset & (1 << interned_symbol)
         )
 
-    def get_first_set(
-        self, symbols: list[Symbol[TokenKindT, KeywordKindT]]
-    ) -> LookaheadSet:
+    def get_first_set(self, symbols: list[Symbol[TokenKindT, KeywordKindT]]) -> LookaheadSet:
         result = 0
 
         for symbol in symbols:
@@ -602,21 +578,15 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         return result
 
-    def dump_canonical_collection(
-        self, interned_collection: InternedCanonicalCollection
-    ) -> str:
+    def dump_canonical_collection(self, interned_collection: InternedCanonicalCollection) -> str:
         writer = io.StringIO()
         writer.write(f"<parser state dump #{interned_collection}>\n")
 
-        interned_items, lookaheads = self.interned_canonical_collections[
-            interned_collection
-        ]
+        interned_items, lookaheads = self.interned_canonical_collections[interned_collection]
         for i, (interned_item, lookahead) in enumerate(zip(interned_items, lookaheads)):
             production, position = self.interned_items[interned_item]
 
-            string = ", ".join(
-                lookahead.kind.name for lookahead in self.iter_bitset(lookahead)
-            )
+            string = ", ".join(lookahead.kind.name for lookahead in self.iter_bitset(lookahead))
             writer.write(f"  ({i}., pos={position}, lookahead={{{string}}}):")
             writer.write(f" {production.lhs.name} ->")
 
@@ -636,9 +606,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         return writer.getvalue()
 
-    def get_interned_item(
-        self, item: ParserItem[TokenKindT, KeywordKindT]
-    ) -> InternedParserItem:
+    def get_interned_item(self, item: ParserItem[TokenKindT, KeywordKindT]) -> InternedParserItem:
         interned_item = self.interned_items_lookup.get(item)
         if interned_item is not None:
             return interned_item
@@ -648,26 +616,18 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         self.interned_items_lookup[item] = interned_item
         return interned_item
 
-    def get_interned_canonical_collection(
-        self, state: ParserState
-    ) -> InternedCanonicalCollection:
+    def get_interned_canonical_collection(self, state: ParserState) -> InternedCanonicalCollection:
         interned_tuple = tuple(sorted(state.items))
-        lookahead_tuple = tuple(
-            state.lookahead[interned_item] for interned_item in interned_tuple
-        )
+        lookahead_tuple = tuple(state.lookahead[interned_item] for interned_item in interned_tuple)
 
         canonical_collection = interned_tuple, lookahead_tuple
-        interned_collection = self.interned_canonical_collections_lookup.get(
-            canonical_collection
-        )
+        interned_collection = self.interned_canonical_collections_lookup.get(canonical_collection)
         if interned_collection is not None:
             return interned_collection
 
         interned_collection = len(self.interned_canonical_collections)
         self.interned_canonical_collections.append(canonical_collection)
-        self.interned_canonical_collections_lookup[canonical_collection] = (
-            interned_collection
-        )
+        self.interned_canonical_collections_lookup[canonical_collection] = interned_collection
 
         self.transitions.append([UNSET_TRANSITION] * len(self.interned_symbols))
         return interned_collection
@@ -706,9 +666,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                         state.items.append(next_interned_item)
                         state.lookahead[next_interned_item] = next_lookahead
 
-                    elif (
-                        state.lookahead[next_interned_item] & next_lookahead
-                    ) != next_lookahead:
+                    elif (state.lookahead[next_interned_item] & next_lookahead) != next_lookahead:
                         changed = True
                         state.lookahead[next_interned_item] |= next_lookahead
 
@@ -721,9 +679,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     ) -> InternedCanonicalCollection:
         state = ParserState()
 
-        interned_items, lookaheads = self.interned_canonical_collections[
-            interned_collection
-        ]
+        interned_items, lookaheads = self.interned_canonical_collections[interned_collection]
         for interned_item, lookahead in zip(interned_items, lookaheads):
             production, position = self.interned_items[interned_item]
 
@@ -733,9 +689,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                 state.lookahead[inner_interned_item] = lookahead
 
         next_interned_collection = self.compute_closure(state)
-        self.precomputed_gotos[interned_collection, symbol.id] = (
-            next_interned_collection
-        )
+        self.precomputed_gotos[interned_collection, symbol.id] = next_interned_collection
 
         return next_interned_collection
 
@@ -743,9 +697,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         self, production: Production[TokenKindT, KeywordKindT]
     ) -> None:
         interned_item = self.get_interned_item((production, 0))
-        entry_state = ParserState(
-            items=[interned_item], lookahead={interned_item: 1 << EOF.id}
-        )
+        entry_state = ParserState(items=[interned_item], lookahead={interned_item: 1 << EOF.id})
         interned_collection = self.compute_closure(entry_state)
 
         changed = True
@@ -771,13 +723,8 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                             interned_collection, current_symbol
                         )
 
-                    transition = self.transitions[interned_collection][
-                        current_symbol.id
-                    ]
-                    if (
-                        transition != UNSET_TRANSITION
-                        and transition != next_interned_collection
-                    ):
+                    transition = self.transitions[interned_collection][current_symbol.id]
+                    if transition != UNSET_TRANSITION and transition != next_interned_collection:
                         raise ParserGeneratorError(
                             "Encountered an impossible conflict while trying to "
                             "set transition state #{0}, symbol {1} to {2}. "
@@ -826,9 +773,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                         continue
                     else:
                         for lookahead_symbol in self.iter_bitset(lookahead):
-                            builder.add_reduce(
-                                interned_collection, lookahead_symbol, production
-                            )
+                            builder.add_reduce(interned_collection, lookahead_symbol, production)
 
                     continue
 
@@ -844,21 +789,14 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
                     builder.add_goto(interned_collection, current_symbol, transition)
 
         for interned_collection in self.interned_canonical_collections_lookup.values():
-            if all(
-                entry == UNSET_ACTION
-                for entry in table.all_actions(interned_collection)
-            ):
-                raise ParserGeneratorError(
-                    f"State #{interned_collection} has no actions"
-                )
+            if all(entry == UNSET_ACTION for entry in table.all_actions(interned_collection)):
+                raise ParserGeneratorError(f"State #{interned_collection} has no actions")
 
         return table
 
     def generate(
         self,
-    ) -> tuple[
-        FrozenSymbolTable, dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]
-    ]:
+    ) -> tuple[FrozenSymbolTable, dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]]:
         self.generate_symbols()
         self.compute_epsilon_nonterminals()
         self.compute_first_sets()
@@ -888,11 +826,7 @@ class ParserTableGenerator[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         grammar: str,
         tokens: TokenMap[TokenKindT],
         keywords: KeywordMap[KeywordKindT],
-    ) -> tuple[
-        FrozenSymbolTable, dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]
-    ]:
-        rules = GrammarParser[TokenKindT, KeywordKindT].parse_from_source(
-            grammar, tokens, keywords
-        )
+    ) -> tuple[FrozenSymbolTable, dict[str, FrozenParserTable[TokenKindT, KeywordKindT]]]:
+        rules = GrammarParser[TokenKindT, KeywordKindT].parse_from_source(grammar, tokens, keywords)
         instance = cls(tokens, keywords, rules)
         return instance.generate()

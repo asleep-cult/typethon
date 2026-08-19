@@ -64,14 +64,8 @@ class Node:
 
 
 class ConstantKind(enum.IntEnum):
-    TRUE = enum.auto()
-    FALSE = enum.auto()
+    SELF = enum.auto()
     ELLIPSIS = enum.auto()
-    INTEGER = enum.auto()
-    FLOAT = enum.auto()
-    COMPLEX = enum.auto()
-    STRING = enum.auto()
-    BYTES = enum.auto()
 
 
 @attr.s(kw_only=True, slots=True)
@@ -191,7 +185,7 @@ class LambdaNode(Node):
 
 
 @attr.s(kw_only=True, slots=True)
-class AnnotatedNode(Node):
+class AscribeNode(Node):
     value: ExpressionNode = attr.ib()
     type: ExpressionNode = attr.ib()
 
@@ -235,38 +229,26 @@ class CallNode(Node):
 
 @attr.s(kw_only=True, slots=True)
 class ConstantNode(Node):
-    kind: typing.Any = attr.ib()  # fix this
+    kind: ConstantKind = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class IntegerNode(ConstantNode):
-    kind: typing.Literal[ConstantKind.INTEGER] = attr.ib(
-        init=False, default=ConstantKind.INTEGER
-    )
+class IntegerNode(Node):
     value: int = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class FloatNode(ConstantNode):
-    kind: typing.Literal[ConstantKind.FLOAT] = attr.ib(
-        init=False, default=ConstantKind.FLOAT
-    )
+class FloatNode(Node):
     value: float = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class ComplexNode(ConstantNode):
-    kind: typing.Literal[ConstantKind.COMPLEX] = attr.ib(
-        init=False, default=ConstantKind.COMPLEX
-    )
+class ComplexNode(Node):
     value: complex = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
-class StringNode(ConstantNode):
-    kind: typing.Literal[ConstantKind.STRING] = attr.ib(
-        init=False, default=ConstantKind.STRING
-    )
+class StringNode(Node):
     value: str = attr.ib()
     flags: StringFlags = attr.ib()
 
@@ -327,10 +309,6 @@ class AliasNode(Node):
 @attr.s(kw_only=True, slots=True)
 class TypeParameterNode(Node):
     name: str = attr.ib()
-
-
-@attr.s(kw_only=True, slots=True)
-class SelfTypeNode(Node): ...
 
 
 @attr.s(kw_only=True, slots=True)
@@ -395,12 +373,16 @@ type StatementNode = (
 
 type ExpressionNode = (
     LambdaNode
-    | AnnotatedNode
+    | AscribeNode
     | BoolOpNode
     | BinaryOpNode
     | UnaryOpNode
     | CompareNode
     | CallNode
+    | IntegerNode
+    | FloatNode
+    | ComplexNode
+    | StringNode
     | ConstantNode
     | AttributeNode
     | SubscriptNode
@@ -409,7 +391,6 @@ type ExpressionNode = (
     | TupleNode
     | ListNode
     | SliceNode
-    | SelfTypeNode
     | TypeParameterNode
     | StructTypeNode
 )
@@ -429,7 +410,7 @@ def walk_expressions(
         return
 
     match expression:
-        case AnnotatedNode():
+        case AscribeNode():
             yield from walk_expressions(expression.value)
             yield from walk_expressions(expression.type)
         case BoolOpNode():

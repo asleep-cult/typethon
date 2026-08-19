@@ -62,9 +62,7 @@ class FrozenSymbolTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         sizes_fmt = "<4H"
         chunk = reader.read(struct.calcsize(sizes_fmt))
-        expected_terminals, nonterminals, productions, actions = struct.unpack(
-            sizes_fmt, chunk
-        )
+        expected_terminals, nonterminals, productions, actions = struct.unpack(sizes_fmt, chunk)
         assert len(self.interned_symbols) == expected_terminals, (
             "Regenerate parser table with new tokens"
         )
@@ -89,9 +87,7 @@ class FrozenSymbolTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         concatenated_nonterminals = b"\0".join(
             name.encode() for name in self.interned_nonterminal_lookup
         )
-        concatenated_actions = b"\0".join(
-            action.encode() for action in self.interned_actions
-        )
+        concatenated_actions = b"\0".join(action.encode() for action in self.interned_actions)
 
         chunk = struct.pack(
             "<4H",
@@ -114,9 +110,7 @@ class FrozenSymbolTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def get_interned_nonterminal(self, name: str) -> InternedFrozenSymbol:
         return self.interned_terminal_lookup[name]
 
-    def get_frozen_action(
-        self, production: InternedFrozenProduction
-    ) -> FrozenAction | None:
+    def get_frozen_action(self, production: InternedFrozenProduction) -> FrozenAction | None:
         interned = self.interned_productions[production]
         if interned.interned_action != UNSET_PRODUCTION_ACTION:
             return self.interned_actions[interned.interned_action - 1]
@@ -167,13 +161,9 @@ class FrozenProduction:
 
         prod_fmt = "<4H"
         chunk = reader.read(struct.calcsize(prod_fmt))
-        self.lhs, self.rhs_length, captured, self.interned_action = struct.unpack(
-            prod_fmt, chunk
-        )
+        self.lhs, self.rhs_length, captured, self.interned_action = struct.unpack(prod_fmt, chunk)
 
-        self.captured = tuple(
-            i for i in range(captured.bit_length()) if captured & 1 << i
-        )
+        self.captured = tuple(i for i in range(captured.bit_length()) if captured & 1 << i)
         return self
 
     def to_bytes(self, writer: io.BufferedWriter) -> None:
@@ -181,9 +171,7 @@ class FrozenProduction:
         for i in self.captured:
             bitset |= 1 << i
 
-        writer.write(
-            struct.pack("<4H", self.lhs, self.rhs_length, bitset, self.interned_action)
-        )
+        writer.write(struct.pack("<4H", self.lhs, self.rhs_length, bitset, self.interned_action))
 
 
 class ActionKind(enum.IntEnum):
@@ -257,18 +245,14 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         writer.write(self.actions)
         writer.write(self.gotos)
 
-    def pack_action(
-        self, action: ActionKind, number: InternedFrozenProduction | StateID
-    ) -> int:
+    def pack_action(self, action: ActionKind, number: InternedFrozenProduction | StateID) -> int:
         action_value = action.value
         number = number & 0x3FFF  # 32 bit: 0x3FFFFFFF
 
         packed_action = (action_value << 14) | number  # 32: 30
         return packed_action & 0xFFFF  # 32 bit: 0xFFFFFFFF
 
-    def unpack_action(
-        self, packed_action: int
-    ) -> tuple[ActionKind, InternedFrozenProduction]:
+    def unpack_action(self, packed_action: int) -> tuple[ActionKind, InternedFrozenProduction]:
         action = ActionKind((packed_action & 0xC000) >> 14)  # 32 bit: 0xC0000000
         production_id = packed_action & 0x3FFF
         return action, production_id
@@ -281,9 +265,7 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         nonterminals = len(self.frozen_symbols.interned_nonterminal_lookup)
         return (state_id * nonterminals) + symbol_id
 
-    def all_actions(
-        self, state_id: StateID
-    ) -> typing.Iterator[tuple[ActionKind, StateID]]:
+    def all_actions(self, state_id: StateID) -> typing.Iterator[tuple[ActionKind, StateID]]:
         terminals = len(self.frozen_symbols.interned_terminal_lookup)
         actions = self.actions[state_id * terminals : (state_id + 1) * terminals]
         return (self.unpack_action(action) for action in actions)
@@ -301,12 +283,8 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
 
         return self.unpack_action(result)
 
-    def get_goto(
-        self, state_id: StateID, interned_symbol: InternedFrozenSymbol
-    ) -> StateID | None:
-        symbol_index = interned_symbol - len(
-            self.frozen_symbols.interned_terminal_lookup
-        )
+    def get_goto(self, state_id: StateID, interned_symbol: InternedFrozenSymbol) -> StateID | None:
+        symbol_index = interned_symbol - len(self.frozen_symbols.interned_terminal_lookup)
         result = self.gotos[self.goto_index(state_id, symbol_index)]
         if result == UNSET_GOTO:
             return None
@@ -316,9 +294,7 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
     def get_action_map(
         self, state_id: StateID
     ) -> list[tuple[FrozenSymbol, ActionKind, StateID | InternedFrozenProduction]]:
-        actions: list[
-            tuple[FrozenSymbol, ActionKind, StateID | InternedFrozenProduction]
-        ] = []
+        actions: list[tuple[FrozenSymbol, ActionKind, StateID | InternedFrozenProduction]] = []
 
         for i, (action, number) in enumerate(self.all_actions(state_id)):
             if action is ActionKind.REJECT:
