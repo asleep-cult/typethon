@@ -9,7 +9,7 @@ from .typeinfo import (
 )
 from .types import (
     Adt,
-    Constructor,
+    Binder,
     Function,
     Parameter,
     PrimitiveType,

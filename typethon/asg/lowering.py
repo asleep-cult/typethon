@@ -1,5 +1,3 @@
-import typing
-
 import attr
 
 from ..syntax.typethon import ast
@@ -25,7 +23,7 @@ class AsgLowering:
 
         match self.asg_ctx.def_index.def_kinds[def_id]:
             case DefKind.MODULE:
-                assert False
+                definition = self.lower_module(def_id)
             case DefKind.STRUCT:
                 definition = self.lower_struct(def_id)
             case DefKind.TUPLE:
@@ -52,6 +50,19 @@ class AsgLowering:
         self.asg_ctx.defs[def_id] = definition
         return definition
 
+    def lower_module(self, def_id: asg.DefinitionId) -> asg.ModuleDef:
+        node = self.asg_ctx.node_for_def_id(def_id)
+        assert isinstance(node, ast.ModuleNode)
+
+        lowering = CodeLowering(
+            asg_ctx=self.asg_ctx,
+            statements=node.body,
+            body=self.asg_ctx.body(),
+        )
+        body = lowering.lower()
+
+        return asg.ModuleDef(def_id=def_id, body=body)
+
     def lower_field(self, def_id: asg.DefinitionId) -> asg.StructField | asg.TupleElt:
         parent_id = self.asg_ctx.parent_id(def_id)
         assert parent_id is not None
@@ -60,11 +71,11 @@ class AsgLowering:
         match self.asg_ctx.def_index.def_kinds[parent_id]:
             case DefKind.STRUCT:
                 assert isinstance(node, ast.StructTypeFieldNode)
-                type = self.lower_path(node.type)
+                type = self.lower_path_expression(node.type)
                 return asg.StructField(def_id=def_id, name=node.name, type=type)
             case DefKind.TUPLE:
                 assert isinstance(node, ast.TupleEltNode)
-                type = self.lower_path(node.value)
+                type = self.lower_path_expression(node.value)
                 return asg.TupleElt(def_id=def_id, index=node.index, type=type)
             case _:
                 assert False, "Invalid field owner"
@@ -149,7 +160,7 @@ class AsgLowering:
 
         return asg.SumDef(def_id=def_id, name=node.name, variants=variants)
 
-    def lower_path(self, path_expression: ast.ExpressionNode) -> asg.AsgPathExpression:
+    def lower_path_expression(self, path_expression: ast.ExpressionNode) -> asg.AsgPathExpression:
         match path_expression:
             case ast.NameNode():
                 result = self.asg_ctx.syms_resolved[path_expression.id]
@@ -174,19 +185,19 @@ class AsgLowering:
                 return type_parameter
 
             case ast.CallNode():
-                path = self.lower_path(path_expression.callable)
+                path = self.lower_path_expression(path_expression.callable)
                 if not isinstance(path, asg.Path):
                     segment = asg.ExpressionPathSegment(expression=path)
                     path = asg.Path(segments=[segment])
 
                 for argument in path_expression.args:
-                    path_argument = self.lower_path(argument)
+                    path_argument = self.lower_path_expression(argument)
                     path.segments[-1].arguments.append(path_argument)
 
                 return path
 
             case ast.AttributeNode():
-                path = self.lower_path(path_expression.value)
+                path = self.lower_path_expression(path_expression.value)
                 if not isinstance(path, asg.Path):
                     segment = asg.ExpressionPathSegment(expression=path)
                     path = asg.Path(segments=[segment])
@@ -205,18 +216,18 @@ class AsgLowering:
 
             case ast.ListNode():
                 assert len(path_expression.elts) == 1, "List path must have one node"
-                path = self.lower_path(path_expression.elts[0])
+                path = self.lower_path_expression(path_expression.elts[0])
                 return asg.PathList(elt=path)
 
             case ast.StructTypeNode():
                 fields: dict[str, asg.AsgPathExpression] = {}
                 for field in path_expression.fields:
-                    fields[field.name] = self.lower_path(field.type)
+                    fields[field.name] = self.lower_path_expression(field.type)
 
                 return asg.PathStruct(fields=fields)
 
             case ast.TupleNode():
-                elts = [self.lower_path(elt.value) for elt in path_expression.elts]
+                elts = [self.lower_path_expression(elt.value) for elt in path_expression.elts]
                 return asg.PathTuple(elts=elts)
 
             case _:
@@ -235,7 +246,7 @@ class AsgLowering:
             assert isinstance(parent_node, ast.SumTypeVariantNode)
             new_type = node.type
 
-        type = self.lower_path(new_type)
+        type = self.lower_path_expression(new_type)
         return asg.NewTypeDef(
             def_id=def_id,
             name=parent_node.name,
@@ -250,18 +261,18 @@ class AsgLowering:
         for parameter in node.parameters:
             parameter_def = asg.FunctionParameter(
                 name=parameter.name,
-                type=self.lower_path(parameter.type) if parameter.type is not None else None,
+                type=self.lower_path_expression(parameter.type) if parameter.type is not None else None,
             )
             parameters[parameter.name] = parameter_def
 
-        returns = self.lower_path(node.returns) if node.returns is not None else None
+        returns = self.lower_path_expression(node.returns) if node.returns is not None else None
 
         body = None
         if node.body is not None:
             lowering = CodeLowering(
-                asg_lowering=self,
+                asg_ctx=self.asg_ctx,
                 statements=node.body,
-                body=asg.AsgBody(),
+                body=self.asg_ctx.body(),
             )
             body = lowering.lower()
 
@@ -276,13 +287,9 @@ class AsgLowering:
 
 @attr.s(kw_only=True, slots=True)
 class CodeLowering:
-    asg_lowering: AsgLowering = attr.ib()
+    asg_ctx: asg.AsgContext = attr.ib()
     statements: list[ast.StatementNode] = attr.ib()
     body: asg.AsgBody = attr.ib()
-
-    @property
-    def asg_ctx(self) -> asg.AsgContext:
-        return self.asg_lowering.asg_ctx
 
     def lower(self) -> asg.AsgBody:
         for statement in self.statements:
@@ -296,18 +303,18 @@ class CodeLowering:
         match statement:
             case ast.IfNode():
                 lowering = CodeLowering(
-                    asg_lowering=self.asg_lowering,
+                    asg_ctx=self.asg_ctx,
                     statements=statement.body,
-                    body=asg.AsgBody(),
+                    body=self.asg_ctx.body(),
                 )
                 body = lowering.lower()
 
                 else_body = None
                 if statement.else_statement is not None:
                     lowering = CodeLowering(
-                        asg_lowering=self.asg_lowering,
+                        asg_ctx=self.asg_ctx,
                         statements=statement.else_statement.body,
-                        body=asg.AsgBody(),
+                        body=self.asg_ctx.body(),
                     )
                     else_body = lowering.lower()
 
@@ -350,9 +357,9 @@ class CodeLowering:
 
             case ast.ForNode():
                 lowering = CodeLowering(
-                    asg_lowering=self.asg_lowering,
+                    asg_ctx=self.asg_ctx,
                     statements=statement.body,
-                    body=asg.AsgBody(),
+                    body=self.asg_ctx.body(),
                 )
                 body = lowering.lower()
 
@@ -365,9 +372,9 @@ class CodeLowering:
 
             case ast.WhileNode():
                 lowering = CodeLowering(
-                    asg_lowering=self.asg_lowering,
+                    asg_ctx=self.asg_ctx,
                     statements=statement.body,
-                    body=asg.AsgBody(),
+                    body=self.asg_ctx.body(),
                 )
                 body = lowering.lower()
 
@@ -408,7 +415,7 @@ class CodeLowering:
     def lower_expression(self, expression: ast.ExpressionNode) -> asg.Expression:
         match expression:
             case ast.LambdaNode():
-                function_def = self.asg_lowering.lower_def(
+                function_def = self.asg_ctx.asg_lowering.lower_def(
                     self.asg_ctx.def_id_for_node_id(expression.id)
                 )
                 assert isinstance(function_def, asg.FunctionDef)
@@ -422,7 +429,7 @@ class CodeLowering:
                 return asg.Ascribe(
                     code_id=self.asg_ctx.code_id(expression),
                     value=self.lower_expression(expression.value),
-                    type=self.asg_lowering.lower_path(expression.type),
+                    type=self.asg_ctx.asg_lowering.lower_path_expression(expression.type),
                 )
 
             case ast.BoolOpNode():
@@ -573,7 +580,7 @@ class CodeLowering:
                     assert False, "No implemented"
 
             case ast.TypeParameterNode() | ast.StructTypeNode():
-                path_expression = self.asg_lowering.lower_path(expression)
+                path_expression = self.asg_ctx.asg_lowering.lower_path_expression(expression)
                 assert isinstance(path_expression, (asg.TypeParameterDef, asg.PathStruct))
 
                 return asg.CoPathExpression(

@@ -26,10 +26,5 @@ class TypeChecker:
     def synthesize_expression(self, expression: asg.Expression) -> None:
         match expression:
             case asg.Attribute():
-                assert isinstance(expression.value, asg.Name)
-
-                defn = self.init.store.adts[expression.value.resolved.def_id]
-                field = next(
-                    field for field in defn.variants[0].fields if field.name == expression.attr
-                )
-                print(self.init.type_of(field.def_id))
+                if expression.result is not None and isinstance(expression.result, asg.DefResult):
+                    print(self.init.type_of(expression.result.def_id))

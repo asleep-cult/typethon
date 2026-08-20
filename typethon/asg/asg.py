@@ -10,6 +10,9 @@ from ..syntax.typethon import ast
 from .indexing import DefIndex, DefIndexing
 from .resolution import DefKind, DefResult, LocalResult, ResolvedSymbol, SymbolResolver
 
+if typing.TYPE_CHECKING:
+    from .lowering import AsgLowering
+
 # This is the abstract semantic graph.
 # It is inspired by the Rust compiler.
 
@@ -49,10 +52,14 @@ class AsgContext:
     node_code: dict[CodeId, ast.Node] = attr.ib(factory=dict)
     sym_resolver: SymbolResolver = attr.ib(init=False)
     syms_resolved: dict[ast.NodeId, ResolvedSymbol] = attr.ib(factory=dict)
+    asg_lowering: AsgLowering = attr.ib(init=False)
 
     def __attrs_post_init__(self) -> None:
+        from .lowering import AsgLowering
+
         self.def_index = DefIndexing(asg_ctx=self)
         self.sym_resolver = SymbolResolver(asg_ctx=self)
+        self.asg_lowering = AsgLowering(asg_ctx=self)
 
     def initialize(self, module: ast.ModuleNode) -> None:
         def_id = self.def_id(module)
@@ -62,6 +69,9 @@ class AsgContext:
         self.def_index.index_block(self.root_index, module.body)
 
         self.sym_resolver.resolve_symbols_for_module(module)
+
+    def body(self) -> AsgBody:
+        return AsgBody()
 
     def def_id(self, node: ast.Node) -> DefinitionId:
         if node.id in self.def_nodes:
@@ -115,9 +125,6 @@ class AsgContext:
 
 @attr.s(kw_only=True, slots=True)
 class ModuleDef(Definition):
-    types: dict[str, TypeDefinition] = attr.ib(factory=dict)
-    classes: dict[str, ClassDef] = attr.ib(factory=dict)
-    functions: dict[str, FunctionDef] = attr.ib(factory=dict)
     body: AsgBody | None = attr.ib(default=None)
 
 
