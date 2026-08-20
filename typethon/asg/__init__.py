@@ -4,7 +4,6 @@ from .asg import (
     AsgCode,
     AsgContext,
     AsgDefinition,
-    AsgError,
     AsgPathExpression,
     Assign,
     Attribute,

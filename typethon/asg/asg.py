@@ -277,11 +277,6 @@ class Path:
     segments: list[PathSegment | UnresolvedPathSegment | ExpressionPathSegment] = attr.ib(factory=list)
 
 
-@attr.s(kw_only=True, slots=True)
-class AsgError:
-    node: ast.Node = attr.ib()
-
-
 type AsgPathExpression = Path | PathList | PathStruct | PathTuple | TypeParameterDef
 
 
@@ -299,7 +294,7 @@ class AsgBody:
 class Name:
     # Ambiguous with path segment with same name
     name: str = attr.ib()
-    resolved: ResolvedSymbol | AsgError = attr.ib()
+    resolved: ResolvedSymbol = attr.ib()
 
 
 @attr.s(kw_only=True, slots=True)
