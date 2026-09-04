@@ -352,24 +352,24 @@ f(if a == 10: y else: z)
 # If this happens, then functions could be expressions and the name could be optional,
 # naturally resulting in lambdas.
 
-numbers.filter(def(x): x >= 50)
+numbers.filter(def (x): x >= 50)
 
-spawn((def(context, timeout) -> ():
+spawn((def (context, timeout) -> ():
     while true:
         sleep(timeout)
         print(f"{context.thread_id} is working")), 50)
 
-items.filer(def(item) -> bool: item.len() >= 50)
+items.filer(def (item) -> bool: item.len() >= 50)
 
-items.filter(def(item): item.len >= 50)
+items.filter(def (item): item.len >= 50)
 
-items.map(def(item: str):
+items.map(def (item: str):
     if item == "Sword":
         150
     else:
         120)
 
-account = (def():
+account = (def ():
     if price >= 150:
         Account.Savings
     else:
