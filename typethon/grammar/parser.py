@@ -90,6 +90,8 @@ class GrammarParser[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
             elif not skip_newline:
                 self.buffer.pop(0)
                 return token
+            else:
+                self.buffer.pop(0)
 
     def peek_token(self, index: int = 1) -> GrammarToken:
         self.scan_no_whitespace()

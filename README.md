@@ -90,7 +90,7 @@ type Counter = {
 # mut(self) makes the field invariant
 
 use Counter:
-    def new() -> move Self:
+    def new() -> Self:
         return { n = 0 }
 
     # The mut self means the callee must have mutable access to the Counter
@@ -253,7 +253,7 @@ items.filter(
 # Closures should have automatic return insertion for trailing expressions
 
 items.map(|item: str|:
-    if item.name == "Sword":
+    if item == "Sword":
         150
     else:
         120)
@@ -328,6 +328,53 @@ transfer_ownership(move player1)
 
 # Move is only explicitly necessary when it would kill a binding in the current scope
 
+# This is one potential memory management strategy based on Rust's model, but it is
+# in no was preferrable for a Python-like language. I believe a Rust memory management
+# model where lifetimes are completely ellided is possible, but I am unsure how
+# trivial this analysis is.
+
+# We prefer a model where not everything is a reference, but not nothing has to
+# be explicitly written as a reference. Not sure what the right approach is here.
+
+# I would like to change most statements into expressions, that work in the same fasion
+# as lambdas to allow the following constructs:
+x = if a > 10:
+    b = 0
+    while b < a:
+        b += a / 1.5
+
+    b ** 2
+else:
+    0
+
+f(if a == 10: y else: z)
+
+# If this happens, then functions could be expressions and the name could be optional,
+# naturally resulting in lambdas.
+
+numbers.filter(def(x): x >= 50)
+
+spawn((def(context, timeout) -> ():
+    while true:
+        sleep(timeout)
+        print(f"{context.thread_id} is working")), 50)
+
+items.filer(def(item) -> bool: item.len() >= 50)
+
+items.filter(def(item): item.len >= 50)
+
+items.map(def(item: str):
+    if item == "Sword":
+        150
+    else:
+        120)
+
+account = (def():
+    if price >= 150:
+        Account.Savings
+    else:
+        Account.Checkings)()
+
 # *Function bodies are optional for prototyping
 
 def proto(foo: int) -> str
@@ -380,11 +427,11 @@ if x == y: return 10
 # *Labeled blocks (Dont know)
 
 def f(x):
-    ~label:
+    `label:
         print(10)
         break label
 
-    ~loop while True:
+    `loop while True:
         for i in range(30):
             if is_special_enough_to_break(i):
                 break loop
@@ -417,4 +464,16 @@ if x > 50
     and y < 100
     and z == 20:
     do_something()
+
+
+# Instead, the parser should agressively allow whitespace where it would otherwise create a syntax error.
+# Think of JavaScript semicolon insertion, but instead it would be automatic whitespace ellision.
+# Therefore, any arbitrary statement or expression could be written with whitespace.
+
+result = if some_condition and another_condition: some_function()
+    else: another_function()
+
+# This is not entirely trivial because the parser would need to restore itself to a state
+# prior to seeing the whitespace token and consume the dedents that might have resulted
+# from ignored indentation.
 ```

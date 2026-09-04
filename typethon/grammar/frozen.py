@@ -309,9 +309,12 @@ class FrozenParserTable[TokenKindT: enum.Enum, KeywordKindT: enum.Enum]:
         gotos: list[tuple[FrozenSymbol, StateID]] = []
 
         for i, goto_state in enumerate(self.all_gotos(state_id)):
+            if goto_state == UNSET_GOTO:
+                continue
+
             index = i + len(self.frozen_symbols.interned_terminal_lookup)
             symbol = self.frozen_symbols.get_frozen_symbol(index)
-            gotos.append((symbol, goto_state))
+            gotos.append((symbol, goto_state - 1))
 
         return gotos
 
