@@ -238,7 +238,7 @@ use Map('k, 'v) as Index('k, 'v):
 # to understand why, the amount of trickery needed to make it work is bad enough
 # as it is.
 
-spawn((|context, timeout| -> ():
+spawn((|context, timeout|:
     while true:
         sleep(timeout)
         print(f"{context.thread_id} is working")), 50)
@@ -256,7 +256,8 @@ items.map(|item: str|:
     if item == "Sword":
         150
     else:
-        120)
+        120
+)
 
 # This makes sense because it is the only block that is an expression, but the
 # lack of a similar mechanism throughout the language makes me question
@@ -330,7 +331,7 @@ transfer_ownership(move player1)
 
 # This is one potential memory management strategy based on Rust's model, but it is
 # in no was preferrable for a Python-like language. I believe a Rust memory management
-# model where lifetimes are completely ellided is possible, but I am unsure how
+# model where lifetimes are completely elided is possible, but I am unsure how
 # trivial this analysis is.
 
 # We prefer a model where not everything is a reference, but not nothing has to
@@ -349,32 +350,6 @@ else:
 
 f(if a == 10: y else: z)
 
-# If this happens, then functions could be expressions and the name could be optional,
-# naturally resulting in lambdas.
-
-numbers.filter(def (x): x >= 50)
-
-spawn((def (context, timeout) -> ():
-    while true:
-        sleep(timeout)
-        print(f"{context.thread_id} is working")), 50)
-
-items.filer(def (item) -> bool: item.len() >= 50)
-
-items.filter(def (item): item.len >= 50)
-
-items.map(def (item: str):
-    if item == "Sword":
-        150
-    else:
-        120)
-
-account = (def ():
-    if price >= 150:
-        Account.Savings
-    else:
-        Account.Checkings)()
-
 # *Function bodies are optional for prototyping
 
 def proto(foo: int) -> str
@@ -384,45 +359,22 @@ def proto(foo: int) -> str
 class Foo('t):
     def proto(self: Self, foo: int) -> 't
 
-# *If expressions will be changed to the rejected form to add more flexibility
-
-f(if x < 0: "negative" else: "positive")
-
-# This is ambiguous
-
 # *No comperhensions for now
-
-# *For statements might have an optional guard
-
-for name in usernames if name.len() < 10:
-    ...
-
-# The ideas above range from highly likely to certain, the ones
-# below might not happen at all.
 
 # *Theoretical match expression
 
-result = match operator:
-| Operators.ADD: self.add(left, right)
-| Operator.SUB: self.sub(left, right)
-| else:  UnknownOperatorError()
+result = match expression:
+    Expression.Binary { left, Operator.Add, right }:
+        if not left.is_number() or not right.is_number():
+            undefined
+        else:
+            Value.Number of { value: left.value + right.value }
 
-# I think match and if should work similarly. They should have a statement and
-# an expression form, and which it is dependens upon whether the colon has a newline
-# after it. So it would be similar to lambda, but without the extraordinary nesting behaviour.
-
-if x == y: 10
-else: 20
-
-# This would clearly be an expression because there is no newline, indent, etc.
-# And someting like this would then be invalid because return is not an expression:
-
-if x == y: return 10
-
-# The idea that every block can be an expression is interesting, but it's
-# fundementally incompatible with Python's syntax, and one could argue that
-# that a more explicit approach is preferrable anyways. If and match expressions with
-# corresponding statements seems like a reasonable middleground.
+    Expression.Unary { Operator.Sub, operand }:
+        if not operand.is_number():
+            undefined
+        else:
+            Value.Number of { value: -operand.value }
 
 # *Labeled blocks (Dont know)
 
@@ -467,7 +419,7 @@ if x > 50
 
 
 # Instead, the parser should agressively allow whitespace where it would otherwise create a syntax error.
-# Think of JavaScript semicolon insertion, but instead it would be automatic whitespace ellision.
+# Think of JavaScript semicolon insertion, but instead it would be automatic whitespace elision.
 # Therefore, any arbitrary statement or expression could be written with whitespace.
 
 result = if some_condition and another_condition: some_function()
