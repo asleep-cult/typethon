@@ -46,12 +46,10 @@ type UnnamedPoint = (int, int)
 
 # Data can also be a sum type
 
-type Expr = (
-    Number of int
+type Expr = Number of int
     | Attribute of (Expr, str)
     | Add of (Expr, Expr)
     | Sub of (Expr, Expr)
-)
 # Tuples and structures can be instantiated in code like this:
 
 (10, 20)
@@ -91,7 +89,7 @@ type Counter = {
 
 use Counter:
     def new() -> Self:
-        return { n = 0 }
+        return Self { n = 0 }
 
     # The mut self means the callee must have mutable access to the Counter
     def next(mut self: Self) -> ():
@@ -172,6 +170,7 @@ x = unbox_int(box) # type: int
 # Ad-hoc polymorphism is achieved by constraining a polymorphic type t
 # to what will eventually become classes. The `with class for 't` constrains
 # the type 't to the class.
+# I do not like this syntax.
 
 def get_str_item(items: 't, index: int) -> str with 't: Index(int, str):
     return items[index]
@@ -207,7 +206,7 @@ type Map = { mapping: dict('k, 'v) }
 
 use Map('k, 'v) as Index('k, 'v):
     def new(mapping: dict('k, 'v)) -> Self:
-        return { mapping = mapping }
+        return { mapping }
 
     def update(self: Self, other: Self) -> Self:
         return { mapping = self.mapping | other.mapping }
@@ -276,18 +275,10 @@ account = (||:
 # Closures can appear as a single expression, the final expression in a list of expressions,
 # or the only expression in a list of expressions.
 
-# I question whether the block form should be able to be assigned to a variable at all
-
 # I'm unsure how traits would be handled as of right now because:
 # 1. Other languages use def f(x: Trait) for dynamic dispatch and def f(x: 't) with Trait for 't
 #       for static dispatch. This is kind of confusing which is probably why rust forces
 #       you to use the dyn keyword.
-
-# I don't currently know much about memory management, but I want the
-# language to enforce memory safety preferably without a GC.
-# However, I also don't like the restrictions that come from implementing
-# a borrow checker. It seems they would make the language significantly
-# less expressive, which is one thing I would like to retain from Python.
 
 # Other notes:
 # *Mutability and reference model
@@ -337,8 +328,7 @@ transfer_ownership(move player1)
 # We prefer a model where not everything is a reference, but not nothing has to
 # be explicitly written as a reference. Not sure what the right approach is here.
 
-# I would like to change most statements into expressions, that work in the same fasion
-# as lambdas to allow the following constructs:
+# *If statements, for statements, and while statements should become expressions:
 x = if a > 10:
     b = 0
     while b < a:
@@ -350,6 +340,51 @@ else:
 
 f(if a == 10: y else: z)
 
+# *The assignment operator should work with patterns
+
+# Structural and nonminal types should be unpacked like this
+(x, y) = point
+{ x, y } = named_point
+
+# The assignment operator should have an else guard
+(10, y) = point else: return Err(())
+
+Symbol { kind = SymbolKind.Noterminal { productions }, .. } = symbol else: continue
+
+# The assignment operator should work in if conditions
+if Symbol { kind = SymbolKind.Nonterminal { .. }, .. } = symbol:
+    ()
+
+# Sum types should be unpacked in the same manner as their construction.
+
+type Sum = Var1 of int
+    | Var2 of (int,)
+    | Var2 of { name: str }
+
+Sum.Var1 10
+Sum.Var2 (10,)
+Sum.Var3 {name: "John"}
+
+def f(the_sum: Sum) -> bool:
+    the_sum is
+    of Sum.Var1 n: n >= 50
+    of Sum.Var2 (n,): n < 50
+    of Sum.Var3 { name }: name.len() < 10
+
+# *Theoretical match expression
+
+result = expression is
+of Expression.Binary { left, op = Operator.Add, right }:
+    if not left.is_number() or not right.is_number():
+        Value.Undefined
+    else:
+        Value.Number { value = left.value + right.value }
+of Expression.Unary { op = Operator.Sub, operand }:
+    if not operand.is_number():
+        Value.Undefined
+    else:
+        Value.Number { value = -operand.value }
+
 # *Function bodies are optional for prototyping
 
 def proto(foo: int) -> str
@@ -358,23 +393,6 @@ def proto(foo: int) -> str
 
 class Foo('t):
     def proto(self: Self, foo: int) -> 't
-
-# *No comperhensions for now
-
-# *Theoretical match expression
-
-result = match expression:
-    Expression.Binary { left, Operator.Add, right }:
-        if not left.is_number() or not right.is_number():
-            undefined
-        else:
-            Value.Number of { value: left.value + right.value }
-
-    Expression.Unary { Operator.Sub, operand }:
-        if not operand.is_number():
-            undefined
-        else:
-            Value.Number of { value: -operand.value }
 
 # *Labeled blocks (Dont know)
 
@@ -398,7 +416,9 @@ y = 20
 # Would be equivalent to
 { x = x, y = y }
 
-# *You might be able to chain binary operations across multiple lines with an indent
+# *Newline indent should be an escape sequence that starts elliding whitespace
+# unless entering a block
+
 type Number = int
     | float
     | complex
@@ -409,23 +429,4 @@ return numbers.filter(|n|: n >= 50)
 
 let result = x * y + 200 - z
     / y**2 - 4 * a + b
-
-# This wouldn't work:
-
-if x > 50
-    and y < 100
-    and z == 20:
-    do_something()
-
-
-# Instead, the parser should agressively allow whitespace where it would otherwise create a syntax error.
-# Think of JavaScript semicolon insertion, but instead it would be automatic whitespace elision.
-# Therefore, any arbitrary statement or expression could be written with whitespace.
-
-result = if some_condition and another_condition: some_function()
-    else: another_function()
-
-# This is not entirely trivial because the parser would need to restore itself to a state
-# prior to seeing the whitespace token and consume the dedents that might have resulted
-# from ignored indentation.
 ```
