@@ -77,22 +77,21 @@ f({ x = 10, y = 20 })
 
 f({ x = 30, y = -5 }: Point)
 
-# All data fields are private and immutable by default
-# The pub and mut keywords can be used to make individual fields public and mutable
-# pub(...) and mut(...) can change visibility and mutability to specific parts of a code base
+# All data fields are private by default
+# The pub keyword can be used to make an individual fields public
+# pub(...) can change visibility to specific parts of a code base
 
-type Counter = {
-    pub mut(self) n: int
-}
-# If mut was bare, anyone with mutable access could mutate n
-# mut(self) makes the field invariant
+type Counter = { n: int }
 
 use Counter:
     def new() -> Self:
         return Self { n = 0 }
 
+    def current(self) -> int:
+        return self.n
+
     # The mut self means the callee must have mutable access to the Counter
-    def next(mut self: Self) -> ():
+    def next(mut self) -> ():
         if self.n < 100:
             self.n += 1
 
@@ -168,14 +167,12 @@ x = unbox(box) # type: int
 x = unbox_int(box) # type: int
 
 # Ad-hoc polymorphism is achieved by constraining a polymorphic type t
-# to what will eventually become classes. The `with class for 't` constrains
-# the type 't to the class.
-# I do not like this syntax.
+# to what will eventually become classes. Not the actual syntax.
 
-def get_str_item(items: 't, index: int) -> str with 't: Index(int, str):
+def get_str_item('t: Index(int, str))(items: 't, index: int) -> str:
     return items[index]
 
-def get_item(items: 't, index: 'u) -> 'v with 't: Index('u, 'v):
+def get_item('t: Index('u, 'v))(items: 't, index: 'u) -> 'v:
     return items[index]
 
 # Expressions can be annotated when type inference isn't possible
@@ -193,7 +190,7 @@ new.constructor(int)()
 type Identity = ()
 
 use Identity:
-    def f(self: Self) -> Self:
+    def f(self) -> Self:
         return self
 
 x: Identity = ()
@@ -208,10 +205,10 @@ use Map('k, 'v) as Index('k, 'v):
     def new(mapping: dict('k, 'v)) -> Self:
         return { mapping }
 
-    def update(self: Self, other: Self) -> Self:
+    def update(self, other: Self) -> Self:
         return { mapping = self.mapping | other.mapping }
 
-    def get_item(self: Self, key: 'k) -> 'v:
+    def get_item(self, key: 'k) -> 'v:
         return self.mapping[key]
 
 # Maybe there will be a Type.new() convention
@@ -279,54 +276,6 @@ account = (||:
 # 1. Other languages use def f(x: Trait) for dynamic dispatch and def f(x: 't) with Trait for 't
 #       for static dispatch. This is kind of confusing which is probably why rust forces
 #       you to use the dyn keyword.
-
-# Other notes:
-# *Mutability and reference model
-
-# All values, except primitives, are implicitly references.
-# All bindings and struct fields can be made mutable. Types are not mutable, names are.
-# All types can be qualified with move, suggesting that ownership is taken.
-
-# Aliasing XOR Mutability
-# There can exist either 1 mutable reference, or many immutable references to any data.
-# If there is a mutable reference, the owner/move type is unreadable and unwritable.
-# If there are any immutable references, the owner/move type is unwritable.
-
-type Player = { mut score: int }
-
-# Struct initialization is implicit move (i.e. mut player1 = move { ... })
-mut player1: Player = { score = 10 }  # Mutable binding
-player1.score = 20  # Valid
-
-player2: Player = { score = 10 }  # Immutable binding
-player2.score = 20  # Invalid
-
-new_player2 = move player2  # Move ownership of player2 to new_player2
-                            # player2 is dead and inaccessible
-
-player1_immutable = player1  # Immutable reference to data owned by player1
-                             # player1 is write-locked until this reference is dropped
-
-mut player2_mutable = mut new_player2  # Mutable reference to data owned by player2
-                                       # new_player2 is read/write-locked until this reference is dropped
-
-def shared_borrow(player: Player) -> ()
-def exclusive_borrow(mut player: Player) -> ()
-def transfer_ownership(player: move Player) -> ()
-
-shared_borrow(player1)
-exclusive_borrow(mut player1)
-transfer_ownership(move player1)
-
-# Move is only explicitly necessary when it would kill a binding in the current scope
-
-# This is one potential memory management strategy based on Rust's model, but it is
-# in no was preferrable for a Python-like language. I believe a Rust memory management
-# model where lifetimes are completely elided is possible, but I am unsure how
-# trivial this analysis is.
-
-# We prefer a model where not everything is a reference, but not nothing has to
-# be explicitly written as a reference. Not sure what the right approach is here.
 
 # *If statements, for statements, and while statements should become expressions:
 x = if a > 10:
