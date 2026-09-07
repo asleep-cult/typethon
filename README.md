@@ -201,7 +201,7 @@ x = x.f()
 
 type Map = { mapping: dict('k, 'v) }
 
-use Map('k, 'v) as Index('k, 'v):
+use Map('k, 'v) with Index('k, 'v):
     def new(mapping: dict('k, 'v)) -> Self:
         return { mapping }
 
@@ -235,7 +235,7 @@ use Map('k, 'v) as Index('k, 'v):
 # as it is.
 
 spawn((|context, timeout|:
-    while true:
+    while True:
         sleep(timeout)
         print(f"{context.thread_id} is working")), 50)
 
@@ -315,14 +315,14 @@ Sum.Var2 (10,)
 Sum.Var3 {name: "John"}
 
 def f(the_sum: Sum) -> bool:
-    the_sum is
+    when the_sum is
     of Sum.Var1 n: n >= 50
     of Sum.Var2 (n,): n < 50
     of Sum.Var3 { name }: name.len() < 10
 
 # *Theoretical match expression
 
-result = expression is
+result = when expression is
 of Expression.Binary { left, op = Operator.Add, right }:
     if not left.is_number() or not right.is_number():
         Value.Undefined
