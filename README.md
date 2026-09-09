@@ -320,19 +320,95 @@ def f(the_sum: Sum) -> bool:
     of Sum.Var2 (n,): n < 50
     of Sum.Var3 { name }: name.len() < 10
 
+# This syntax would require a new node for parenthesized items to prevent unparenthesized
+# function applications
+
 # *Theoretical match expression
+
+type Value = Undefined
+    | Number of int
 
 result = when expression is
 of Expression.Binary { left, op = Operator.Add, right }:
     if not left.is_number() or not right.is_number():
         Value.Undefined
     else:
-        Value.Number { value = left.value + right.value }
+        Value.Number left.value + right.value
 of Expression.Unary { op = Operator.Sub, operand }:
     if not operand.is_number():
         Value.Undefined
     else:
-        Value.Number { value = -operand.value }
+        Value.Number -operand.value
+
+# Other notes:
+# *Mutability and reference model
+
+# Would like to adopt mutable value semantics from Hylo refining the syntax.
+
+# Aliasing XOR Mutability
+# There can exclusively exist many readers, or one writer.
+
+type Player = { score: int }
+
+mut player1: Player = { score = 10 }  # Mutable binding
+player1.score = 20  # Valid
+
+player2: Player = { score = 10 }  # Immutable binding
+player2.score = 20  # Invalid
+
+new_player1 = player1  # Move ownership of player1 to immutable binding new_player1
+                       # player1 is dead and inaccessible
+
+mut new_player2 = player2  # Move ownership of player2 to mutable binding new_player2
+                           # player2 is dead and inaccessible
+
+&player1_borrow = new_player1  # Borrowed player 1 immutably
+&mut player1_borrow = player1_borrow  # Cannot borrow immutable binding mutably
+
+&player2_borrow = new_player2  # Borrowed player 2 immutably
+&mut player2_mutable = new_player2  # Borrowed player 2 mutably
+
+# These cannot exist at the same time, and new_player2 cannot be used while
+# player2_mutable exists.
+
+# Given the semantics of this all, unlinke Hylo, it seems logical for borrows to be
+# the special case in function signatures rather than moves.
+# This is consistent with structs and tuples where owned data is written with no sigil.
+# Owned data is the only thing that can exist in structures.
+# Borrowing semantincs is purly an attribute of bindings, not types.
+
+def shared_borrow(&player: Player) -> ()
+def exclusive_borrow(&mut player: Player) -> ()
+def transfer_ownership(player: Player) -> ()
+
+# No special syntax at the call site in any case.
+
+shared_borrow(player1)
+exclusive_borrow(player1)
+transfer_ownership(player1)
+
+# We need a way to temporarily project borrows (i.e. Hylo subscript)
+# and to make a function polymorphic over binding kinds.
+
+# Rough sketch of polymorphic binding kinds.
+
+def increment('a box1: Box, &box2: Box) -> mem.Result('a):
+    when 'a is
+    of mem.Take:
+        box.value += box2.value
+        box
+    of mem.Ref:
+        Box.new(box.value + box2.value)
+    of mem.MutRef:
+        box.value += box2.value
+
+mut box = Box.new(10)
+rhs = Box.new(20)
+box.increment(rhs)
+
+# I fail to see a strong benefit for Hylo's bundles and subscript
+# that may not be better implemented with a different language feature.
+# It feels very convoluted without serving an obvious purpose.
 
 # *Function bodies are optional for prototyping
 
@@ -346,11 +422,11 @@ class Foo('t):
 # *Labeled blocks (Dont know)
 
 def f(x):
-    `label:
+    label:
         print(10)
         break label
 
-    `loop while True:
+    loop while True:
         for i in range(30):
             if is_special_enough_to_break(i):
                 break loop
