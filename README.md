@@ -322,6 +322,7 @@ def f(the_sum: Sum) -> bool:
 
 # This syntax would require a new node for parenthesized items to prevent unparenthesized
 # function applications
+# Its actually just ambiguous and won't work at all.
 
 # *Theoretical match expression
 
@@ -357,49 +358,106 @@ of Expression.Unary { op = Operator.Sub, operand }:
 # bare -> mut -> move subtyping relationship
 # origin propagation flows from call site -> parameter x -> from x
 
+a = b  # Uses value semantics by default, creating a copy
+mut a = b  # This also uses value semantics, creating a copy
+
+# Projection `T from a` specifies that origin of a type allowing
+# aliasing. `T from owned` represents a move. All projections are mutable.
+
+# Exclusively multiple readers or one writer.
+mut a: int from b = b  # Declares a mutable projection of b.
+a: int from owned = b  # Subsumes b
+
+# Rhs modifiers allow inline projections
+# There is intentionally no way to declare an immutable projection because
+# the compiler can determine when and when not to copy (theoretically).
+# And it's an antipattern because you're trying to observe mutation.
+
+mut a = mut b  # Declares a mutable projection of b
+mut a = move b  # Subsumes b
+
+f(mut a, move b)  # Passes a mutable projection of a and moves ownership of b
+
 type Vector = { x: int, y: int }
 
+# It is possible to use move -> mut -> bare -> dyn interchangably where the leftmost
+# are all compatible with the ones to their right.
 def immutable_access(vec: Vector) -> ()
-def mutable_access(mut vec: Vector) -> ()
-def move_ownership(move vec: Vector) -> ()
+def mutable_access(mut vec: Vector) -> ()  # f(x)  vec: Vector from x
+def move_ownership(move vec: Vector) -> ()  # f(move x)  x: Vector from owned
+def dynamic_access(dyn vec: Vector) -> ()
+
+# when a binding has type `x: T from a`, writing mut x is illegal.
+
+# The dyn specializer can be used to make the function polymorphic over
+# the argument origin.
+def min(dyn vec1: Vector, dyn vec2: Vector) -> Vector from vec1, vec2:
+    vec1.x  # Immutable access to dyn binding is ok.
+    my_vec1 = vec1  # Regular value semantics, copied vec1
+    mut my_vec2 = vec2  # Regular value semantics, copied vec2
+    mut my_vec1 = mut vec1  # Cannot project dyn binding
+    my_vec2: Vector from vec1 = dyn vec2  # Subsumes vec2 binding into new dyn with same semantics
+    # ... ignore above
+    if vec1 < vec2: dyn vec1 else: dyn vec2
+
+# discharged dyn must be projection of its old variable
+
+# This would use value semantics, (i.e. copy the result)
+x = min(a, b)  # Implicitly point from owned with copies
+
+# This would subsume a and b, and move the result into x
+x = min(move a, move b)  # Implicitly Point from owned with no copies
+
+# This would put a mutable projection of a or b into x
+mut x = min(mut a, mut b)  # Implicitly Point from a, b
+
+def add_point(mut vecs: [Vector] from vec, dyn vec: Vector):
+    vecs.append(dyn vec)
+
+mut vec: Vector = { x: 100, y: 10 }
+mut vecs = []
+add_point(vecs, mut vec)  # Ties the origin of `mut vec` to vecs
+# The mut vec projection is alive until the last use of vecs
+# making vec unusable.
 
 # Opportunities for compiler optimzation depending on origin of vec1
 def add(vec1: Vector, vec2: Vector) -> Vector:
     { x = vec1.x + vec2.x, y = vec1.y + vec2.y }
 
-# In from x, the origin kind bare, mut, or move defines the semantics
-# of the returned value. This is one case where writing mut or move is
-# unnecessary, it is automatically projected.
-def min(x: Point, y: Point) -> Point from x, y:
-    if x < y: x else: y
+# Projections within data structures are permitted via...
+type Point = (int from a, int from b)
 
-mut p1 = Point(1, 2)
-mut p2 = Point(3, 4)
+use Point from mut a, mut b:
+    def add(mut self, other: Point) -> Self:
+        self.a += other.a
+        self.b += other.b
 
-x = min(move p1, move p2)
-# Therefore, the value will be moved into x in this case.
+mut p1: Point = (1, 2)  # Point from owned with copies
+p1.add((5, 6)) # (6, 8): Point
 
-p3 = p1  # Copy p1 into p3, mutating p3 does not affect p1
-mut p4 = p2  # Copy p2 into p4
-mut p5 = mut p2  # Mutating p5 affects p2, p2 is inaccessible
+mut x = 0
+mut y = 0
+mut p1: Point = (mut x, mut y)  # Point from x, y
+p1.add((7, 8))  # (7, 8): Point
 
-smallest = min(mut p1, Point(3, 4))
-p1 = Point(5, 6)  # Cannot mutate p1 because smallest holds borrow
+mut p2: Point from p1 = p1  # Equivalent to mut p2 = mut p1
+# Last use of p2
+# Last use of p1
 
-print(smallest)  # End of smallest borrow
-p1 = move p2  # Fine
+print(x)  # 7
+print(y)  # 8
 
-print(p2)  # Cannot access p2 after move 
+# I would really like to keep the `from` syntax unified across the
+# entire language, keep origins silent and avoid code infection.
 
-type ListIterator = { items: ['t] from a,  index: usize }
-# Items origin could be bare or mut
+type ListIterator = { items: ['t] from a, index: usize }
 
-use ListIterator('t):
-    def next(mut self) -> Option('t) from self.items:
+use ListIterator('t) from dyn a:
+    def next(mut self) -> Option('t) from a:
         index = self.index
         if index < self.items.len():
             self.index += 1
-            Some(self.items[self.index])
+            Some(dyn self.items[self.index])
         else:
             None
 
@@ -411,7 +469,7 @@ def inspect_items(mut iterator: ListIterator('t)):
         print(item)
 
 use list('t):
-    def iter(self) -> ListIterator('t) from self:
+    def iter(dyn self) -> ListIterator('t) from self:
         { items = self, index = 0 }
 
 # Receiver polymorphism?
