@@ -312,7 +312,7 @@ type Sum = Var1 of int
 
 Sum.Var1 10
 Sum.Var2 (10,)
-Sum.Var3 {name: "John"}
+Sum.Var3 { name: "John" }
 
 def f(the_sum: Sum) -> bool:
     when the_sum is
@@ -343,72 +343,81 @@ of Expression.Unary { op = Operator.Sub, operand }:
 # Other notes:
 # *Mutability and reference model
 
-# Would like to adopt mutable value semantics from Hylo refining the syntax.
+# I tried to research the motivations behind Hylo's subscript coroutines,
+# but they don't stand out to me as being particularly useful and certainly not strictly necessary.
+# It seems they violate their own rules about returning inout by arbitrarily allowing
+# subscript coroutines to yield them. This appears in effect to be identical to returning them
+# from a function if the subscript does not yield locally defined data or clean up anything after the yield.
+# As a result, our functions should simply be capable of returning mutable borrows tied to parameters.
+# It's possible to do analysis on a function body to determine the lifetime of the returned
+# borrow, but this leads to fragility that can break the return lifetime implicitly.
 
-# Aliasing XOR Mutability
-# There can exclusively exist many readers, or one writer.
+# Some alternative model...
 
-type Player = { score: int }
+# bare -> mut -> move subtyping relationship
+# origin propagation flows from call site -> parameter x -> from x
 
-mut player1: Player = { score = 10 }  # Mutable binding
-player1.score = 20  # Valid
+type Vector = { x: int, y: int }
 
-player2: Player = { score = 10 }  # Immutable binding
-player2.score = 20  # Invalid
+def immutable_access(vec: Vector) -> ()
+def mutable_access(mut vec: Vector) -> ()
+def move_ownership(move vec: Vector) -> ()
 
-new_player1 = player1  # Move ownership of player1 to immutable binding new_player1
-                       # player1 is dead and inaccessible
+# Opportunities for compiler optimzation depending on origin of vec1
+def add(vec1: Vector, vec2: Vector) -> Vector:
+    { x = vec1.x + vec2.x, y = vec1.y + vec2.y }
 
-mut new_player2 = player2  # Move ownership of player2 to mutable binding new_player2
-                           # player2 is dead and inaccessible
+# In from x, the origin kind bare, mut, or move defines the semantics
+# of the returned value. This is one case where writing mut or move is
+# unnecessary, it is automatically projected.
+def min(x: Point, y: Point) -> Point from x, y:
+    if x < y: x else: y
 
-&player1_borrow = new_player1  # Borrowed player 1 immutably
-&mut player1_borrow = player1_borrow  # Cannot borrow immutable binding mutably
+mut p1 = Point(1, 2)
+mut p2 = Point(3, 4)
 
-&player2_borrow = new_player2  # Borrowed player 2 immutably
-&mut player2_mutable = new_player2  # Borrowed player 2 mutably
+x = min(move p1, move p2)
+# Therefore, the value will be moved into x in this case.
 
-# These cannot exist at the same time, and new_player2 cannot be used while
-# player2_mutable exists.
+p3 = p1  # Copy p1 into p3, mutating p3 does not affect p1
+mut p4 = p2  # Copy p2 into p4
+mut p5 = mut p2  # Mutating p5 affects p2, p2 is inaccessible
 
-# Given the semantics of this all, unlinke Hylo, it seems logical for borrows to be
-# the special case in function signatures rather than moves.
-# This is consistent with structs and tuples where owned data is written with no sigil.
-# Owned data is the only thing that can exist in structures.
-# Borrowing semantincs is purly an attribute of bindings, not types.
+smallest = min(mut p1, Point(3, 4))
+p1 = Point(5, 6)  # Cannot mutate p1 because smallest holds borrow
 
-def shared_borrow(&player: Player) -> ()
-def exclusive_borrow(&mut player: Player) -> ()
-def transfer_ownership(player: Player) -> ()
+print(smallest)  # End of smallest borrow
+p1 = move p2  # Fine
 
-# No special syntax at the call site in any case.
+print(p2)  # Cannot access p2 after move 
 
-shared_borrow(player1)
-exclusive_borrow(player1)
-transfer_ownership(player1)
+type ListIterator = { items: ['t] from a,  index: usize }
+# Items origin could be bare or mut
 
-# We need a way to temporarily project borrows (i.e. Hylo subscript)
-# and to make a function polymorphic over binding kinds.
+use ListIterator('t):
+    def next(mut self) -> Option('t) from self.items:
+        index = self.index
+        if index < self.items.len():
+            self.index += 1
+            Some(self.items[self.index])
+        else:
+            None
 
-# Rough sketch of polymorphic binding kinds.
+def an_iterator(iterator: ListIterator('t)) -> ListIterator('t) from iterator:
+    iterator
 
-def increment('a box1: Box, &box2: Box) -> mem.Result('a):
-    when 'a is
-    of mem.Take:
-        box.value += box2.value
-        box
-    of mem.Ref:
-        Box.new(box.value + box2.value)
-    of mem.MutRef:
-        box.value += box2.value
+def inspect_items(mut iterator: ListIterator('t)):
+    for item in iterator:
+        print(item)
 
-mut box = Box.new(10)
-rhs = Box.new(20)
-box.increment(rhs)
+use list('t):
+    def iter(self) -> ListIterator('t) from self:
+        { items = self, index = 0 }
 
-# I fail to see a strong benefit for Hylo's bundles and subscript
-# that may not be better implemented with a different language feature.
-# It feels very convoluted without serving an obvious purpose.
+# Receiver polymorphism?
+items.iter()
+(mut items).iter()
+(move items).iter()
 
 # *Function bodies are optional for prototyping
 
