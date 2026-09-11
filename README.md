@@ -355,68 +355,48 @@ of Expression.Unary { op = Operator.Sub, operand }:
 
 # Some alternative model...
 
-# bare -> mut -> move subtyping relationship
-# origin propagation flows from call site -> parameter x -> from x
-
-a = b  # Uses value semantics by default, creating a copy
-mut a = b  # This also uses value semantics, creating a copy
-
 # Projection `T from a` specifies that origin of a type allowing
-# aliasing. `T from owned` represents a move. All projections are mutable.
+# aliasing. Projections can be mutable or dynamic.
 
-# Exclusively multiple readers or one writer.
-mut a: int from b = b  # Declares a mutable projection of b.
-a: int from owned = b  # Subsumes b
-
-# Rhs modifiers allow inline projections
-# There is intentionally no way to declare an immutable projection because
-# the compiler can determine when and when not to copy (theoretically).
-# And it's an antipattern because you're trying to observe mutation.
-
-mut a = mut b  # Declares a mutable projection of b
-mut a = move b  # Subsumes b
-
-f(mut a, move b)  # Passes a mutable projection of a and moves ownership of b
+a = b  # Subsume b, move into a
+mut a = b  # Projects the value of b mutably, mutating a affects b
+dyn a = b  # Discharges dynamic binding b into a
 
 type Vector = { x: int, y: int }
 
-# It is possible to use move -> mut -> bare -> dyn interchangably where the leftmost
-# are all compatible with the ones to their right.
 def immutable_access(vec: Vector) -> ()
-def mutable_access(mut vec: Vector) -> ()  # f(x)  vec: Vector from x
-def move_ownership(move vec: Vector) -> ()  # f(move x)  x: Vector from owned
+def move_ownership(move vec: Vector) -> ()
+def mutable_access(mut vec: Vector) -> ()
 def dynamic_access(dyn vec: Vector) -> ()
 
-# when a binding has type `x: T from a`, writing mut x is illegal.
+def bare_min(vec1: Vector, vec2: Vector) -> Vector:
+    if vec1 < vec2: vec1 else vec2
 
-# The dyn specializer can be used to make the function polymorphic over
-# the argument origin.
-def min(dyn vec1: Vector, dyn vec2: Vector) -> Vector from vec1, vec2:
-    vec1.x  # Immutable access to dyn binding is ok.
-    my_vec1 = vec1  # Regular value semantics, copied vec1
-    mut my_vec2 = vec2  # Regular value semantics, copied vec2
-    mut my_vec1 = mut vec1  # Cannot project dyn binding
-    my_vec2: Vector from vec1 = dyn vec2  # Subsumes vec2 binding into new dyn with same semantics
-    # ... ignore above
-    if vec1 < vec2: dyn vec1 else: dyn vec2
+# dyn simply prohibits mutation while enforcing aliasing rules as if it were mut
+def dyn_min(dyn vec1: Vector, dyn vec2: Vector) -> Vector from vec1, vec2:
+    if vec1 < vec2: vec1 else: vec2
 
-# discharged dyn must be projection of its old variable
+mut a: Vector = { x = 10, y = 20 }
+mut b: Vector = { x = 5, y = 10 }
 
-# This would use value semantics, (i.e. copy the result)
-x = min(a, b)  # Implicitly point from owned with copies
+# This would use value semantics for a and b, and put the result in x
+x = bare_min(a, b)
 
-# This would subsume a and b, and move the result into x
-x = min(move a, move b)  # Implicitly Point from owned with no copies
+# Since bare_bin uses value semantics, x is a copy of a or b
+mut x = bare_min(a, b)
+
+# Uses value semantics
+x = dyn_min(a, b)
 
 # This would put a mutable projection of a or b into x
-mut x = min(mut a, mut b)  # Implicitly Point from a, b
+mut x = dyn_min(a, b)
 
-def add_point(mut vecs: [Vector] from vec, dyn vec: Vector):
-    vecs.append(dyn vec)
+def add_vector(mut vecs: [Vector] from vec, dyn vec: Vector):
+    vecs.append(vec)
 
 mut vec: Vector = { x: 100, y: 10 }
 mut vecs = []
-add_point(vecs, mut vec)  # Ties the origin of `mut vec` to vecs
+add_vector(vecs, vec)  # Ties the origin of `mut vec` to vecs
 # The mut vec projection is alive until the last use of vecs
 # making vec unusable.
 
@@ -437,10 +417,10 @@ p1.add((5, 6)) # (6, 8): Point
 
 mut x = 0
 mut y = 0
-mut p1: Point = (mut x, mut y)  # Point from x, y
+mut p1: Point = (x, y)  # Point from x, y
 p1.add((7, 8))  # (7, 8): Point
 
-mut p2: Point from p1 = p1  # Equivalent to mut p2 = mut p1
+mut p2 = p1
 # Last use of p2
 # Last use of p1
 
@@ -457,7 +437,7 @@ use ListIterator('t) from dyn a:
         index = self.index
         if index < self.items.len():
             self.index += 1
-            Some(dyn self.items[self.index])
+            Some(self.items[self.index])
         else:
             None
 
@@ -473,9 +453,26 @@ use list('t):
         { items = self, index = 0 }
 
 # Receiver polymorphism?
-items.iter()
-(mut items).iter()
-(move items).iter()
+# Is items mut or not?
+mut items = [1, 2, 3, 4]
+mut iterator = items.iter()
+mut item = iterator.next()
+
+items = [1, 2, 3, 4]
+item = iterator.next()
+
+type ProjectedPoint = (int from a, int from b)
+type UnprojectedPoint = (int, int)
+
+mut a = 1
+mut b = 2
+mut x: ProjectedPoint = (a, b)
+# a, b locked
+
+mut a = 1
+mut b = 2
+mut x: UnprojectedPoint = (a, b)
+# a, b gone
 
 # *Function bodies are optional for prototyping
 
