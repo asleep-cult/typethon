@@ -356,42 +356,55 @@ of Expression.Unary { op = Operator.Sub, operand }:
 # Some alternative model...
 
 # Projection `T from a` specifies that origin of a type allowing
-# aliasing. Projections can be mutable or dynamic.
+# aliasing.
 
 a = b  # Subsume b, move into a
 mut a = b  # Projects the value of b mutably, mutating a affects b
-dyn a = b  # Discharges dynamic binding b into a
 
-type Vector = { x: int, y: int }
+# Structs can only talk about the mutability of their data, not whether its owned.
+type Vector = { mut x: int, mut y: int }
+
+type Holder = { vector: Vector }
 
 def immutable_access(vec: Vector) -> ()
-def move_ownership(move vec: Vector) -> ()
+# def move_ownership(move vec: Vector) -> ()
 def mutable_access(mut vec: Vector) -> ()
-def dynamic_access(dyn vec: Vector) -> ()
+# def dynamic_access(dyn vec: Vector) -> ()
 
-def bare_min(vec1: Vector, vec2: Vector) -> Vector:
+def bare_min(vec1: Vector, vec2: Vector) -> Vector from vec1, vec2:
     if vec1 < vec2: vec1 else vec2
 
 # dyn simply prohibits mutation while enforcing aliasing rules as if it were mut
+# designed for mutability forwarding.
 def dyn_min(dyn vec1: Vector, dyn vec2: Vector) -> Vector from vec1, vec2:
     if vec1 < vec2: vec1 else: vec2
+
+# Structs can hold on to forwarded projections
+type DynHolder = { dyn vector: Vector }
+# and mutably where each dyn has same origin
+type MutDynHolder = { mut dyn vector: Vector }
 
 mut a: Vector = { x = 10, y = 20 }
 mut b: Vector = { x = 5, y = 10 }
 
-# This would use value semantics for a and b, and put the result in x
+# A write locking operation for a and b
 x = bare_min(a, b)
 
-# Since bare_bin uses value semantics, x is a copy of a or b
+# ERROR: Cannot mutably project immutably passed value
 mut x = bare_min(a, b)
 
-# Uses value semantics
+# A write locking operation for a and b
 x = dyn_min(a, b)
 
-# This would put a mutable projection of a or b into x
+# A read/write locking operation for a and b
 mut x = dyn_min(a, b)
 
-def add_vector(mut vecs: [Vector] from vec, dyn vec: Vector):
+# A write locking operation for a
+holder: Holder = { vector = a }
+# A read/write locking operation for a
+mut holder: Holder = { vector = a }
+
+def add_vector(mut vecs: [Vector] from vec, vec: Vector):
     vecs.append(vec)
 
 mut vec: Vector = { x: 100, y: 10 }
@@ -405,10 +418,10 @@ def add(vec1: Vector, vec2: Vector) -> Vector:
     { x = vec1.x + vec2.x, y = vec1.y + vec2.y }
 
 # Projections within data structures are permitted via...
-type Point = (int from a, int from b)
+type Point = (mut int, mut int)
 
-use Point from mut a, mut b:
-    def add(mut self, other: Point) -> Self:
+use Point:
+    def add(mut self, other: Point):
         self.a += other.a
         self.b += other.b
 
@@ -430,16 +443,46 @@ print(y)  # 8
 # I would really like to keep the `from` syntax unified across the
 # entire language, keep origins silent and avoid code infection.
 
-type ListIterator = { items: ['t] from a, index: usize }
+type Option = Some of 't | None
+type ListIterator = { dyn items: ['t], mut index: usize }
 
-use ListIterator('t) from dyn a:
-    def next(mut self) -> Option('t) from a:
+use ListIterator('t):
+    def next(mut self) -> Option('t) from self.items:
         index = self.index
         if index < self.items.len():
             self.index += 1
             Some(self.items[self.index])
         else:
             None
+
+    def peek(mut self) -> Peekable from self:
+        { iterator = self, current = None }
+
+type Peekable = { mut iterator: ListIterator('t), mut dyn current: Option('t) }
+
+# mut/dyn origin disambuguation required on current
+use Peekable('t):
+    def next(mut self) -> Option('t) from dyn self.current:
+        tmp = self.current
+        self.current = self.iterator.next()
+        tmp
+
+    def peek(mut self) -> Option('t) from dyn self.current:
+        when self.current is of None:
+            self.current = self.iterator.next()
+
+        self.current
+
+mut items = [1, 2, 3, 4]
+x: Peekable = { iterator: { items }, current: None }
+
+Some(mut y) = x.peek()  # Ok!
+Some(mut y) = x.next()  # ERROR: Cannot call next while y holds current mutably
+
+items = [1, 2, 3, 4]
+x: Peekable = { iterator: { items }, current: None }
+Some(mut y) = x.peek()  # ERROR: Cannot project dyn mutably, items is immutable
+Some(mut y) = x.next()  # ERROR: Cannot project dyn mutably, items is immutable
 
 def an_iterator(iterator: ListIterator('t)) -> ListIterator('t) from iterator:
     iterator
@@ -461,8 +504,8 @@ mut item = iterator.next()
 items = [1, 2, 3, 4]
 item = iterator.next()
 
-type ProjectedPoint = (int from a, int from b)
-type UnprojectedPoint = (int, int)
+type MutPoint = (mut int, mut int)
+type ImmutPoint = (int, int)
 
 mut a = 1
 mut b = 2
@@ -471,8 +514,8 @@ mut x: ProjectedPoint = (a, b)
 
 mut a = 1
 mut b = 2
-mut x: UnprojectedPoint = (a, b)
-# a, b gone
+mut x: ImmutPoint = (a, b)
+# a, b gone follow subsumption semantics
 
 # *Function bodies are optional for prototyping
 
