@@ -63,11 +63,6 @@ point = (1, 2)  # This can only be used where (int, int) is expected, not Unname
 
 # The opposite is also true. Point cannot be coerced to the structural type { x: int, y: int }
 
-# Structural struct types exist to match structural tuple types. The boundary between structural
-# and nominal types cannot be crossed implicity in either case. Whether some variation
-# of a { ..point }/(..point,) should allow you to convert between structural and nominal
-# types of the same form is another question. 
-
 # For example, this would be valid
 
 def add(point: Point) -> int:
@@ -81,19 +76,18 @@ f({ x = 30, y = -5 }: Point)
 # The pub keyword can be used to make an individual fields public
 # pub(...) can change visibility to specific parts of a code base
 
-type Counter = { n: int }
+type Counter = { mut(self) n: int }
 
 use Counter:
     def new() -> Self:
-        return Self { n = 0 }
-
-    def current(self) -> int:
-        return self.n
+        { n = 0 }
 
     # The mut self means the callee must have mutable access to the Counter
-    def next(mut self) -> ():
+    def next(mut self) -> int:
         if self.n < 100:
             self.n += 1
+
+        self.n
 
 def fn() -> ():
     mut counter = Counter.new()
@@ -139,8 +133,8 @@ def f():
 # polymorphic over a field, and functions can be polymorphic over an argument or
 # the return type. A class could be polymorphic over any arbitrary type t.
 
-def identity(x: 't) -> 't:
-    return x
+def identity(move x: 't) -> 't:
+    x
 
 type Box = { value: 't }
 
@@ -167,18 +161,20 @@ x = unbox(box) # type: int
 x = unbox_int(box) # type: int
 
 # Ad-hoc polymorphism is achieved by constraining a polymorphic type t
-# to what will eventually become classes. Not the actual syntax.
+# to what will eventually become classes.
 
-def get_str_item('t: Index(int, str))(items: 't, index: int) -> str:
-    return items[index]
+def get_str_item(items: 't, index: int) -> str from items
+    where 't is Index(int, str):
+    items[index]
 
-def get_item('t: Index('u, 'v))(items: 't, index: 'u) -> 'v:
-    return items[index]
+def get_item(items: 't, index: 'u) -> 'v from items
+    where 't is Index('u, 'v):
+    items[index]
 
 # Expressions can be annotated when type inference isn't possible
 
 def new() -> 'u:
-    return u()
+    return 'u()
 
 x = new(): int
 
@@ -199,17 +195,17 @@ x = x.f()
 # The use/for syntax can be used to denote
 # a function serves as the implementation function for a type class function.
 
-type Map = { mapping: dict('k, 'v) }
+type Map = { dyn mapping: dict('k, 'v) }
 
 use Map('k, 'v) with Index('k, 'v):
     def new(mapping: dict('k, 'v)) -> Self:
-        return { mapping }
+        { mapping }
 
-    def update(self, other: Self) -> Self:
-        return { mapping = self.mapping | other.mapping }
+    def update(mut self, other: Self):
+        self.mapping |= other.mapping
 
-    def get_item(self, key: 'k) -> 'v:
-        return self.mapping[key]
+    def get_item(self, key: 'k) -> 'v from self.mapping:
+        self.mapping[key]
 
 # Maybe there will be a Type.new() convention
 
@@ -308,21 +304,17 @@ if Symbol { kind = SymbolKind.Nonterminal { .. }, .. } = symbol:
 
 type Sum = Var1 of int
     | Var2 of (int,)
-    | Var2 of { name: str }
+    | Var3 of { name: str }
 
-Sum.Var1 10
-Sum.Var2 (10,)
+Sum.Var1(10)
+Sum.Var2(10)
 Sum.Var3 { name: "John" }
 
 def f(the_sum: Sum) -> bool:
     when the_sum is
-    of Sum.Var1 n: n >= 50
-    of Sum.Var2 (n,): n < 50
+    of Sum.Var1(n): n >= 50
+    of Sum.Var2(n): n < 50
     of Sum.Var3 { name }: name.len() < 10
-
-# This syntax would require a new node for parenthesized items to prevent unparenthesized
-# function applications
-# Its actually just ambiguous and won't work at all.
 
 # *Theoretical match expression
 
@@ -334,12 +326,12 @@ of Expression.Binary { left, op = Operator.Add, right }:
     if not left.is_number() or not right.is_number():
         Value.Undefined
     else:
-        Value.Number left.value + right.value
+        Value.Number(left.value + right.value)
 of Expression.Unary { op = Operator.Sub, operand }:
     if not operand.is_number():
         Value.Undefined
     else:
-        Value.Number -operand.value
+        Value.Number(-operand.value)
 
 # Other notes:
 # *Mutability and reference model
@@ -358,8 +350,9 @@ of Expression.Unary { op = Operator.Sub, operand }:
 # Projection `T from a` specifies that origin of a type allowing
 # aliasing.
 
-a = b  # Subsume b, move into a
+a = b  # Projects b immutably
 mut a = b  # Projects the value of b mutably, mutating a affects b
+move a = b  # Subsumes b, moved into a
 
 # Structs can only talk about the mutability of their data, not whether its owned.
 type Vector = { mut x: int, mut y: int }
@@ -367,15 +360,26 @@ type Vector = { mut x: int, mut y: int }
 type Holder = { vector: Vector }
 
 def immutable_access(vec: Vector) -> ()
-# def move_ownership(move vec: Vector) -> ()
+def move_ownership(move vec: Vector) -> ()
 def mutable_access(mut vec: Vector) -> ()
-# def dynamic_access(dyn vec: Vector) -> ()
+def dynamic_access(dyn vec: Vector) -> ()
+
+# moving operations of x:
+# - move_ownership(x)
+# - return x where any part of x is not declared as projection in return type
+# - move a = b
+
+# rules governing move:
+# - The moved value can be owned or mutable projection
+# - If the value is mutable projection, it must be reinitialized
 
 def bare_min(vec1: Vector, vec2: Vector) -> Vector from vec1, vec2:
     if vec1 < vec2: vec1 else vec2
 
 # dyn simply prohibits mutation while enforcing aliasing rules as if it were mut
 # designed for mutability forwarding.
+# dyn is meant to preserve the simplicity of the type system and prevent
+# API coloring-esque infection.
 def dyn_min(dyn vec1: Vector, dyn vec2: Vector) -> Vector from vec1, vec2:
     if vec1 < vec2: vec1 else: vec2
 
@@ -463,7 +467,7 @@ type Peekable = { mut iterator: ListIterator('t), mut dyn current: Option('t) }
 # mut/dyn origin disambuguation required on current
 use Peekable('t):
     def next(mut self) -> Option('t) from dyn self.current:
-        tmp = self.current
+        move tmp = self.current
         self.current = self.iterator.next()
         tmp
 
@@ -474,13 +478,13 @@ use Peekable('t):
         self.current
 
 mut items = [1, 2, 3, 4]
-x: Peekable = { iterator: { items }, current: None }
+mut x: Peekable = { iterator: { items }, current: None }
 
 Some(mut y) = x.peek()  # Ok!
 Some(mut y) = x.next()  # ERROR: Cannot call next while y holds current mutably
 
 items = [1, 2, 3, 4]
-x: Peekable = { iterator: { items }, current: None }
+mut x: Peekable = { iterator: { items }, current: None }
 Some(mut y) = x.peek()  # ERROR: Cannot project dyn mutably, items is immutable
 Some(mut y) = x.next()  # ERROR: Cannot project dyn mutably, items is immutable
 
@@ -509,13 +513,13 @@ type ImmutPoint = (int, int)
 
 mut a = 1
 mut b = 2
-mut x: ProjectedPoint = (a, b)
-# a, b locked
+mut x: MutPoint = (a, b)
+# a, b read and write locked
 
 mut a = 1
 mut b = 2
 mut x: ImmutPoint = (a, b)
-# a, b gone follow subsumption semantics
+# a, b write locked
 
 # *Function bodies are optional for prototyping
 
