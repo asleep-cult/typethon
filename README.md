@@ -388,23 +388,32 @@ type Point = (mut int, mut int)
 
 use Point:
     def add(mut self, other: Point):
-        self.a += other.a
-        self.b += other.b
+        self.0 += other.0
+        self.0 += other.1
 
-mut p1: Point = (1, 2)  # Point from owned with copies
+mut p1: Point = (1, 2)  # Point.. no from
 p1.add((5, 6)) # (6, 8): Point
 
 mut x = 0
 mut y = 0
-mut p1: Point = (x, y)  # Point from x, y
+mut p1: Point = (x, y)  # Point where .0 from x, .1 from y
 p1.add((7, 8))  # (7, 8): Point
+
+mut z = 0
+p1.0 = z  # Does not project z into .0
+
+mut a = 1 # NOT SURE
+mut p1.0 = a  # Re-projects a into .0
+# Point where .0 from x, .1 from a
 
 mut p2 = p1
 # Last use of p2
 # Last use of p1
 
-print(x)  # 7
+print(x)  # 0
 print(y)  # 8
+print(z)  # 0
+print(a)  # 1
 
 # I would really like to keep the `from` syntax unified across the
 # entire language, keep origins silent and avoid code infection.
@@ -424,25 +433,41 @@ use ListIterator('t):
     def peek(mut self) -> Peekable from self:
         { iterator = self, current = None }
 
-type Ref = ('t,)
-type Peekable = { mut iterator: ListIterator('t), mut current: Ref(Option('t)) }
+# The semantics of `T from a` will be very difficult to get right, I have the following
+# ideas about it:
+#   1) Structs cannot define the origins of their own data
+#   2) Functions that return their parameters/fields, something from within one of their parameters/fields or
+#      structs containing their parameters/fields must write `T from origin`
+#   3) The from clause in return types are meant to define the contract and prevent the function
+#      from implicitly breaking the contract by changing the body
+#   4) The compiler is supposed to inspect the body to fill out a detailed origin composition
+#      of the internal struct fields
+#   5) The compiler should issue locks at function boundaries according to the contract, rather than the exact
+#      origin composition, to prevent code that should be invalidated by the contract
+#   6) The where/from clauses should be used for field level refinement but they should follow the same
+#      semantics as the from clause
+
+type Peekable = { mut iterator: ListIterator('t), mut current: Option('t) }
 
 use Peekable('t)
-   where self.current.0 from self.iterator.items:
-   def next(mut self) -> Option('t) from self.current.0:
-        move tmp = self.current
-        mut self.current = Ref(self.iterator.next())
-        tmp.0
+   where self.current from self.iterator.items:
+   def next(mut self) -> Option('t) from self.iterator.items:
+      when self.current is
+      of Some(current):
+         current
+      of None:
+         self.iterator.next()
 
-    def peek(mut self) -> Option('t) from self.current.0:
-        when self.current is of None:
-            self.current = Ref(self.iterator.next())
+   def peek(mut self) -> Option('t) from self.current:
+         when self.current is of None:
+            self.current = self.iterator.next()
 
-        self.current.0
+         self.current
 
 mut items = [1, 2, 3, 4]
 mut x: Peekable = { iterator: { items }, current: None }
 
+mut y = x.peek()  # Mutatable projection of x.current, literally
 Some(mut y) = x.peek()  # Ok!
 Some(mut y) = x.next()  # ERROR: Cannot call next while y holds current mutably
 
@@ -485,9 +510,9 @@ mut x: ImmutPoint = (a, b)
 # a, b write locked
 
 # List rewrap
-type List = { mut items: ['t] }
+type List = { mut items: 't }
 
-use List('t):
+use List(['t]):
     def append(mut self, item: 't from self.items):
         self.items.append(item)
 
@@ -498,10 +523,10 @@ mut items = []
 # Inference on lists might be difficult. It must determine the
 # internal mutability and the internal type.
 
-mut vec = { x: 10, y: 10 }
+mut vec = { x = 10, y = 10 }
 items.append(vec)
 
-vec2 = { x: 10, y: 5 }
+vec2 = { x = 10, y = 5 }
 items.append(vec2)
 
 def use_list(mut items: [mut Vector]):
@@ -510,12 +535,15 @@ def use_list(mut items: [mut Vector]):
 # ERROR: items is [Vector] expected [mut Vector]
 use_list(items)
 
-mut items = { items = [] }
+mut items: List([mut Vector]) = { items = [] }
 items.append(vec)
 
 # Inference has to work here too, and if it does, it works just fine
 # despite List.items not being [mut 't] by our basic reprojection rules.
 mut item = items.get(0)
+
+# I don't know if this is the best behavior but it is consistent.
+# We can try to change this but it's super confusing what it should be instead
 
 # *Function bodies are optional for prototyping
 
