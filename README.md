@@ -195,7 +195,7 @@ x = x.f()
 # The use/for syntax can be used to denote
 # a function serves as the implementation function for a type class function.
 
-type Map = { dyn mapping: dict('k, 'v) }
+type Map = { mapping: dict('k, 'v) }
 
 use Map('k, 'v) with Index('k, 'v):
     def new(mapping: dict('k, 'v)) -> Self:
@@ -376,11 +376,6 @@ def dynamic_access(dyn vec: Vector) -> ()
 def min(vec1: Vector, vec2: Vector) -> Vector from vec1, vec2:
     if vec1 < vec2: vec1 else vec2
 
-# Structs can hold on to forwarded projections
-type DynHolder = { dyn vector: Vector }
-# and mutably where each dyn has same origin
-type MutDynHolder = { mut dyn vector: Vector }
-
 mut a: Vector = { x = 10, y = 20 }
 mut b: Vector = { x = 5, y = 10 }
 
@@ -512,13 +507,35 @@ mut x: ImmutPoint = (a, b)
 # List rewrap
 type List = { mut items: ['t] }
 
-use List:
-    def append(mut self, dyn item: 't from self.items):
+use List('t):
+    def append(mut self, item: 't from self.items):
         self.items.append(item)
 
+    def get(self, index: usize) -> 't from self.items:
+        self.items[index]
+
 mut items = []
+
 mut vec = { x: 10, y: 10 }
 items.append(vec)
+
+vec2 = { x: 10, y: 5 }
+items.append(vec2)
+
+def use_list(mut items: [Vector]):
+    items[1].x += 1
+
+# why [mut T] is necessary
+use_list(items)
+
+mut items = { items = [] }
+items.append(vec)
+
+# should this be possible...
+# prove immutable data was never added
+# no it shouldn't be possible unless items
+# is [mut 't]
+mut item = items.get(0)
 
 # *Function bodies are optional for prototyping
 
