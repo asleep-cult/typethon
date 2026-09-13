@@ -427,16 +427,16 @@ use ListIterator('t):
 type Ref = ('t,)
 type Peekable = { mut iterator: ListIterator('t), mut current: Ref(Option('t)) }
 
-# mut/dyn origin disambuguation required on current
-use Peekable('t) where self.current.0 from self.iterator.items:
-    def next(mut self) -> Option('t) from self.current.0:
+use Peekable('t)
+   where self.current.0 from self.iterator.items:
+   def next(mut self) -> Option('t) from self.current.0:
         move tmp = self.current
         mut self.current = Ref(self.iterator.next())
         tmp.0
 
     def peek(mut self) -> Option('t) from self.current.0:
         when self.current is of None:
-            mut self.current = Ref(self.iterator.next())
+            self.current = Ref(self.iterator.next())
 
         self.current.0
 
