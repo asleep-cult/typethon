@@ -373,15 +373,8 @@ def dynamic_access(dyn vec: Vector) -> ()
 # - The moved value can be owned or mutable projection
 # - If the value is mutable projection, it must be reinitialized
 
-def bare_min(vec1: Vector, vec2: Vector) -> Vector from vec1, vec2:
+def min(vec1: Vector, vec2: Vector) -> Vector from vec1, vec2:
     if vec1 < vec2: vec1 else vec2
-
-# dyn simply prohibits mutation while enforcing aliasing rules as if it were mut
-# designed for mutability forwarding.
-# dyn is meant to preserve the simplicity of the type system and prevent
-# API coloring-esque infection.
-def dyn_min(dyn vec1: Vector, dyn vec2: Vector) -> Vector from vec1, vec2:
-    if vec1 < vec2: vec1 else: vec2
 
 # Structs can hold on to forwarded projections
 type DynHolder = { dyn vector: Vector }
@@ -392,16 +385,10 @@ mut a: Vector = { x = 10, y = 20 }
 mut b: Vector = { x = 5, y = 10 }
 
 # A write locking operation for a and b
-x = bare_min(a, b)
-
-# ERROR: Cannot mutably project immutably passed value
-mut x = bare_min(a, b)
-
-# A write locking operation for a and b
-x = dyn_min(a, b)
+x = min(a, b)
 
 # A read/write locking operation for a and b
-mut x = dyn_min(a, b)
+mut x = min(a, b)
 
 # A write locking operation for a
 holder: Holder = { vector = a }
@@ -448,7 +435,7 @@ print(y)  # 8
 # entire language, keep origins silent and avoid code infection.
 
 type Option = Some of 't | None
-type ListIterator = { dyn items: ['t], mut index: usize }
+type ListIterator = { items: ['t], mut index: usize }
 
 use ListIterator('t):
     def next(mut self) -> Option('t) from self.items:
@@ -462,20 +449,21 @@ use ListIterator('t):
     def peek(mut self) -> Peekable from self:
         { iterator = self, current = None }
 
-type Peekable = { mut iterator: ListIterator('t), mut dyn current: Option('t) }
+type Ref = ('t,)
+type Peekable = { mut iterator: ListIterator('t), mut current: Ref(Option('t)) }
 
 # mut/dyn origin disambuguation required on current
-use Peekable('t):
-    def next(mut self) -> Option('t) from dyn self.current:
+use Peekable('t) where .current.0 from .iterator.items:
+    def next(mut self) -> Option('t) from self.current.0:
         move tmp = self.current
-        self.current = self.iterator.next()
-        tmp
+        mut self.current = Ref(self.iterator.next())
+        tmp.0
 
-    def peek(mut self) -> Option('t) from dyn self.current:
+    def peek(mut self) -> Option('t) from self.current.0:
         when self.current is of None:
-            self.current = self.iterator.next()
+            mut self.current = Ref(self.iterator.next())
 
-        self.current
+        self.current.0
 
 mut items = [1, 2, 3, 4]
 mut x: Peekable = { iterator: { items }, current: None }
@@ -485,8 +473,8 @@ Some(mut y) = x.next()  # ERROR: Cannot call next while y holds current mutably
 
 items = [1, 2, 3, 4]
 mut x: Peekable = { iterator: { items }, current: None }
-Some(mut y) = x.peek()  # ERROR: Cannot project dyn mutably, items is immutable
-Some(mut y) = x.next()  # ERROR: Cannot project dyn mutably, items is immutable
+Some(mut y) = x.peek()  # ERROR: Cannot project mutably, items is immutable
+Some(mut y) = x.next()  # ERROR: Cannot project mutably, items is immutable
 
 def an_iterator(iterator: ListIterator('t)) -> ListIterator('t) from iterator:
     iterator
@@ -496,7 +484,7 @@ def inspect_items(mut iterator: ListIterator('t)):
         print(item)
 
 use list('t):
-    def iter(dyn self) -> ListIterator('t) from self:
+    def iter(self) -> ListIterator('t) from self:
         { items = self, index = 0 }
 
 # Receiver polymorphism?
@@ -520,6 +508,17 @@ mut a = 1
 mut b = 2
 mut x: ImmutPoint = (a, b)
 # a, b write locked
+
+# List rewrap
+type List = { mut items: ['t] }
+
+use List:
+    def append(mut self, dyn item: 't from self.items):
+        self.items.append(item)
+
+mut items = []
+mut vec = { x: 10, y: 10 }
+items.append(vec)
 
 # *Function bodies are optional for prototyping
 
