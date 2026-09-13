@@ -197,17 +197,15 @@ x = x.f()
 
 type Map = { mapping: dict('k, 'v) }
 
-use Map('k, 'v) with Index('k, 'v):
+use Map('k, 'v) as Index('k, 'v):
     def new(mapping: dict('k, 'v)) -> Self:
         { mapping }
 
-    def update(mut self, other: Self):
+    def update(mut self, other: Map('k 'v) from self.mapping):
         self.mapping |= other.mapping
 
     def get_item(self, key: 'k) -> 'v from self.mapping:
         self.mapping[key]
-
-# Maybe there will be a Type.new() convention
 
 # I added a proof of concept lambda syntax that allows multiline blocks.
 # Here is how it looks:
@@ -250,23 +248,6 @@ items.map(|item: str|:
     else:
         120
 )
-
-# This makes sense because it is the only block that is an expression, but the
-# lack of a similar mechanism throughout the language makes me question
-# whether this could serve a more powerful purpose in the language.
-
-account = (||:
-    if price >= 150:
-        Account.Savings
-    else:
-        Account.Checkings)()
-
-# For example, something like this would be possible but in this form its undesirable.
-# The simplicity and automatic return insertion would significantly encourage more
-# functional practices within the language.
-
-# Closures can appear as a single expression, the final expression in a list of expressions,
-# or the only expression in a list of expressions.
 
 # I'm unsure how traits would be handled as of right now because:
 # 1. Other languages use def f(x: Trait) for dynamic dispatch and def f(x: 't) with Trait for 't
@@ -362,7 +343,6 @@ type Holder = { vector: Vector }
 def immutable_access(vec: Vector) -> ()
 def move_ownership(move vec: Vector) -> ()
 def mutable_access(mut vec: Vector) -> ()
-def dynamic_access(dyn vec: Vector) -> ()
 
 # moving operations of x:
 # - move_ownership(x)
@@ -448,7 +428,7 @@ type Ref = ('t,)
 type Peekable = { mut iterator: ListIterator('t), mut current: Ref(Option('t)) }
 
 # mut/dyn origin disambuguation required on current
-use Peekable('t) where .current.0 from .iterator.items:
+use Peekable('t) where self.current.0 from self.iterator.items:
     def next(mut self) -> Option('t) from self.current.0:
         move tmp = self.current
         mut self.current = Ref(self.iterator.next())
@@ -515,6 +495,8 @@ use List('t):
         self.items[index]
 
 mut items = []
+# Inference on lists might be difficult. It must determine the
+# internal mutability and the internal type.
 
 mut vec = { x: 10, y: 10 }
 items.append(vec)
@@ -522,19 +504,17 @@ items.append(vec)
 vec2 = { x: 10, y: 5 }
 items.append(vec2)
 
-def use_list(mut items: [Vector]):
+def use_list(mut items: [mut Vector]):
     items[1].x += 1
 
-# why [mut T] is necessary
+# ERROR: items is [Vector] expected [mut Vector]
 use_list(items)
 
 mut items = { items = [] }
 items.append(vec)
 
-# should this be possible...
-# prove immutable data was never added
-# no it shouldn't be possible unless items
-# is [mut 't]
+# Inference has to work here too, and if it does, it works just fine
+# despite List.items not being [mut 't] by our basic reprojection rules.
 mut item = items.get(0)
 
 # *Function bodies are optional for prototyping
