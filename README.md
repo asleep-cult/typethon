@@ -363,6 +363,8 @@ mut b: Vector = { x = 5, y = 10 }
 x = min(a, b)
 
 # A read/write locking operation for a and b
+# Orgins of the parameters a mutable, the result's origin is the parameters,
+# mutable projection is allowed
 mut x = min(a, b)
 
 # A write locking operation for a
@@ -383,8 +385,21 @@ add_vector(vecs, vec)  # Ties the origin of `mut vec` to vecs
 def add(vec1: Vector, vec2: Vector) -> Vector:
     { x = vec1.x + vec2.x, y = vec1.y + vec2.y }
 
-# Projections within data structures are permitted via...
+
+# Mutating function
+def inc(mut i: int):
+    i = 1
+
+mut i = 0
+inc(i)
+
 type Point = (mut int, mut int)
+
+# pin forces the struct to uniquely claim the binding slot
+# allowing for mutability over internally immutable elements
+# and preventing reassignment from altering a caller who could have potentially
+# claimed the binding slot.
+type PinPoint = (mut pin int, mut pin int)
 
 use Point:
     def add(mut self, other: Point):
@@ -396,24 +411,16 @@ p1.add((5, 6)) # (6, 8): Point
 
 mut x = 0
 mut y = 0
-mut p1: Point = (x, y)  # Point where .0 from x, .1 from y
+mut p1: Point = (x, y)
 p1.add((7, 8))  # (7, 8): Point
 
-mut z = 0
-p1.0 = z  # Does not project z into .0
+# x = 7, y = 8
 
-mut a = 1 # NOT SURE
-mut p1.0 = a  # Re-projects a into .0
-# Point where .0 from x, .1 from a
-
-mut p2 = p1
-# Last use of p2
-# Last use of p1
-
-print(x)  # 0
-print(y)  # 8
-print(z)  # 0
-print(a)  # 1
+mut x = 0
+mut y = 0
+mut p1: PinPoint = (x, y)
+p1.add((7, 8))  # (7, 8): Point
+# x = 0, y = 0
 
 # I would really like to keep the `from` syntax unified across the
 # entire language, keep origins silent and avoid code infection.
@@ -421,17 +428,16 @@ print(a)  # 1
 type Option = Some of 't | None
 type ListIterator = { items: ['t], mut index: usize }
 
-use ListIterator('t):
-    def next(mut self) -> Option('t) from self.items:
+use ListIterator('t) as Iterator('t):
+    type Item = 't
+
+    def next(mut self) -> Option('t) from self:
         index = self.index
         if index < self.items.len():
             self.index += 1
             Some(self.items[self.index])
         else:
             None
-
-    def peek(mut self) -> Peekable from self:
-        { iterator = self, current = None }
 
 # The semantics of `T from a` will be very difficult to get right, I have the following
 # ideas about it:
@@ -447,22 +453,44 @@ use ListIterator('t):
 #   6) The where/from clauses should be used for field level refinement but they should follow the same
 #      semantics as the from clause
 
-type Peekable = { mut iterator: ListIterator('t), mut current: Option('t) }
+class Iterator:
+    type Item
+
+    def next(mut self) -> Self.Item from self
+
+    def peek(mut self) -> Peekable from self:
+        { iterator = self, current = None }
+
+
+type Peekable = { mut iterator: 't, mut current: Option(('t as Iterator).item) }
 
 use Peekable('t)
-   where self.current from self.iterator.items:
-   def next(mut self) -> Option('t) from self.iterator.items:
-      when self.current is
-      of Some(current):
-         current
-      of None:
-         self.iterator.next()
+    where self.current from self.iterator:
 
-   def peek(mut self) -> Option('t) from self.current:
-         when self.current is of None:
+    def next(mut self) -> Option('t) from self.iterator:
+        when self.current is
+        of Some(current):
+            current
+        of None:
+            self.iterator.next()
+
+   def peek(mut self) -> Option('t) from self.iterator:
+        when self.current is of None:
             self.current = self.iterator.next()
 
-         self.current
+        self.current
+
+type EagerPeekable = { mut iterator: 't, mut current: pin ('t as Iterator).Item }
+
+use EagerPeekable:
+    where self.current from self.iterator
+
+    def peek(self) -> 't:
+        self.current
+
+    def next(mut self) -> Option('t):
+        self.current = self.iterator.next().unwrap()
+        Some(self.current)
 
 mut items = [1, 2, 3, 4]
 mut x: Peekable = { iterator: { items }, current: None }
