@@ -121,9 +121,9 @@ increment(i)
 ##### Mutability indirection
 Considering that in all cases item internal mutability assumes the mutability of the binding it resides on, it
 becomes impossible to make a binding mutable over numerous immutable values without writing a wrapper around it.
-To rectify this, bindings have the ability to specify fields as `mut seal`. This does not make immutable
-fields mutable or operate as a mutable cell, it simply allows the field to vary over a value without making any
-claims about the internal mutability of that value.
+To rectify this, bindings can be `mut seal`. This does not make immutable bindings mutable or operate as a
+mutable cell, it simply allows the field to vary over a value without making any claims about the internal mutability
+of that value.
 
 ```rs
 type City = { name: str, time_size: str }
@@ -236,8 +236,7 @@ The following would be invalid:
 * `second.two.a = 10`  ERROR: Cannot alter field `two` of `second` as it is declared immutable
 
 ##### Field mutability pass-through semantics
-This leads us to the first thing structures have to help specify intent: the `mut ref` field
-modifier. To achieve the mutating result, simply rewrite the point struct to use `mut ref` fields.
+Struct fields allow for pass-through semantics with `mut ref`:
 ```rs
 type Point = { mut ref x: int, mut ref y: int }
 
