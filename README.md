@@ -354,7 +354,7 @@ def mutable_access(mut vec: Vector) -> ()
 # - If the value is mutable projection, it must be reinitialized
 
 def min(vec1: Vector, vec2: Vector) -> Vector from vec1, vec2:
-    if vec1 < vec2: vec1 else vec2
+    if vec1 < vec2: vec1 else: vec2
 
 mut a: Vector = { x = 10, y = 20 }
 mut b: Vector = { x = 5, y = 10 }
