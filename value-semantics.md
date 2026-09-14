@@ -302,7 +302,7 @@ Each of the following would be valid:
 * `dynamic_counters.append({ n = 0 })`
 
 The following would be invalid:
-* `dynamic_counters.append(another_counter)`  ERROR: Cannot mutably project `another_counter` mutably in function `append`
+* `dynamic_counters.append(another_counter)`  ERROR: Cannot mutably project `another_counter` in function `append`
 * `static_counters[0].n += 1`  ERROR: Cannot alter element of list as it is declared immutable
 
 ##### List mutability pass through semantics
@@ -345,7 +345,7 @@ class Iterator:
     def next(mut self) -> Option(Self.Item) from Some(self.items)
 ```
 
-Implementing itaration for the previously defined list iterator type would look like this:
+Implementing Iterator for the previously defined list iterator type would look like this:
 ```rs
 use ListIter('t) as Iterator
     where 't is Iterator.Item,
