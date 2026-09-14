@@ -77,7 +77,7 @@ The following would work:
 because it was moved to function `move_structure`
 
 #### Projected values
-Projected values are values that are not owned and have an origin attached. Origins may point to other projections
+Projected values are non-owned values that have an origin attached. Origins may point to other projections
 but should eventually lead to an owned value. Origin tracking is used by the compiler to enforce mutability XOR aliasing,
 the same rule underpinning Rust's borrow checker.
 
@@ -130,7 +130,7 @@ def append(mut items: ['t], item: 't from items):
 ```
 
 An important fact to understand about the from specifier is that it is not a conclusive representation of
-the real origins of the data used by the compiler. The from clause serves the sole purpose of defining the
+the real origins of the data used by the compiler. The from clause serves the purpose of defining the
 locking contract of the function to prevent changes to the body from silently breaking other code.
 The compiler checks the function body to determine the real origins, checks it against the contract, and the
 borrow checker locks according to the contract. As a result, the compiler understands that the following
@@ -158,14 +158,22 @@ def current(iterator: ListIter('t)) -> 't from iterator.items:
     iterator.items[iterator.index]
 ```
 
-The `where` clause can be used to specify the origin of individual fields, `.field` refers to fields on the returned value:
+The from clause can offer more exact specificity of field origins:
 ```rs
-def iterator(items: ['t]) -> ListIter('t) where .items from items:
+def iterator(items: ['t]) -> ListIter('t) from { items = items }:
     ListIter(items)
+
+def min(a: 't, b: 't) -> 't from a | b:
+    if a < b: a else: b
+
+def err_min(a: 't, b: 't) -> Result('t, 't) from Ok(a | b), Err(a):
+    if a == b: Err(a)
+    elif a < b: Ok(a)
+    else: Ok(b)
 ``` 
 
 ##### Field-level mutability
-Fields can define the mutability of each of their individual fields. Field internal mutability defined the ceiling
+Structs can define the mutability of each of their individual fields. Field mutability defines the ceiling
 for internal mutability.
 
 The following exemplifies field-level mutability:
@@ -227,13 +235,13 @@ point: Point = { x, y }
 point.add({ x = 10, y = 20 })
 ```
 At the end of this code, the local variable x would be 10, and y would be 20. It is important to understand
-that mut ref is literally just a modifier that affects the assignment operator when it is applied to a field and nothing move.
+that mut ref is literally just a modifier that affects the assignment operator when it is applied to a field and nothing more.
 
 ##### Field mutability indirection
 Considering that in all cases, item internal mutability assumes the mutability of the binding it resides on, it
 becomes is impossible to make a field mutable over numerous immutable fields without writing a wrapper around it.
 To rectify this, struct fields also have the ability to specify fields as `mut seal`. This can be thought of
-as an invisible single item tuple around the same.
+as an invisible single item tuple around the type.
 ```rs
 type Peekable = { iterator: ListIter('t), mut seal current: 't }
 
@@ -259,10 +267,10 @@ class Iterator:
     from items
     type Item
 
-    def next(mut self) -> Option(Self.Item) from self.items
+    def next(mut self) -> Option(Self.Item) from Some(self.items)
 ```
 
-Implemantating itaration for the previously defined list iterator type would look like this:
+Implementing itaration for the previously defined list iterator type would look like this:
 ```rs
 use ListIter('t) as Iterator
     where 't is Iterator.Item,
@@ -272,7 +280,7 @@ use ListIter('t) as Iterator
         index = self.index
         if index < self.items.len():
             self.index += 1
-            self.items[index]
+            Some(self.items[index])
         else:
             None
 ```
