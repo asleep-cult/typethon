@@ -43,23 +43,18 @@ Any one the following would work:
 
 ##### Mutably passed values
 ```py
-bad_num = 0
 bad_list = [1, 2, 3, 4, 5]
-
-mut inc_num = 0
 mut inc_list = [1, 2, 3, 4, 5]
 
-def increment_number(mut number: int):
-    number += 1
+def increment_number(mut numbers: [int]):
+    numbers[0] += 1
 ```
 
 Any one the following would work:
-* `increment_number(inc_num)` -> `1`
 * `increment_number(inc_list[0])` -> `[2, 2, 3, 4, 5]` 
 
 The following would not work:
-* `increment_number(bad_num)` ERROR: Cannot project `bad_num` mutably in funciton `increment_number`
-* `increment_number(bad_list[0])` ERROR: Cannot peoject `bad_list[0]` mutably in function `increment_number`
+* `increment_number(bad_list)` ERROR: Cannot peoject `bad_list` mutably in function `increment_number`
 
 ##### Moved values
 ```py
@@ -105,6 +100,57 @@ mut back_to_mut = to_immut
 ```
 Origin tracking allows us to guarantee that mutable projections are exclusive, and mutation cannot be observed until
 it is complete. 
+
+#### Mut ref and mut seal bindings
+Mutable bindings can also be qualified with `ref` or `seal` to describe whether the binding should use
+pass through semantics or mutability indirection.
+
+##### Pass-through semantics
+In some cases, you might want to reassign something as a "dereferencing" assignment, rather than
+rebinding. To achieve this, you can use `mut ref` bindings. It is important to understand that
+`mut ref` is literally just a modifier that affects the assignment operator and arguably a misnomer.
+
+```rs
+def increment(mut ref i: int):
+    i += 1
+
+mut i = 0
+increment(i)
+```
+
+##### Mutability indirection
+Considering that in all cases item internal mutability assumes the mutability of the binding it resides on, it
+becomes impossible to make a binding mutable over numerous immutable values without writing a wrapper around it.
+To rectify this, bindings have the ability to specify fields as `mut seal`. This does not make immutable
+fields mutable or operate as a mutable cell, it simply allows the field to vary over a value without making any
+claims about the internal mutability of that value.
+
+```rs
+type City = { name: str, time_size: str }
+
+huston = { name = "Huston", time_size = "Central Daylight Time" }
+new_york = { name = "New York City", time_zone = "Eastern Daylight Time" }
+
+mut seal current_city = huston
+if going_home():
+    current_city = new_york
+```
+
+Without seal, it would be necessary for the cities to be mutable.
+
+#### Mut compatibility
+To define the rules governing `mut` binding  assignment, we must start by splitting
+all types into two categories:
+1) Those capable of internal mutation: any structure with a field marked `mut`
+2) And the rest who are incapable of internal mutation
+
+With that being defined, the following rules govern `mut` assignment:
+* A plan, immutable binding can accept any value whether it be a projection or an owned value
+* A binding marked as `mut` can accept an owned value or a mutable projection. If the binding's type is
+incapable of internal mutation, it can also accept an immutable projection
+* A binding marked as `mut ref` can only accept an owned value or a mutable projection regardless
+of the type's internal mutability
+* A binding marked as `mut seal` can accept any value regardless of mutability
 
 ##### Projection through functions
 All non-moved data passed to a function is considered a projection. Functions can only return moved data, unless they
@@ -189,9 +235,11 @@ The following would be invalid:
 * `second.one.b = 10`  ERROR: Cannot alter field `b` of `one` as it is declared immutable
 * `second.two.a = 10`  ERROR: Cannot alter field `two` of `second` as it is declared immutable
 
-Now consider the following example:
+##### Field mutability pass-through semantics
+This leads us to the first thing structures have to help specify intent: the `mut ref` field
+modifier. To achieve the mutating result, simply rewrite the point struct to use `mut ref` fields.
 ```rs
-type Point = { mut x: int, mut y: int }
+type Point = { mut ref x: int, mut ref y: int }
 
 use Point:
     def add(mut self, other: Point):
@@ -203,45 +251,10 @@ mut y = 0
 point: Point = { x, y }
 point.add({ x = 10, y = 20 })
 ```
-
-Given the semantics of the increment function stated earlier, it is natural to question whether
-the x and y provided will mutate after `point.add` is called. This may seem like reasonable semantics,
-but consider the following example next:
-```rs
-def rewrap_iter(iterator: ListIterator('t)) -> ListIterator('t) from iterator:
-    { items = iterator.items, index = iterator.index }
-```
-
-According the the same semantics, the rewrapped iterator would have to mutate the other iterator's
-index while changing its own, which is unacceptable behavior. As a result, we make the following
-guarantee about the assignment to mutable struct fields: it is genuinely changing the struct field
-rather than rewriting to the mutable binding that it was assigned with.
-
-##### Field mutability pass-through semantics
-This leads us to the first thing structures have to help specify intent: the `mut ref` field
-modifier. To achieve the mutating result, simply rewrite the point struct to use `mut ref` fields.
-```rs
-type Point = { mut ref x: int, mut ref y: int }
-
-use Point:
-    ...
-
-mut x = 0
-mut y = 0
-point: Point = { x, y }
-point.add({ x = 10, y = 20 })
-```
-At the end of this code, the local variable x would be 10, and y would be 20. It is important to understand
-that mut ref is literally just a modifier that affects the assignment operator when it is applied to a field,
-and `ref` is arguably a misnomer, it simply causes the field mutation to match the semantics of a local variable.
+At the end of this code, the local variable x would be 10, and y would be 20.
 
 ##### Field mutability indirection
-Considering that in all cases item internal mutability assumes the mutability of the binding it resides on, it
-becomes impossible to make a field mutable over numerous immutable values without writing a wrapper around it.
-To rectify this, struct fields also have the ability to specify fields as `mut seal`. This does not make immutable
-fields mutable or operate as a mutable cell, it simply allows the field to vary over a value without making any
-claims about the internal mutability of that value. One way of thinking about assignment to a sealed field
-is marking the field as immutable and moving a new struct into self where the field is the updated.
+Struct fields allow `mut seal` for mutability indirection:
 ```rs
 type Peekable = { iterator: ListIter('t), mut seal current: 't }
 
@@ -258,23 +271,6 @@ use Peekable('t):
 
 Without seal, this would fail because assiging `current` to `iterator.items` would
 require it to be mutable. 
-
-##### Creating structures
-Due to field semantics being unique from function parameters, the semantics of field creation
-and what can be assigned into a field are unique. To define the rules governing struct field
-assignment, we must start by splitting all types into two categories:
-1) Those capable of internal mutation: any structure with a field marked `mut`
-2) And the rest who are incapable of internal mutation
-
-Another important thing to note is that we can assume a struct returned from a function
-owns any particular field if the origin is not marked as a parameter.
-With that being defined, the following rules govern field assignment:
-* A plan, immutable field can accept any value whether it be a projection or an owned value
-* A field marked as `mut` can accept an owned value or a mutable projection. If the field's type is
-incapable of internal mutation, it can also accept an immutable projection
-* A field marked as `mut ref` can only accept an owned value or a mutable projection regardless
-of the type's internal mutability
-* A field marked as `mut seal` can accept any value regardless of mutability
 
 #### List internal mutability
 The internal mutability of a list's elements is defined by the mutability of its binding.
