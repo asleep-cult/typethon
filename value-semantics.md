@@ -72,7 +72,7 @@ def move_structure(move structure: { x: int, y: int }):
 ```
 
 The following would work:
-* `move_structure(imm_struct)`
+* `move_structure(imm_struct)` Same as below
 * `move_structure(mut_struct)` Attempting to access `mut_struct` after: ERROR: Cannot access `mut_struct` without reinitialization
 because it was moved to function `move_structure`
 
