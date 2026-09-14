@@ -453,28 +453,40 @@ use ListIterator('t) as Iterator('t):
 #   6) The where/from clauses should be used for field level refinement but they should follow the same
 #      semantics as the from clause
 
-class Iterator:
-    type Item
+# TODO: Field visibility + origin conflicts  
 
-    def next(mut self) -> Self.Item from self
+class Iterator:
+    from items  # Associated origin
+    type Item  # Associated type
+
+    def next(mut self) -> Self.Item from self.items
 
     def peek(mut self) -> Peekable from self:
         { iterator = self, current = None }
 
+def next(mut iterator: 't) -> 't.Item from iterator.items
+    where 't is Iterator:
+    iterator.next()
 
-type Peekable = { mut iterator: 't, mut current: Option(('t as Iterator).item) }
+def next_mut(mut iterator: 't) -> 't.Item from iterator.items
+    where 't is Iterator:
+    mut item = iterator.next()
+    item  # automatically constrain 't.item to mutable origin for calling this function
+
+type Peekable = { mut iterator: 't, mut current: Option(('t as Iterator).Item) }
 
 use Peekable('t)
-    where self.current from self.iterator:
+    where 't is Iterator,
+    self.current from self.iterator.items:
 
-    def next(mut self) -> Option('t) from self.iterator:
+    def next(mut self) -> Option('t.Item) from self.iterator.items:
         when self.current is
         of Some(current):
             current
         of None:
             self.iterator.next()
 
-   def peek(mut self) -> Option('t) from self.iterator:
+   def peek(mut self) -> Option('t.Item) from self.iterator.items:
         when self.current is of None:
             self.current = self.iterator.next()
 
@@ -483,7 +495,7 @@ use Peekable('t)
 type EagerPeekable = { mut iterator: 't, mut current: pin ('t as Iterator).Item }
 
 use EagerPeekable:
-    where self.current from self.iterator
+    where self.current from self.iterator.items
 
     def peek(self) -> 't:
         self.current
