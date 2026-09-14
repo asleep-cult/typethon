@@ -118,7 +118,7 @@ def moving_min(move a: 't, move b: 't) -> 't:
 Origins can be specified with from with respect to the functions argument. Rather than moving, `min` projects the result
 into the return value. 
 ```rs
-def min(a: 't, b: 't) -> 't from a, b:
+def min(a: 't, b: 't) -> 't from a | b:
     if a < b: a else: b
 ```
 
@@ -162,9 +162,6 @@ The from clause can offer more exact specificity of field origins:
 ```rs
 def iterator(items: ['t]) -> ListIter('t) from { items = items }:
     ListIter(items)
-
-def min(a: 't, b: 't) -> 't from a | b:
-    if a < b: a else: b
 
 def err_min(a: 't, b: 't) -> Result('t, 't) from Ok(a | b), Err(a):
     if a == b: Err(a)
@@ -235,29 +232,107 @@ point: Point = { x, y }
 point.add({ x = 10, y = 20 })
 ```
 At the end of this code, the local variable x would be 10, and y would be 20. It is important to understand
-that mut ref is literally just a modifier that affects the assignment operator when it is applied to a field and nothing more.
+that mut ref is literally just a modifier that affects the assignment operator when it is applied to a field,
+and `ref` is arguably a misnomer, it simply causes the field mutation to match the semantics of a local variable.
 
 ##### Field mutability indirection
-Considering that in all cases, item internal mutability assumes the mutability of the binding it resides on, it
-becomes is impossible to make a field mutable over numerous immutable fields without writing a wrapper around it.
-To rectify this, struct fields also have the ability to specify fields as `mut seal`. This can be thought of
-as an invisible single item tuple around the type.
+Considering that in all cases item internal mutability assumes the mutability of the binding it resides on, it
+becomes impossible to make a field mutable over numerous immutable values without writing a wrapper around it.
+To rectify this, struct fields also have the ability to specify fields as `mut seal`. This does not make immutable
+fields mutable or operate as a mutable cell, it simply allows the field to vary over a value without making any
+claims about the internal mutability of that value. One way of thinking about assignment to a sealed field
+is marking the field as immutable and moving a new struct into self where the field is the updated.
 ```rs
 type Peekable = { iterator: ListIter('t), mut seal current: 't }
 
 use Peekable('t):
-    def next() -> 't:
+    def next(mut self) -> 't:
         tmp = self.current
         self.current = self.iterator.items[self.iterator.index]
         self.iterator.index += 1
         tmp
 
-    def peek() -> 't:
+    def peek(self) -> 't:
         self.current
 ``` 
 
 Without seal, this would fail because assiging `current` to `iterator.items` would
 require it to be mutable. 
+
+##### Creating structures
+Due to field semantics being unique from function parameters, the semantics of field creation
+and what can be assigned into a field are unique. To define the rules governing struct field
+assignment, we must start by splitting all types into two categories:
+1) Those capable of internal mutation: any structure with a field marked `mut`
+2) And the rest who are incapable of internal mutation
+
+Another important thing to note is that we can assume a struct returned from a function
+owns any particular field if the origin is not marked as a parameter.
+With that being defined, the following rules govern field assignment:
+* A plan, immutable field can accept any value whether it be a projection or an owned value
+* A field marked as `mut` can accept an owned value or a mutable projection. If the field's type is
+incapable of internal mutation, it can also accept an immutable projection
+* A field marked as `mut ref` can only accept an owned value or a mutable projection regardless
+of the type's internal mutability
+* A field marked as `mut seal` can accept any value regardless of mutability
+
+#### List internal mutability
+The internal mutability of a list's elements is defined by the mutability of its binding.
+List elements can also be sealed or use the same `ref` semantics struct fields can.
+
+The following example are lists using non-sealed, non-ref semantics:
+```rs
+type Counter = { mut n: int }
+
+static_counters: [Counter] = [{ n = 0 }, { n = 20 }]
+
+another_counter = { n = 10 }
+mut dynamic_counters: [Counter] = [{ n = 30 }, { n = 40 }]
+```
+
+Regarding owned values: Given that owned values are meant to work in mutable struct fields,
+we should probably require variables that get moved into struct fields to be mutable.
+The reason being that whether a value gets moved into a struct is an optimization decision and the
+value cannot be moved if it is used again after struct creation. Allowing immutable owned
+values to be moved would mean interpreting the immutability as killing the binding, while implying
+a projection in the mutable case, which is too inconsistent and confusing.
+
+Each of the following would be valid:
+* `dynamic_counters[0].n += 1`
+* `dynamic_counters.append({ n = 0 })`
+
+The following would be invalid:
+* `dynamic_counters.append(another_counter)`  ERROR: Cannot mutably project `another_counter` mutably in function `append`
+* `static_counters[0].n += 1`  ERROR: Cannot alter element of list as it is declared immutable
+
+##### List mutability pass through semantics
+Using a ref list to observe reassignment:
+```rs
+mut ref_counters: [ref Counter] = []
+
+mut first_counter = { n = 10 }
+ref_counters.append(first_counter)
+
+ref_counters[0] = { n = 20 }
+```
+At the end, `first_counter.n` is now 20.
+
+##### List mutability indirection
+Using a sealed list to avoid internal mutability:
+```rs
+mut sealed_counters: [seal Counter] = []
+
+mut mut_counter = { n = 0 }
+mut immut_counter = { n = 10 }
+```
+
+The following would be valid:
+* `sealed_counters.append(mut_counter)`
+* `sealed_counters.append(immut_counter)`
+
+The following would be invalid:
+* `sealed_counters[0].n += 1`  ERROR: Cannot alter element of list as it is sealed
+* `sealed: [seal Counter] = []`  ERROR: Remove meaningless seal, `sealed` is not mutable
 
 #### Associated class origins
 Similar to associated types, classes can define associated origins that implementations
