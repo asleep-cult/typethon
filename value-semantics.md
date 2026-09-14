@@ -2,7 +2,7 @@
 
 References are second class citizens and the compiler can freely represent code using
 copies, references, etc. The compiler must track whether any data in the program is
-is owned, in addition to its origin if it's a projection.
+owned, in addition to its origin if it's a projection.
 
 Mutability is an attribute of bindings, not types.
 
@@ -12,9 +12,9 @@ Mutability is an attribute of bindings, not types.
 * `structure = { x = 10, y = 20 }`
 
 Reassignment and internal mutability is prohibited:
-* `digit = 5`  ERROR: Cannot change immutable binding `digit`, consider explicit shadow or writing `mut digit = ...` 
-* `numbers.append(50)`  ERROR: Cannot project `numbers` mutably in function append, consider writing `mut numbers = ...`
-* `structure.x = 10`  ERROR: Cannot alter `structure` field as it is declared immutable, consider writing `mut structure = ...`
+* `digit = 5`  ERROR: Cannot change immutable binding `digit`, consider explicit shadow or declaring it as `mut`
+* `numbers.append(50)`  ERROR: Cannot project `numbers` mutably in function append, consider declaring it as `mut`
+* `structure.x = 10`  ERROR: Cannot alter `structure` field as it is declared immutable, consider declaring it as `mut`
 
 #### Mutably owned bindings
 * `mut mutable_digit = 0`
@@ -58,8 +58,8 @@ Any one the following would work:
 * `increment_number(inc_list[0])` -> `[2, 2, 3, 4, 5]` 
 
 The following would not work:
-* `increment_number(bad_num)` ERROR: Cannot project `bad_num` mutably in funciton `increment_number` ...
-* `increment_number(bad_list[0])` ERROR: Cannot peoject `bad_list[0]` mutably in function `increment_number` ...
+* `increment_number(bad_num)` ERROR: Cannot project `bad_num` mutably in funciton `increment_number`
+* `increment_number(bad_list[0])` ERROR: Cannot peoject `bad_list[0]` mutably in function `increment_number`
 
 ##### Moved values
 ```py
