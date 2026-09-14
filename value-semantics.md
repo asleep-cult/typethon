@@ -51,7 +51,7 @@ def increment_number(mut numbers: [int]):
 ```
 
 Any one the following would work:
-* `increment_number(inc_list[0])` -> `[2, 2, 3, 4, 5]` 
+* `increment_number(inc_list)` -> `[2, 2, 3, 4, 5]` 
 
 The following would not work:
 * `increment_number(bad_list)` ERROR: Cannot peoject `bad_list` mutably in function `increment_number`
