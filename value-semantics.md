@@ -75,7 +75,7 @@ because it was moved to function `move_structure`
 Projected values are non-owned values that have an origin attached. Origins may point to other projections
 but should eventually lead to an owned value. Origin tracking is used by the compiler to enforce mutability XOR aliasing,
 the same rule underpinning Rust's borrow checker. Types that do not implement the `Copy` class are automatically projected
-when they are referred to l. To project a type that implements the `Copy` class, you must preface the value with an ampersand.
+when they are referred to. To project a type that implements the `Copy` class, you must preface the value with an ampersand.
 
 ##### Projection through assignment
 The simplest form of projection uses the assignment operator. Recall that by the previous rules, the following are owned:
