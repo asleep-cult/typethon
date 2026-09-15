@@ -74,13 +74,17 @@ because it was moved to function `move_structure`
 #### Projected values
 Projected values are non-owned values that have an origin attached. Origins may point to other projections
 but should eventually lead to an owned value. Origin tracking is used by the compiler to enforce mutability XOR aliasing,
-the same rule underpinning Rust's borrow checker.
+the same rule underpinning Rust's borrow checker. Types that do not implement the `Copy` class are automatically projected
+when they are referred to project a type that implements the `Copy` class, you must preface the value with an ampersand.
 
 ##### Projection through assignment
 The simplest form of projection uses the assignment operator. Recall that by the previous rules, the following are owned:
 ```rs
 mut mut_nums = [100, 200, 300, 400]
 immut_nums = []
+
+mut mut_num = 0
+immut_num = 0
 ```
 Thus, assigning another name to these values creates a projection:
 ```rs
@@ -92,6 +96,42 @@ The following would be erroneous to the borrow checker:
 * `mut_nums[0] = 10` ERROR: Cannot access `mut_nums` until end of mutable projection `mut_proj`
 * `mut mut_proj2 = mut_proj; mut_proj[0] = 10`  ERROR: Cannot access `mut_proj` until end of mutable projection `mut_proj2`
 
+Because the int type implements `Copy`, the following would not create a projection:
+```rs
+mut mut_num2 = mut_num
+immut_num2 = immut_num
+```
+Thus, writing `mut_num2 = 1` would not affect `mut_num`.
+
+However, in some cases you might want to obtain a projection to a copied type, which
+can be obtained like this:
+```rs
+mut mut_proj = &mut_num
+immut_proj = &immut_num
+```
+
+##### Dereferencing assignment
+The assignment operator can be ambiguous because it is not clear whether it should rebind the name or mutate the origin.
+As a result, the regular assignment operator is guaranteed to rebind, and the origin can be updated through
+a defererencing assignment. The dereferencing assignment defaults to rebinding if the binding is not a projection.
+
+The following shows the difference between the two forms of assignment:
+```rs
+mut number = 0
+mut num_proj = &number
+```
+
+This would simply update the `num_proj` binding 
+```rs
+num_proj = 1
+```
+
+This would mutate the `number` binding
+```rs
+*num_proj = 1
+```
+
+##### Mutability upcasting
 A very important thing to note is that mutability can be threaded through projections, preventing the need for any
 code that varies only by mutability:
 ```rs
@@ -101,24 +141,30 @@ mut back_to_mut = to_immut
 Origin tracking allows us to guarantee that mutable projections are exclusive, and mutation cannot be observed until
 it is complete. 
 
-#### Mut ref and mut seal bindings
-Mutable bindings can also be qualified with `ref` or `seal` to describe whether the binding should use
-pass through semantics or mutability indirection.
+#### Copyable types
+As mentioned above, copyable types are never implicitly projected and can only be projected using
+the ampersand prefix. Another important fact about copyable types is that they cannot contain 
+mutable projections.
 
-##### Pass-through semantics
-In some cases, you might want to reassign something as a "dereferencing" assignment, rather than
-rebinding. To achieve this, you can use `mut ref` bindings. It is important to understand that
-`mut ref` is literally just a modifier that affects the assignment operator and arguably a misnomer.
-
+The following is an example of a copyable type:
 ```rs
-def increment(mut ref i: int):
-    i += 1
+type Vector = { x: int, y: int, mut tag: str }
 
-mut i = 0
-increment(i)
+use Vector as Copy:
+    def copy(self) -> Self:
+        { x = self.x, y = self.y, tag = self.tag.clone() }
 ```
 
-##### Mutability indirection
+Since `str` does not implement copy (and therefore is not implicitly copied), putting it into
+a struct without cloning it would create an error:
+```rs
+use Vector as Copy:
+    def copy(self) -> Self:
+        { x = self.x, y = self.y, tag = self.tag }
+```
+ERROR: Copyable type cannot contain a mutable projection, consider writing `self.tag.clone()`
+
+#### Sealed mutable bindings bindings
 Considering that in all cases item internal mutability assumes the mutability of the binding it resides on, it
 becomes impossible to make a binding mutable over numerous immutable values without writing a wrapper around it.
 To rectify this, bindings can be `mut seal`. This does not make immutable bindings mutable or operate as a
@@ -137,20 +183,6 @@ if going_home():
 ```
 
 Without seal, it would be necessary for the cities to be mutable.
-
-#### Mut compatibility
-To define the rules governing `mut` binding  assignment, we must start by splitting
-all types into two categories:
-1) Those capable of internal mutation: any structure with a field marked `mut`
-2) And the rest who are incapable of internal mutation
-
-With that being defined, the following rules govern `mut` assignment:
-* A plan, immutable binding can accept any value whether it be a projection or an owned value
-* A binding marked as `mut` can accept an owned value or a mutable projection. If the binding's type is
-incapable of internal mutation, it can also accept an immutable projection
-* A binding marked as `mut ref` can only accept an owned value or a mutable projection regardless
-of the type's internal mutability
-* A binding marked as `mut seal` can accept any value regardless of mutability
 
 ##### Projection through functions
 All non-moved data passed to a function is considered a projection. Functions can only return moved data, unless they
@@ -235,15 +267,15 @@ The following would be invalid:
 * `second.one.b = 10`  ERROR: Cannot alter field `b` of `one` as it is declared immutable
 * `second.two.a = 10`  ERROR: Cannot alter field `two` of `second` as it is declared immutable
 
-##### Field mutability pass-through semantics
-Struct fields allow for pass-through semantics with `mut ref`:
+##### Dereferencing field assignment
+A dereferencing assignment can be used on struct fields to mutate the origin:
 ```rs
-type Point = { mut ref x: int, mut ref y: int }
+type Point = { mut x: int, mut y: int }
 
 use Point:
     def add(mut self, other: Point):
-        self.x += other.x
-        self.y += other.y
+        *self.x += other.x
+        *self.y += other.y
 
 mut x = 0
 mut y = 0
@@ -273,9 +305,9 @@ require it to be mutable.
 
 #### List internal mutability
 The internal mutability of a list's elements is defined by the mutability of its binding.
-List elements can also be sealed or use the same `ref` semantics struct fields can.
+List elements can also be sealed or be dereferenced on assignment.
 
-The following example are lists using non-sealed, non-ref semantics:
+The following example are lists using non-sealed semantics:
 ```rs
 type Counter = { mut n: int }
 
@@ -300,15 +332,15 @@ The following would be invalid:
 * `dynamic_counters.append(another_counter)`  ERROR: Cannot mutably project `another_counter` in function `append`
 * `static_counters[0].n += 1`  ERROR: Cannot alter element of list as it is declared immutable
 
-##### List mutability pass through semantics
-Using a ref list to observe reassignment:
+##### List dereferencing assignment
+Using dereferencing assignment to observe reassignment:
 ```rs
-mut ref_counters: [ref Counter] = []
+mut ref_counters: [Counter] = []
 
 mut first_counter = { n = 10 }
 ref_counters.append(first_counter)
 
-ref_counters[0] = { n = 20 }
+*ref_counters[0] = { n = 20 }
 ```
 At the end, `first_counter.n` is now 20.
 
