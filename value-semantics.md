@@ -220,8 +220,7 @@ def wrap(x: 't) -> Option('t) from x:
 
 #### Structure and tuple fields
 Structures and tuple's have no means of specifying whether their fields are owned or their possible origins.
-They only describe the mutabilty of their fields, and two extra things to help express intent.
-The following is an example of a struct definition:
+They only describe the mutability of their fields. The following is an example of a struct definition:
 ```rs
 type ListIter = { items: ['t], mut index: usize }
 ```
@@ -279,7 +278,7 @@ use Point:
 
 mut x = 0
 mut y = 0
-point: Point = { x, y }
+point: Point = { &x, &y }
 point.add({ x = 10, y = 20 })
 ```
 At the end of this code, the local variable x would be 10, and y would be 20.
@@ -350,7 +349,7 @@ Using a sealed list to avoid internal mutability:
 mut sealed_counters: [seal Counter] = []
 
 mut mut_counter = { n = 0 }
-mut immut_counter = { n = 10 }
+immut_counter = { n = 10 }
 ```
 
 The following would be valid:
